@@ -29,6 +29,6 @@ results = model.train(
     project="micropose",
     name="training_run",
     pose=15.0,
-    kobj=2.0
+    kobj=2.0,
     save_period=1,
 )
