@@ -31,6 +31,6 @@ results = model.train(
     seed=42,                      
     deterministic=True,           
     amp=True,                     
-    close_mosaic=10,             # 4) 可視需求考慮改大一些，如 20
-    resume=False,                 
+    close_mosaic=20,             # 4) 可視需求考慮改大一些，如 20
+    save_period=1,
 )

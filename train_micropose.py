@@ -22,7 +22,6 @@ results = model.train(
     close_mosaic=15,               # 最後15輪關閉馬賽克
     multi_scale=True,
     amp=True,
-    save_period=20,                # 調整保存頻率
     val=True,
     dropout=0.1,
     pretrained=False,
@@ -31,4 +30,5 @@ results = model.train(
     name="training_run",
     pose=15.0,
     kobj=2.0
+    save_period=1,
 )
