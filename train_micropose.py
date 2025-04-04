@@ -24,7 +24,6 @@ results = model.train(
     amp=True,
     save_period=20,                # 調整保存頻率
     val=True,
-    plots=True,
     dropout=0.1,
     pretrained=False,
     device=0,
