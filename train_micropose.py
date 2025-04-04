@@ -24,7 +24,6 @@ results = model.train(
     amp=True,
     val=True,
     dropout=0.1,
-    pretrained=False,
     device=0,
     project="micropose",
     name="training_run",
