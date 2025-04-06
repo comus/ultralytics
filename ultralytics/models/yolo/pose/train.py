@@ -148,9 +148,9 @@ class PoseTrainer(yolo.detect.DetectionTrainer):
                 unfrozen_count = 0
                 for name, param in self.model.named_parameters():
                     if "model." in name and any(f".{layer}." in name for layer in target_layers):
-                        if ".cv2.conv." in name:  # 精確匹配cv2的卷積層參數
-                            param.requires_grad = True
-                            unfrozen_count += 1
+                        # if ".cv2" in name:  # 精確匹配cv2的卷積層參數
+                        param.requires_grad = True
+                        unfrozen_count += 1
                 
                 # 計算可訓練參數比例
                 total_params = sum(p.numel() for p in self.model.parameters())
@@ -158,6 +158,11 @@ class PoseTrainer(yolo.detect.DetectionTrainer):
                 
                 LOGGER.info(f"純蒸餾模式：只優化層 {target_layers} 中的 cv2.conv 參數")
                 LOGGER.info(f"解凍了 {unfrozen_count} 個參數組，可訓練參數比例: {trainable_params/total_params:.2%}")
+
+                # 驗證哪些參數被解凍
+                for name, param in self.model.named_parameters():
+                    if param.requires_grad:
+                        print(f"已解凍: {name}")
 
     def distill_on_epoch_start(self, trainer):
         """每個 epoch 開始時註冊鉤子"""

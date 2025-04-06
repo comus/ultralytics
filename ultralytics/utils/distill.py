@@ -533,11 +533,11 @@ class DistillationLoss:
             
         # 註冊鉤子到教師和學生模型的對應層
         for i, (ml, ori) in enumerate(zip(self.teacher_module_pairs, self.student_module_pairs)):
-            LOGGER.info(f"註冊第 {i+1} 對鉤子 - 教師: {ml.__class__.__name__}, 學生: {ori.__class__.__name__}")
+            # LOGGER.info(f"註冊第 {i+1} 對鉤子 - 教師: {ml.__class__.__name__}, 學生: {ori.__class__.__name__}")
             self.remove_handle.append(ml.register_forward_hook(make_teacher_hook(self.teacher_outputs)))
             self.remove_handle.append(ori.register_forward_hook(make_student_hook(self.student_outputs)))
         
-        LOGGER.info(f"註冊了 {len(self.remove_handle)} 個鉤子用於蒸餾")
+        # LOGGER.info(f"註冊了 {len(self.remove_handle)} 個鉤子用於蒸餾")
 
     def get_loss(self):
         """計算教師和學生模型之間的蒸餾損失"""
