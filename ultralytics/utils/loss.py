@@ -479,13 +479,13 @@ class v8PoseLoss(v8DetectionLoss):
                 distill_loss = torch.tensor(distill_loss.item(), requires_grad=True, device=self.device)
             
             # 填充顯示損失
-            display_loss[5] = distill_loss.detach()
+            display_loss[5] = distill_loss.detach() * self.hyp.distill
             
             # 創建只包含蒸餾損失的損失張量
             total_loss = torch.zeros_like(display_loss, requires_grad=False)
             total_loss[5] = distill_loss * self.hyp.distill
             
-            # LOGGER.info(f"純蒸餾模式: 僅優化蒸餾損失 ({distill_loss.item():.4f}), 姿態損失: {display_loss[1].item():.4f} (不優化)")
+            # LOGGER.info(f"純蒸餾模式: 僅優化蒸餾損失 ({total_loss[5].item():.4f}), 姿態損失: {display_loss[1].item():.4f} (不優化)")
             
             # 返回只用於優化的蒸餾損失和用於顯示的所有損失
             return total_loss * batch_size, display_loss
@@ -505,6 +505,9 @@ class v8PoseLoss(v8DetectionLoss):
         loss[3] *= self.hyp.cls    # cls gain
         loss[4] *= self.hyp.dfl    # dfl gain
         loss[5] *= self.hyp.distill  # distillation gain
+        
+        # DEBUG: Print loss after scaling
+        LOGGER.info(f"DEBUG - distill_loss after scaling: {loss[5].item()}")
         
         # 創建顯示損失
         display_loss = loss.detach().clone()

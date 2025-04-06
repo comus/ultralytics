@@ -11,6 +11,6 @@ student_model.train(
   epochs=20,
   imgsz=640,
   pure_distill=True,
-  distill=0.1,
+  distill=0.0000001,
   workers=2,
 )
