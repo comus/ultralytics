@@ -4,6 +4,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
+from ultralytics.utils import LOGGER
 from ultralytics.utils.metrics import OKS_SIGMA
 from ultralytics.utils.ops import crop_mask, xywh2xyxy, xyxy2xywh
 from ultralytics.utils.tal import RotatedTaskAlignedAssigner, TaskAlignedAssigner, dist2bbox, dist2rbox, make_anchors
@@ -451,9 +452,15 @@ class v8PoseLoss(v8DetectionLoss):
         sigmas = torch.from_numpy(OKS_SIGMA).to(self.device) if is_pose else torch.ones(nkpt, device=self.device) / nkpt
         self.keypoint_loss = KeypointLoss(sigmas=sigmas)
 
+    def enable_pure_distillation(self, enable=True):
+        """啟用純蒸餾模式，只計算蒸餾損失。"""
+        self.pure_distill = enable
+        LOGGER.info(f"{'啟用' if enable else '禁用'}純蒸餾模式")
+        return self
+
     def __call__(self, preds, batch):
         """Calculate the total loss and detach it for pose estimation."""
-        loss = torch.zeros(5, device=self.device)  # box, cls, dfl, kpt_location, kpt_visibility
+        loss = torch.zeros(6, device=self.device)  # box, cls, dfl, kpt_location, kpt_visibility，distillation
         feats, pred_kpts = preds if isinstance(preds[0], list) else preds[1]
         pred_distri, pred_scores = torch.cat([xi.view(feats[0].shape[0], self.no, -1) for xi in feats], 2).split(
             (self.reg_max * 4, self.nc), 1
@@ -509,13 +516,64 @@ class v8PoseLoss(v8DetectionLoss):
                 fg_mask, target_gt_idx, keypoints, batch_idx, stride_tensor, target_bboxes, pred_kpts
             )
 
+        # 計算蒸餾損失
+        if "distill_instance" in batch and batch["distill_instance"] is not None:
+            distill_instance = batch["distill_instance"]
+            
+            # 關鍵改動：手動確保教師模型前向傳播
+            try:
+                # 1. 獲取當前輸入圖像
+                input_images = batch["img"].to(next(distill_instance.modelt.parameters()).device)
+                
+                # 2. 確保教師模型處於評估模式並且不計算梯度
+                distill_instance.modelt.eval()
+                with torch.no_grad():
+                    # 3. 執行教師模型的前向傳播
+                    _ = distill_instance.modelt(input_images)
+                    LOGGER.info(f"手動運行教師模型進行前向傳播, 輸入形狀: {input_images.shape}")
+                
+                # 4. 計算蒸餾損失
+                distill_loss = distill_instance.get_loss()
+                
+                # 5. 檢查並記錄結果
+                if torch.isnan(distill_loss) or torch.isinf(distill_loss) or distill_loss == 0:
+                    LOGGER.warning(f"無效的蒸餾損失: {distill_loss}, 使用零損失")
+                    loss[5] = torch.tensor(0.0, requires_grad=True, device=self.device)
+                else:
+                    LOGGER.info(f"成功計算蒸餾損失: {distill_loss.item():.5f}")
+                    loss[5] = distill_loss
+            except Exception as e:
+                LOGGER.error(f"計算蒸餾損失時出錯: {e}")
+                import traceback
+                LOGGER.error(traceback.format_exc())
+                loss[5] = torch.tensor(0.0, requires_grad=True, device=self.device)
+
         loss[0] *= self.hyp.box  # box gain
         loss[1] *= self.hyp.pose  # pose gain
         loss[2] *= self.hyp.kobj  # kobj gain
         loss[3] *= self.hyp.cls  # cls gain
         loss[4] *= self.hyp.dfl  # dfl gain
+        loss[5] *= self.hyp.distill  # distillation gain
 
-        return loss * batch_size, loss.detach()  # loss(box, cls, dfl)
+        # 創建複製的損失張量用於監控
+        display_loss = loss.detach().clone()
+
+        # 檢查批次中是否啟用了純蒸餾模式
+        pure_distill = batch.get("pure_distill", False)
+
+        # 純蒸餾模式下，只返回蒸餾損失用於優化
+        if pure_distill:
+            # 創建一個只包含蒸餾損失的張量用於反向傳播
+            distill_only_loss = torch.zeros_like(loss)
+            distill_only_loss[5] = loss[5]  # 只保留蒸餾損失
+            
+            if batch_size % 10 == 0:  # 減少日誌頻率
+                LOGGER.info(f"純蒸餾模式: 只優化蒸餾損失({loss[5].item():.4f})，但記錄所有損失值作為參考")
+            
+            return distill_only_loss * batch_size, display_loss
+        
+        # 標準模式: 所有損失一起優化
+        return loss * batch_size, display_loss
 
     @staticmethod
     def kpts_decode(anchor_points, pred_kpts):
