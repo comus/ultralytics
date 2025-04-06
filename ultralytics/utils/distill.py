@@ -565,7 +565,8 @@ class DistillationLoss:
             elif quant_loss == 0:
                 LOGGER.warning("蒸餾損失為零，可能計算出錯")
             else:
-                LOGGER.info(f"計算的蒸餾損失: {quant_loss.item():.6f}")
+                # LOGGER.info(f"計算的蒸餾損失: {quant_loss.item():.6f}")
+                pass
             
             # 根據蒸餾方法調整權重
             if self.distiller != 'cwd':
