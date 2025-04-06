@@ -138,7 +138,7 @@ class PoseTrainer(yolo.detect.DetectionTrainer):
             # 在純蒸餾模式下只解凍cv2.conv參數
             if self.pure_distill:
                 # 獲取需要蒸餾的層ID
-                target_layers = self.distillation_layers or ["16", "19", "22"]
+                target_layers = self.distillation_layers
                 
                 # 預設凍結所有層
                 for name, param in self.model.named_parameters():

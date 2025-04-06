@@ -7,7 +7,7 @@ student_model.train(
   data="coco-pose.yaml",
   teacher=teacher_model.model,
   distillation_loss="cwd",
-  distillation_layers=["16", "19", "22"],
+  distillation_layers=["22"],
   epochs=20,
   imgsz=640,
   pure_distill=True,
