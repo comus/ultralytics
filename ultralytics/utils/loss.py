@@ -515,6 +515,22 @@ class v8PoseLoss(v8DetectionLoss):
         # # 標準模式: 返回所有損失之和
         # return loss * batch_size, display_loss
 
+        # 創建固定損失張量，用於顯示但不參與反向傳播
+        with torch.no_grad():
+            # 創建臨時損失張量用於顯示
+            display_loss = torch.zeros(6, device=self.device)
+            
+            try:
+                # 仍然計算姿態損失以進行監控，但不連接計算圖
+                _, pose_loss_value, _, _, _, _ = self._compute_regular_losses(preds, batch)
+                display_loss[1] = pose_loss_value
+            except Exception as e:
+                LOGGER.warning(f"計算顯示損失時出錯: {e}")
+       
+        total_loss = torch.zeros_like(display_loss, requires_grad=False)
+
+        return total_loss * batch_size, display_loss
+
     def _compute_distillation_loss(self, preds, batch):
         """計算實際的蒸餾損失，與其他損失完全分離"""
         distill_loss = torch.tensor(0.0, device=self.device)
