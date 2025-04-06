@@ -456,8 +456,6 @@ class v8PoseLoss(v8DetectionLoss):
     def __call__(self, preds, batch):
         """Calculate the total loss and detach it for pose estimation."""
         batch_size = batch["img"].shape[0]
-
-        print("pure_distill!!!!", batch.get('pure_distill', False))
         
         # 在純蒸餾模式下，只計算蒸餾損失
         if batch.get('pure_distill', False):
@@ -492,30 +490,30 @@ class v8PoseLoss(v8DetectionLoss):
             # 返回只用於優化的蒸餾損失和用於顯示的所有損失
             return total_loss * batch_size, display_loss
         
-        # 標準模式：計算並優化所有損失
-        all_losses = self._compute_regular_losses(preds, batch)
-        box_loss, pose_loss, kobj_loss, cls_loss, dfl_loss, loss = all_losses
+        # # 標準模式：計算並優化所有損失
+        # all_losses = self._compute_regular_losses(preds, batch)
+        # box_loss, pose_loss, kobj_loss, cls_loss, dfl_loss, loss = all_losses
         
-        # 添加蒸餾損失（如果有）
-        distill_loss = self._compute_distillation_loss(preds, batch)
-        loss[5] = distill_loss
+        # # 添加蒸餾損失（如果有）
+        # distill_loss = self._compute_distillation_loss(preds, batch)
+        # loss[5] = distill_loss
         
-        # 應用權重
-        loss[0] *= self.hyp.box    # box gain
-        loss[1] *= self.hyp.pose   # pose gain
-        loss[2] *= self.hyp.kobj   # kobj gain
-        loss[3] *= self.hyp.cls    # cls gain
-        loss[4] *= self.hyp.dfl    # dfl gain
-        loss[5] *= self.hyp.distill  # distillation gain
+        # # 應用權重
+        # loss[0] *= self.hyp.box    # box gain
+        # loss[1] *= self.hyp.pose   # pose gain
+        # loss[2] *= self.hyp.kobj   # kobj gain
+        # loss[3] *= self.hyp.cls    # cls gain
+        # loss[4] *= self.hyp.dfl    # dfl gain
+        # loss[5] *= self.hyp.distill  # distillation gain
         
-        # DEBUG: Print loss after scaling
-        # LOGGER.info(f"DEBUG - distill_loss after scaling: {loss[5].item()}")
+        # # DEBUG: Print loss after scaling
+        # # LOGGER.info(f"DEBUG - distill_loss after scaling: {loss[5].item()}")
         
-        # 創建顯示損失
-        display_loss = loss.detach().clone()
+        # # 創建顯示損失
+        # display_loss = loss.detach().clone()
         
-        # 標準模式: 返回所有損失之和
-        return loss * batch_size, display_loss
+        # # 標準模式: 返回所有損失之和
+        # return loss * batch_size, display_loss
 
     def _compute_distillation_loss(self, preds, batch):
         """計算實際的蒸餾損失，與其他損失完全分離"""

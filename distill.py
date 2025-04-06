@@ -24,7 +24,7 @@ student_model.train(
     data="coco-pose.yaml",
     teacher=teacher_model.model,
     distillation_loss="cwd",              # 對不同通道數模型的蒸餾效果更好
-    distillation_layers=["16", "19", "22"], # P3, P4, P5特徵層
+    distillation_layers=["22"], # P3, P4, P5特徵層
     epochs=10,                            # 5萬+張數據，10個epoch已足夠
     imgsz=640,
     batch=64,                             # 大批次提高訓練效率
@@ -45,4 +45,5 @@ student_model.train(
     close_mosaic=0,                       # 禁用mosaic增強，蒸餾不需要太多增強
     augment=False,                         # 關閉增強，保持特徵對齊
     distill=1.0,
+    fraction=0.1,
 )

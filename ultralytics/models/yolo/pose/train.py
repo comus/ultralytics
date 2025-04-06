@@ -146,11 +146,11 @@ class PoseTrainer(yolo.detect.DetectionTrainer):
                 
                 # 只解凍cv2.conv參數
                 unfrozen_count = 0
-                # for name, param in self.model.named_parameters():
-                #     if "model." in name and any(f".{layer}." in name for layer in target_layers):
-                #         if ".cv2.conv" in name:  # 精確匹配cv2的卷積層參數
-                #             param.requires_grad = True
-                #             unfrozen_count += 1
+                for name, param in self.model.named_parameters():
+                    if "model." in name and any(f".{layer}." in name for layer in target_layers):
+                        if ".cv2.conv" in name:  # 精確匹配cv2的卷積層參數
+                            param.requires_grad = True
+                            unfrozen_count += 1
                 
                 # 計算可訓練參數比例
                 total_params = sum(p.numel() for p in self.model.parameters())
