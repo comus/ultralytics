@@ -530,7 +530,7 @@ class v8PoseLoss(v8DetectionLoss):
                 with torch.no_grad():
                     # 3. 執行教師模型的前向傳播
                     _ = distill_instance.modelt(input_images)
-                    LOGGER.info(f"手動運行教師模型進行前向傳播, 輸入形狀: {input_images.shape}")
+                    # LOGGER.info(f"手動運行教師模型進行前向傳播, 輸入形狀: {input_images.shape}")
                 
                 # 4. 計算蒸餾損失
                 distill_loss = distill_instance.get_loss()
@@ -540,7 +540,7 @@ class v8PoseLoss(v8DetectionLoss):
                     LOGGER.warning(f"無效的蒸餾損失: {distill_loss}, 使用零損失")
                     loss[5] = torch.tensor(0.0, requires_grad=True, device=self.device)
                 else:
-                    LOGGER.info(f"成功計算蒸餾損失: {distill_loss.item():.5f}")
+                    # LOGGER.info(f"成功計算蒸餾損失: {distill_loss.item():.5f}")
                     loss[5] = distill_loss
             except Exception as e:
                 LOGGER.error(f"計算蒸餾損失時出錯: {e}")

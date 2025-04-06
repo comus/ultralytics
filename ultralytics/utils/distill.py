@@ -262,7 +262,7 @@ class FeatureLoss(nn.Module):
         Returns:
             torch.Tensor: 計算的損失值
         """
-        LOGGER.info(f"FeatureLoss.forward 被調用，特徵列表長度 - 學生: {len(y_s)}, 教師: {len(y_t)}")
+        # LOGGER.info(f"FeatureLoss.forward 被調用，特徵列表長度 - 學生: {len(y_s)}, 教師: {len(y_t)}")
         
         min_len = min(len(y_s), len(y_t))
         y_s = y_s[:min_len]
@@ -289,7 +289,7 @@ class FeatureLoss(nn.Module):
                 LOGGER.warning(f"轉換後特徵類型仍不是張量 - 學生: {type(s)}, 教師: {type(t)}")
                 continue
                 
-            LOGGER.info(f"處理第 {idx+1} 對特徵 - 學生形狀: {s.shape}, 教師形狀: {t.shape}")
+            # LOGGER.info(f"處理第 {idx+1} 對特徵 - 學生形狀: {s.shape}, 教師形狀: {t.shape}")
             
             # 轉換數據類型以匹配對齊模塊
             s = s.type(next(self.align_module[idx].parameters()).dtype)
@@ -298,12 +298,12 @@ class FeatureLoss(nn.Module):
             try:
                 if self.distiller == "cwd":
                     s = self.align_module[idx](s)
-                    LOGGER.info(f"  對齊後學生特徵形狀: {s.shape}")
+                    # LOGGER.info(f"  對齊後學生特徵形狀: {s.shape}")
                     stu_feats.append(s)
                     tea_feats.append(t.detach())
                 else:
                     t = self.norm[idx](t)
-                    LOGGER.info(f"  標準化後教師特徵形狀: {t.shape}")
+                    # LOGGER.info(f"  標準化後教師特徵形狀: {t.shape}")
                     stu_feats.append(s)
                     tea_feats.append(t.detach())
             except Exception as e:
@@ -318,49 +318,15 @@ class FeatureLoss(nn.Module):
             return torch.tensor(0.0, requires_grad=True, device=next(self.parameters()).device)
         
         try:
-            LOGGER.info(f"調用 {self.feature_loss.__class__.__name__} 計算損失")
+            # LOGGER.info(f"調用 {self.feature_loss.__class__.__name__} 計算損失")
             loss = self.feature_loss(stu_feats, tea_feats)
-            LOGGER.info(f"計算的原始損失: {loss.item():.6f}, 加權後: {(self.loss_weight * loss).item():.6f}")
+            # LOGGER.info(f"計算的原始損失: {loss.item():.6f}, 加權後: {(self.loss_weight * loss).item():.6f}")
             return self.loss_weight * loss
         except Exception as e:
             LOGGER.error(f"計算特徵損失時出錯: {e}")
             import traceback
             LOGGER.error(traceback.format_exc())
             return torch.tensor(0.0, requires_grad=True, device=next(self.parameters()).device)
-        """計算特徵層蒸餾損失
-        
-        Args:
-            y_s (list): 學生模型的特徵
-            y_t (list): 教師模型的特徵
-            
-        Returns:
-            torch.Tensor: 計算的損失值
-        """
-        min_len = min(len(y_s), len(y_t))
-        y_s = y_s[:min_len]
-        y_t = y_t[:min_len]
-
-        tea_feats = []
-        stu_feats = []
-
-        for idx, (s, t) in enumerate(zip(y_s, y_t)):
-            if idx >= len(self.align_module):
-                break
-                
-            s = s.type(next(self.align_module[idx].parameters()).dtype)
-            t = t.type(next(self.align_module[idx].parameters()).dtype)
-
-            if self.distiller == "cwd":
-                s = self.align_module[idx](s)
-                stu_feats.append(s)
-                tea_feats.append(t.detach())
-            else:
-                t = self.norm[idx](t)
-                stu_feats.append(s)
-                tea_feats.append(t.detach())
-
-        loss = self.feature_loss(stu_feats, tea_feats)
-        return self.loss_weight * loss
 
 class DistillationLoss:
     """知識蒸餾損失實現，集成多種蒸餾方法，針對YOLO模型優化"""
@@ -585,8 +551,8 @@ class DistillationLoss:
         
         try:
             # 打印特徵形狀，幫助調試
-            LOGGER.info(f"教師特徵形狀: {[t.shape if isinstance(t, torch.Tensor) else type(t) for t in self.teacher_outputs]}")
-            LOGGER.info(f"學生特徵形狀: {[s.shape if isinstance(s, torch.Tensor) else type(s) for s in self.student_outputs]}")
+            # LOGGER.info(f"教師特徵形狀: {[t.shape if isinstance(t, torch.Tensor) else type(t) for t in self.teacher_outputs]}")
+            # LOGGER.info(f"學生特徵形狀: {[s.shape if isinstance(s, torch.Tensor) else type(s) for s in self.student_outputs]}")
             
             teacher_outputs = [t.detach() for t in self.teacher_outputs]
             
