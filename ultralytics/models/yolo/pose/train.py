@@ -135,40 +135,42 @@ class PoseTrainer(yolo.detect.DetectionTrainer):
                 layers=self.distillation_layers
             )
 
-            # 在純蒸餾模式下只解凍cv2.conv參數
-            if self.pure_distill:
-                # 獲取需要蒸餾的層ID
-                target_layers = self.distillation_layers or ["16", "19", "22"]
+            # # 在純蒸餾模式下只解凍cv2.conv參數
+            # if self.pure_distill:
+            #     # 獲取需要蒸餾的層ID
+            #     target_layers = self.distillation_layers or ["16", "19", "22"]
                 
-                # 預設凍結所有層
-                for name, param in self.model.named_parameters():
-                    param.requires_grad = False
+            #     # 預設凍結所有層
+            #     for name, param in self.model.named_parameters():
+            #         param.requires_grad = False
                 
-                # 只解凍cv2.conv參數
-                unfrozen_count = 0
-                for name, param in self.model.named_parameters():
-                    if "model." in name and any(f".{layer}." in name for layer in target_layers):
-                        # if ".cv2" in name:  # 精確匹配cv2的卷積層參數
-                        param.requires_grad = True
-                        unfrozen_count += 1
+            #     # 只解凍cv2.conv參數
+            #     unfrozen_count = 0
+            #     for name, param in self.model.named_parameters():
+            #         if "model." in name and any(f".{layer}." in name for layer in target_layers):
+            #             # if ".cv2" in name:  # 精確匹配cv2的卷積層參數
+            #             param.requires_grad = True
+            #             unfrozen_count += 1
                 
-                # 計算可訓練參數比例
-                total_params = sum(p.numel() for p in self.model.parameters())
-                trainable_params = sum(p.numel() for p in self.model.parameters() if p.requires_grad)
+            #     # 計算可訓練參數比例
+            #     total_params = sum(p.numel() for p in self.model.parameters())
+            #     trainable_params = sum(p.numel() for p in self.model.parameters() if p.requires_grad)
                 
-                LOGGER.info(f"純蒸餾模式：只優化層 {target_layers} 中的 cv2.conv 參數")
-                LOGGER.info(f"解凍了 {unfrozen_count} 個參數組，可訓練參數比例: {trainable_params/total_params:.2%}")
+            #     LOGGER.info(f"純蒸餾模式：只優化層 {target_layers} 中的 cv2.conv 參數")
+            #     LOGGER.info(f"解凍了 {unfrozen_count} 個參數組，可訓練參數比例: {trainable_params/total_params:.2%}")
 
-                # 驗證哪些參數被解凍
-                for name, param in self.model.named_parameters():
-                    if param.requires_grad:
-                        print(f"已解凍: {name}")
+            #     # 驗證哪些參數被解凍
+            #     for name, param in self.model.named_parameters():
+            #         if param.requires_grad:
+            #             print(f"已解凍: {name}")
 
     def distill_on_epoch_start(self, trainer):
         """每個 epoch 開始時註冊鉤子"""
         if hasattr(self, 'distill_loss_instance') and self.distill_loss_instance is not None:
             self.distill_loss_instance.register_hook()
-            LOGGER.debug(f"Registered distillation hooks for epoch {self.epoch}")
+            # 添加這行來測試鉤子是否正確註冊
+            for i, h in enumerate(self.distill_loss_instance.remove_handle):
+                LOGGER.info(f"鉤子 {i+1} 已註冊: {h}")
 
     def distill_on_epoch_end(self, trainer):
         """每個 epoch 結束時取消鉤子"""

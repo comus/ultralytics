@@ -541,6 +541,13 @@ class DistillationLoss:
 
     def get_loss(self):
         """計算教師和學生模型之間的蒸餾損失"""
+        # # 檢查特徵收集情況
+        # LOGGER.info(f"教師輸出: {len(self.teacher_outputs)}, 學生輸出: {len(self.student_outputs)}")
+        # if len(self.teacher_outputs) > 0:
+        #     LOGGER.info(f"第一個教師特徵形狀: {self.teacher_outputs[0].shape}")
+        # if len(self.student_outputs) > 0:
+        #     LOGGER.info(f"第一個學生特徵形狀: {self.student_outputs[0].shape}")
+            
         if not self.teacher_outputs or not self.student_outputs:
             LOGGER.warning(f"沒有收集到特徵 - 教師: {len(self.teacher_outputs) if hasattr(self, 'teacher_outputs') else 0}, 學生: {len(self.student_outputs) if hasattr(self, 'student_outputs') else 0}")
             return torch.tensor(0.0, requires_grad=True, device=next(self.models.parameters()).device)
