@@ -387,8 +387,6 @@ class BaseTrainer:
                     batch = self.preprocess_batch(batch)
                     loss, self.loss_items = self.model(batch)
                     self.loss = loss.sum()
-                    # 輸出 self.loss 的值
-                    print("!!!self.loss", self.loss, loss)
                     if RANK != -1:
                         self.loss *= world_size
                     self.tloss = (
@@ -640,6 +638,7 @@ class BaseTrainer:
         """
         metrics = self.validator(self)
         print("!!!validate metrics", metrics)
+        print("!!!validate loss", self.loss)
         fitness = metrics.pop("fitness", -self.loss.detach().cpu().numpy())  # use loss as fitness measure if not found
         if not self.best_fitness or self.best_fitness < fitness:
             self.best_fitness = fitness
