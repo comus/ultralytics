@@ -34,7 +34,7 @@ student_model.train(
     optimizer="Adam",                     # Adam優化器適合蒸餾任務
     cos_lr=True,                          # 使用餘弦學習率調度
     warmup_epochs=0.5,                    # 短暫預熱即可
-    pure_distill=True,                   # 禁用純蒸餾模式，同時保留任務學習
+    pure_distill=False,                   # 禁用純蒸餾模式，同時保留任務學習
     # patience=3,                           # 啟用早停參數，避免過度訓練
     device=0,
     project="distill_projects",
@@ -44,7 +44,7 @@ student_model.train(
     # plots=True,                           # 生成訓練圖表，方便分析
     close_mosaic=0,                       # 禁用mosaic增強，蒸餾不需要太多增強
     augment=False,                        # 關閉增強，保持特徵對齊
-    distill=0.01,                          # 提高蒸餾權重，增強知識傳遞
+    distill=0.005,                          # 提高蒸餾權重，增強知識傳遞
     fraction=0.1,                         # 增加訓練數據比例
     amp=False,                            # 關閉混合精度訓練以提高精度
 )
