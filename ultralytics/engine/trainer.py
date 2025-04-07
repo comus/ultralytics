@@ -387,6 +387,8 @@ class BaseTrainer:
                     batch = self.preprocess_batch(batch)
                     loss, self.loss_items = self.model(batch)
                     self.loss = loss.sum()
+                    # 輸出 self.loss 的值
+                    print("!!!self.loss", self.loss, loss.item())
                     if RANK != -1:
                         self.loss *= world_size
                     self.tloss = (
