@@ -17,7 +17,7 @@
 
 from ultralytics import YOLO
 
-teacher_model = YOLO("yolo11l-pose.pt")
+teacher_model = YOLO("yolo11x-pose.pt")
 student_model = YOLO("yolo11n-pose.pt")  # 使用預訓練模型權重
 
 student_model.train(
@@ -47,5 +47,5 @@ student_model.train(
     distill=0.005,                        # 降低蒸餾權重，減少對原任務的干擾
     fraction=0.2,                         # 使用較少數據但增加epochs
     amp=False,                            # 關閉混合精度訓練以提高精度
-    pose=15.0,                            # 增加pose損失權重，強化姿態準確性
+    pose=16.0,                            # 增加pose損失權重，強化姿態準確性
 )
