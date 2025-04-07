@@ -471,50 +471,21 @@ class v8PoseLoss(v8DetectionLoss):
                 except Exception as e:
                     LOGGER.warning(f"計算顯示損失時出錯: {e}")
             
-            # 只計算蒸餾損失，完全分離其他損失
+            # 計算可用於優化的蒸餾損失
             distill_loss = self._compute_distillation_loss(preds, batch)
-            
-            # 確保蒸餾損失可以反向傳播
-            if not distill_loss.requires_grad:
-                distill_loss = torch.tensor(distill_loss.item(), requires_grad=True, device=self.device)
             
             # 填充顯示損失
             display_loss[5] = distill_loss.detach() * self.hyp.distill
             
             # 創建只包含蒸餾損失的損失張量
-            total_loss = torch.zeros_like(display_loss, requires_grad=False)
+            total_loss = torch.zeros_like(display_loss)
             total_loss[5] = distill_loss * self.hyp.distill
             
-            # LOGGER.info(f"純蒸餾模式: 僅優化蒸餾損失 ({total_loss[5].item():.4f}), 姿態損失: {display_loss[1].item():.4f} (不優化)")
+            LOGGER.debug(f"純蒸餾模式: 優化蒸餾損失 ({total_loss[5].item():.4f}), 姿態損失: {display_loss[1].item():.4f} (不優化)")
             
             # 返回只用於優化的蒸餾損失和用於顯示的所有損失
             return total_loss * batch_size, display_loss
         
-        # # 標準模式：計算並優化所有損失
-        # all_losses = self._compute_regular_losses(preds, batch)
-        # box_loss, pose_loss, kobj_loss, cls_loss, dfl_loss, loss = all_losses
-        
-        # # 添加蒸餾損失（如果有）
-        # distill_loss = self._compute_distillation_loss(preds, batch)
-        # loss[5] = distill_loss
-        
-        # # 應用權重
-        # loss[0] *= self.hyp.box    # box gain
-        # loss[1] *= self.hyp.pose   # pose gain
-        # loss[2] *= self.hyp.kobj   # kobj gain
-        # loss[3] *= self.hyp.cls    # cls gain
-        # loss[4] *= self.hyp.dfl    # dfl gain
-        # loss[5] *= self.hyp.distill  # distillation gain
-        
-        # # DEBUG: Print loss after scaling
-        # # LOGGER.info(f"DEBUG - distill_loss after scaling: {loss[5].item()}")
-        
-        # # 創建顯示損失
-        # display_loss = loss.detach().clone()
-        
-        # # 標準模式: 返回所有損失之和
-        # return loss * batch_size, display_loss
-
         # 創建固定損失張量，用於顯示但不參與反向傳播
         with torch.no_grad():
             # 創建臨時損失張量用於顯示
@@ -532,28 +503,37 @@ class v8PoseLoss(v8DetectionLoss):
         return total_loss * batch_size, display_loss
 
     def _compute_distillation_loss(self, preds, batch):
-        """計算實際的蒸餾損失，與其他損失完全分離"""
+        """計算實際的蒸餾損失，返回可用於優化的損失值"""
         if "distill_instance" in batch and batch["distill_instance"] is not None:
             distill_instance = batch["distill_instance"]
             try:
                 input_images = batch["img"].to(next(distill_instance.modelt.parameters()).device)
 
+                # 設置教師模型為評估模式
                 distill_instance.modelt.eval()
+                
+                # 教師模型前向傳播
                 with torch.no_grad():
                     _ = distill_instance.modelt(input_images)
-                    # 獲取蒸餾損失並確保完全沒有梯度
-                    distill_loss = distill_instance.get_loss().detach()
                 
-                # 只用於顯示的損失值，完全不參與梯度計算
-                return torch.zeros(1, device=self.device, dtype=torch.float32, requires_grad=False)
+                # 獲取蒸餾損失，保留梯度以便優化
+                distill_loss = distill_instance.get_loss()
+                
+                # 確保損失是標量並有梯度
+                if not distill_loss.requires_grad:
+                    LOGGER.warning("蒸餾損失沒有梯度，將創建新的帶梯度的損失")
+                    distill_loss = torch.tensor(distill_loss.item(), requires_grad=True, device=self.device)
+                
+                return distill_loss
                     
             except Exception as e:
                 LOGGER.error(f"蒸餾損失計算錯誤: {e}")
                 import traceback
                 LOGGER.error(traceback.format_exc())
                 
-        return torch.zeros(1, device=self.device, dtype=torch.float32, requires_grad=False)
-    
+        # 如果沒有蒸餾實例或計算出錯，返回零損失但保留梯度
+        return torch.zeros(1, device=self.device, dtype=torch.float32, requires_grad=True)
+
     def _compute_regular_losses(self, preds, batch):
         """計算常規損失（排除蒸餾損失）"""
         loss = torch.zeros(6, device=self.device)  # box, cls, dfl, kpt_location, kpt_visibility，distillation
