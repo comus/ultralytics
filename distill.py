@@ -23,7 +23,7 @@ student_model = YOLO("yolo11n-pose.pt")  # 使用預訓練模型權重
 student_model.train(
     data="coco-pose.yaml",
     teacher=teacher_model.model,
-    distillation_loss="cwd",              # 對不同通道數模型的蒸餾效果更好
+    distillation_loss="mgd",              # 對不同通道數模型的蒸餾效果更好
     distillation_layers=["22"], # P3, P4, P5特徵層
     epochs=10,                            # 5萬+張數據，10個epoch已足夠
     imgsz=640,
@@ -44,7 +44,7 @@ student_model.train(
     # plots=True,                           # 生成訓練圖表
     close_mosaic=0,                       # 禁用mosaic增強，蒸餾不需要太多增強
     augment=False,                         # 關閉增強，保持特徵對齊
-    distill=1.0,
+    distill=0.01,
     fraction=0.1,
     amp=False,
 )
