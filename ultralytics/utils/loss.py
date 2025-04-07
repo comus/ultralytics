@@ -548,23 +548,27 @@ class v8PoseLoss(v8DetectionLoss):
                 # 確保損失值是有效的
                 if torch.isnan(distill_loss) or torch.isinf(distill_loss):
                     LOGGER.warning(f"無效的蒸餾損失: {distill_loss}，使用備用值")
-                    distill_loss = torch.tensor(0.0, requires_grad=True, device=self.device)
+                    return torch.zeros(1, device=self.device, dtype=torch.float32, requires_grad=True)
                 
-                # 確保損失有梯度
-                if not distill_loss.requires_grad:
-                    distill_loss = torch.tensor(distill_loss.item(), requires_grad=True, device=self.device)
+                # 將損失轉換為 float32 以確保數值穩定性
+                if distill_loss.dtype != torch.float32:
+                    distill_loss = distill_loss.float()
+                
+                # 創建一個新的零梯度張量
+                zero_grad_loss = torch.zeros(1, device=self.device, dtype=torch.float32, requires_grad=True)
+                
+                # 只複製值，不複製梯度
+                with torch.no_grad():
+                    zero_grad_loss.data.copy_(distill_loss.detach().data)
+                
+                return zero_grad_loss
                     
             except Exception as e:
                 LOGGER.error(f"蒸餾損失計算錯誤: {e}")
                 import traceback
                 LOGGER.error(traceback.format_exc())
-                distill_loss = torch.tensor(0.0, requires_grad=True, device=self.device)
-            
-            # 使用 detach 和 requires_grad_ 來創建一個新的計算圖
-            # 這樣可以保持原始值，但梯度會從零開始計算
-            return distill_loss.detach().requires_grad_(True)
-        
-        return torch.tensor(0.0, requires_grad=True, device=self.device)
+                
+        return torch.zeros(1, device=self.device, dtype=torch.float32, requires_grad=True)
     
     def _compute_regular_losses(self, preds, batch):
         """計算常規損失（排除蒸餾損失）"""
