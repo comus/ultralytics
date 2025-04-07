@@ -533,9 +533,6 @@ class v8PoseLoss(v8DetectionLoss):
 
     def _compute_distillation_loss(self, preds, batch):
         """計算實際的蒸餾損失，與其他損失完全分離"""
-        # 創建一個非常小的常數 loss，確保 scaler 可以正常工作
-        fake_loss = torch.tensor(1e-8, device=self.device, requires_grad=True)
-        
         if "distill_instance" in batch and batch["distill_instance"] is not None:
             distill_instance = batch["distill_instance"]
             try:
@@ -551,7 +548,7 @@ class v8PoseLoss(v8DetectionLoss):
                 # 確保損失值是有效的
                 if torch.isnan(distill_loss) or torch.isinf(distill_loss):
                     LOGGER.warning(f"無效的蒸餾損失: {distill_loss}，使用備用值")
-                    distill_loss = torch.tensor(1e-8, requires_grad=True, device=self.device)
+                    distill_loss = torch.tensor(0.0, requires_grad=True, device=self.device)
                 
                 # 確保損失有梯度
                 if not distill_loss.requires_grad:
@@ -561,12 +558,13 @@ class v8PoseLoss(v8DetectionLoss):
                 LOGGER.error(f"蒸餾損失計算錯誤: {e}")
                 import traceback
                 LOGGER.error(traceback.format_exc())
-                distill_loss = torch.tensor(1e-8, requires_grad=True, device=self.device)
+                distill_loss = torch.tensor(0.0, requires_grad=True, device=self.device)
             
-            # 將實際的 distill_loss 值用於顯示，但確保梯度極小
-            fake_loss = fake_loss * (distill_loss / distill_loss.detach())  # 保持數值但梯度極小
+            # 使用 detach 和 requires_grad_ 來創建一個新的計算圖
+            # 這樣可以保持原始值，但梯度會從零開始計算
+            return distill_loss.detach().requires_grad_(True)
         
-        return fake_loss
+        return torch.tensor(0.0, requires_grad=True, device=self.device)
     
     def _compute_regular_losses(self, preds, batch):
         """計算常規損失（排除蒸餾損失）"""
