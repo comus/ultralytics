@@ -17,7 +17,7 @@
 
 from ultralytics import YOLO
 
-teacher_model = YOLO("yolo11x-pose.pt")
+teacher_model = YOLO("yolo11l-pose.pt")
 student_model = YOLO("yolo11n-pose.pt")  # 使用預訓練模型權重
 
 student_model.train(
@@ -25,11 +25,11 @@ student_model.train(
     teacher=teacher_model.model,
     distillation_loss="cwd",              # 對通道數不同的模型更穩定
     distillation_layers=["22"],           # 僅蒸餾深層特徵，減少對精確位置的干擾
-    epochs=8,                             # 增加輪數以便更好調整
+    epochs=12,                             # 增加輪數以便更好調整
     imgsz=640,
     batch=32,                             # RTX 4090能處理較大批次
     workers=8,                            # 利用您的16核CPU
-    lr0=0.00005,                          # 更保守的學習率，避免過度調整
+    lr0=0.0001,                          # 更保守的學習率，避免過度調整
     lrf=0.01,                             # 學習率衰減到初始的1%
     optimizer="Adam",                     # Adam適合蒸餾任務
     cos_lr=True,                          # 使用餘弦學習率調度
@@ -44,8 +44,8 @@ student_model.train(
     plots=True,                           # 生成訓練圖表便於分析
     close_mosaic=0,                       # 禁用mosaic增強
     augment=False,                        # 關閉增強，保持特徵對齊
-    distill=0.005,                        # 降低蒸餾權重，減少對原任務的干擾
-    fraction=0.2,                         # 使用較少數據但增加epochs
+    distill=0.01,                        # 降低蒸餾權重，減少對原任務的干擾
+    fraction=0.5,                         # 使用較少數據但增加epochs
     amp=False,                            # 關閉混合精度訓練以提高精度
-    pose=16.0,                            # 增加pose損失權重，強化姿態準確性
+    pose=15.0,                            # 增加pose損失權重，強化姿態準確性
 )
