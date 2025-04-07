@@ -45,6 +45,6 @@ student_model.train(
     close_mosaic=0,                       # 禁用mosaic增強，蒸餾不需要太多增強
     augment=False,                         # 關閉增強，保持特徵對齊
     distill=1.0,
-    fraction=0.1,
+    fraction=1.0,
     amp=False,
 )
