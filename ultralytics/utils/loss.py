@@ -529,9 +529,6 @@ class v8PoseLoss(v8DetectionLoss):
        
         total_loss = torch.zeros_like(display_loss, requires_grad=False)
 
-        print("total_loss", total_loss, batch_size, total_loss * batch_size)
-        print("display_loss", display_loss)
-
         return total_loss * batch_size, display_loss
 
     def _compute_distillation_loss(self, preds, batch):
