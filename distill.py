@@ -27,8 +27,8 @@ student_model.train(
     distillation_layers=["22"], # P3, P4, P5特徵層全部使用
     epochs=10,                            # 5萬+張數據，10個epoch已足夠
     imgsz=640,
-    batch=64,                             # 大批次提高訓練效率
-    workers=12,                           # 充分利用多核CPU
+    # batch=64,                             # 大批次提高訓練效率
+    # workers=12,                           # 充分利用多核CPU
     lr0=0.0001,                            # 提高學習率以加速收斂
     lrf=0.01,                             # 學習率衰減到初始的1%
     optimizer="Adam",                     # Adam優化器適合蒸餾任務
