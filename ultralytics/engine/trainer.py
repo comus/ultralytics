@@ -645,6 +645,8 @@ class BaseTrainer:
             if RANK in {-1, 0}:  # 只在主进程中保存
                 self.best_metrics_logger.save_metrics(self.epoch, metrics, fitness)
             
+        print("!!!validate metrics", metrics)
+        print("!!!validate fitness", fitness)
         return metrics, fitness
 
     def get_model(self, cfg=None, weights=None, verbose=True):
