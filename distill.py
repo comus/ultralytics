@@ -17,7 +17,7 @@
 
 from ultralytics import YOLO
 
-teacher_model = YOLO("yolo11l-pose.pt")
+teacher_model = YOLO("yolo11x-pose.pt")
 student_model = YOLO("yolo11n-pose.pt")  # 使用預訓練模型權重
 
 student_model.train(
