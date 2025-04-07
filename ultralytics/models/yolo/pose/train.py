@@ -5,6 +5,7 @@ import random
 from copy import copy
 
 import torch.nn as nn
+import torch
 
 from ultralytics.models import yolo
 from ultralytics.nn.tasks import PoseModel
@@ -135,7 +136,7 @@ class PoseTrainer(yolo.detect.DetectionTrainer):
                 layers=self.distillation_layers
             )
 
-            # 在純蒸餾模式下只解凍cv2.conv參數
+            # 在純蒸餾模式下進行優化參數選擇
             if self.pure_distill:
                 # 獲取需要蒸餾的層ID
                 target_layers = self.distillation_layers
@@ -144,13 +145,15 @@ class PoseTrainer(yolo.detect.DetectionTrainer):
                 for name, param in self.model.named_parameters():
                     param.requires_grad = False
                 
-                # 只解凍cv2.conv參數
+                # 只解凍目標層的cv2.conv參數
                 unfrozen_count = 0
+                unfrozen_names = []
                 for name, param in self.model.named_parameters():
                     if "model." in name and any(f".{layer}." in name for layer in target_layers):
                         if ".cv2.conv" in name:  # 精確匹配cv2的卷積層參數
                             param.requires_grad = True
                             unfrozen_count += 1
+                            unfrozen_names.append(name)
                 
                 # 計算可訓練參數比例
                 total_params = sum(p.numel() for p in self.model.parameters())
@@ -159,10 +162,30 @@ class PoseTrainer(yolo.detect.DetectionTrainer):
                 LOGGER.info(f"純蒸餾模式：只優化層 {target_layers} 中的 cv2.conv 參數")
                 LOGGER.info(f"解凍了 {unfrozen_count} 個參數組，可訓練參數比例: {trainable_params/total_params:.2%}")
 
-                # 驗證哪些參數被解凍
-                for name, param in self.model.named_parameters():
-                    if param.requires_grad:
-                        print(f"已解凍: {name}")
+                # 記錄凍結狀態的更詳細資訊
+                LOGGER.info("--------- 參數凍結狀態總結 ---------")
+                LOGGER.info("以下參數將被訓練 (requires_grad=True):")
+                for name in unfrozen_names:
+                    LOGGER.info(f"  - {name}")
+                
+                # 凍結所有BN層並記錄
+                bn_layer_names = []
+                for name, m in self.model.named_modules():
+                    if isinstance(m, torch.nn.BatchNorm2d):
+                        m.eval()  # 設置為評估模式
+                        m.track_running_stats = False  # 停止更新統計量
+                        bn_layer_names.append(name)
+                
+                LOGGER.info(f"\n已凍結 {len(bn_layer_names)} 個 BN 層，這些層不會更新統計量:")
+                # 顯示部分BN層名稱作為示例
+                for i, name in enumerate(bn_layer_names):
+                    if i < 10 or i >= len(bn_layer_names) - 5:  # 顯示前10個和最後5個
+                        LOGGER.info(f"  - {name}")
+                    elif i == 10:
+                        LOGGER.info(f"  ... (省略 {len(bn_layer_names) - 15} 個 BN 層) ...")
+                
+                LOGGER.info("純蒸餾模式: 所有BN層已凍結，不再更新統計量")
+                LOGGER.info("------------------------------------")
 
     def distill_on_epoch_start(self, trainer):
         """每個 epoch 開始時註冊鉤子"""
@@ -247,7 +270,10 @@ class PoseTrainer(yolo.detect.DetectionTrainer):
         """Returns an instance of the PoseValidator class for validation."""
         self.loss_names = "box_loss", "pose_loss", "kobj_loss", "cls_loss", "dfl_loss", "d_loss"
         return yolo.pose.PoseValidator(
-            self.test_loader, save_dir=self.save_dir, args=copy(self.args), _callbacks=self.callbacks
+            self.test_loader,
+            save_dir=self.save_dir,
+            args=copy(self.args),
+            _callbacks=self.callbacks
         )
 
     def plot_training_samples(self, batch, ni):
