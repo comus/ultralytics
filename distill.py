@@ -23,14 +23,14 @@ student_model = YOLO("yolo11n-pose.pt")  # 使用預訓練模型權重
 student_model.train(
     data="coco-pose.yaml",
     teacher=teacher_model.model,
-    distillation_loss="mgd",              # 對不同通道數模型的蒸餾效果更好
+    distillation_loss="cwd",              # 對不同通道數模型的蒸餾效果更好
     distillation_layers=["22"], # P3, P4, P5特徵層
     epochs=10,                            # 5萬+張數據，10個epoch已足夠
     imgsz=640,
     batch=64,                             # 大批次提高訓練效率
     workers=12,                           # 充分利用多核CPU
-    lr0=0.001,                            # 學習率設置適中，考慮到數據集較大
-    lrf=0.01,                             # 學習率衰減到初始的1%
+    lr0=0.0001,                            # 學習率設置適中，考慮到數據集較大
+    lrf=0.001,                             # 學習率衰減到初始的1%
     optimizer="Adam",                     # Adam優化器適合蒸餾任務
     cos_lr=True,                          # 使用餘弦學習率調度
     warmup_epochs=0.5,                    # 短暫預熱即可
