@@ -526,10 +526,20 @@ class BaseTrainer:
     def _model_train(self):
         """Set model in training mode."""
         self.model.train()
-        # Freeze BN stat
-        for n, m in self.model.named_modules():
-            if any(filter(lambda f: f in n, self.freeze_layer_names)) and isinstance(m, nn.BatchNorm2d):
-                m.eval()
+        
+        # 如果是純蒸餾模式,凍結所有 BN 層
+        if hasattr(self, 'pure_distill') and self.pure_distill:
+            for m in self.model.modules():
+                if isinstance(m, nn.BatchNorm2d):
+                    m.eval()  # 設置為評估模式
+                    m.track_running_stats = False  # 停止更新統計量
+                    
+            LOGGER.info("純蒸餾模式: BN 層已凍結,不再更新統計量")
+        else:
+            # 原有的凍結邏輯
+            for n, m in self.model.named_modules():
+                if any(filter(lambda f: f in n, self.freeze_layer_names)) and isinstance(m, nn.BatchNorm2d):
+                    m.eval()
 
     def save_model(self):
         """Save model training checkpoints with additional metadata."""
