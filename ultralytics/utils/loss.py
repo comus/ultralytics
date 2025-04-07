@@ -533,7 +533,8 @@ class v8PoseLoss(v8DetectionLoss):
 
     def _compute_distillation_loss(self, preds, batch):
         """計算實際的蒸餾損失，與其他損失完全分離"""
-        distill_loss = torch.tensor(0.0, device=self.device)
+        # 創建一個 fake loss，它有梯度但梯度為 0
+        fake_loss = torch.zeros(1, device=self.device, requires_grad=True)
         
         if "distill_instance" in batch and batch["distill_instance"] is not None:
             distill_instance = batch["distill_instance"]
@@ -561,8 +562,10 @@ class v8PoseLoss(v8DetectionLoss):
                 import traceback
                 LOGGER.error(traceback.format_exc())
                 distill_loss = torch.tensor(1e-5, requires_grad=True, device=self.device)
+            
+            # 不需要更新 fake_loss 的值，保持為 0
         
-        return distill_loss
+        return fake_loss
     
     def _compute_regular_losses(self, preds, batch):
         """計算常規損失（排除蒸餾損失）"""

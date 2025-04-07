@@ -35,13 +35,13 @@ student_model.train(
     cos_lr=True,                          # 使用餘弦學習率調度
     warmup_epochs=0.5,                    # 短暫預熱即可
     pure_distill=True,                    # 啟用純蒸餾模式
-    patience=3,                           # 早停參數，節省時間
+    # patience=3,                           # 早停參數，節省時間
     device=0,
     project="distill_projects",
     name="yolo11l_to_yolo11n_pure",
     val=True,                             # 啟用驗證
     save_period=2,                        # 每2個epoch保存一次
-    plots=True,                           # 生成訓練圖表
+    # plots=True,                           # 生成訓練圖表
     close_mosaic=0,                       # 禁用mosaic增強，蒸餾不需要太多增強
     augment=False,                         # 關閉增強，保持特徵對齊
     distill=1.0,
