@@ -217,7 +217,6 @@ class BaseValidator:
             with dt[2]:
                 if self.training:
                     self.loss += model.loss(batch, preds)[1]
-                    print("self.loss", self.loss)
 
             # Postprocess
             with dt[3]:
@@ -230,6 +229,7 @@ class BaseValidator:
 
             self.run_callbacks("on_val_batch_end")
         stats = self.get_stats()
+        print("stats", stats)
         self.check_stats(stats)
         self.speed = dict(zip(self.speed.keys(), (x.t / len(self.dataloader.dataset) * 1e3 for x in dt)))
         self.finalize_metrics()
