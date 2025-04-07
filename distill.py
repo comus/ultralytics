@@ -46,4 +46,5 @@ student_model.train(
     augment=False,                         # 關閉增強，保持特徵對齊
     distill=1.0,
     fraction=0.1,
+    amp=False,
 )
