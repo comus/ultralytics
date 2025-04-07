@@ -222,7 +222,7 @@ class PoseValidator(DetectionValidator):
             for k in self.stats.keys():
                 self.stats[k].append(stat[k])
 
-            print("!!!update_metrics keys", self.stats.keys())
+            # print("!!!update_metrics keys", self.stats.keys())
 
             # Save
             if self.args.save_json:
