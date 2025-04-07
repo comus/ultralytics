@@ -637,6 +637,7 @@ class BaseTrainer:
             (tuple): A tuple containing metrics dictionary and fitness score.
         """
         metrics = self.validator(self)
+        print("!!!validate metrics", metrics)
         fitness = metrics.pop("fitness", -self.loss.detach().cpu().numpy())  # use loss as fitness measure if not found
         if not self.best_fitness or self.best_fitness < fitness:
             self.best_fitness = fitness
