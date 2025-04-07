@@ -24,7 +24,7 @@ student_model.train(
     data="coco-pose.yaml",
     teacher=teacher_model.model,
     distillation_loss="cwd",              # 對不同通道數模型的蒸餾效果更好
-    distillation_layers=["22"], # P3, P4, P5特徵層全部使用
+    distillation_layers=["16", "19", "22"], # P3, P4, P5特徵層全部使用
     epochs=10,                            # 5萬+張數據，10個epoch已足夠
     imgsz=640,
     # batch=64,                             # 大批次提高訓練效率
