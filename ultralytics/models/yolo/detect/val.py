@@ -261,7 +261,7 @@ class DetectionValidator(BaseValidator):
             (dict): Dictionary containing metrics results.
         """
         stats = {k: torch.cat(v, 0).cpu().numpy() for k, v in self.stats.items()}  # to numpy
-        print("!!!get_stats keys", self.stats.keys())
+        # print("!!!get_stats keys", self.stats.keys())
         self.nt_per_class = np.bincount(stats["target_cls"].astype(int), minlength=self.nc)
         self.nt_per_image = np.bincount(stats["target_img"].astype(int), minlength=self.nc)
         stats.pop("target_img", None)
