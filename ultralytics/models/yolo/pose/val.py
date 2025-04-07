@@ -86,6 +86,16 @@ class PoseValidator(DetectionValidator):
         """Preprocess batch by converting keypoints data to float and moving it to the device."""
         batch = super().preprocess(batch)
         batch["keypoints"] = batch["keypoints"].to(self.device).float()
+
+        # # 添加蒸餾相關信息，僅在啟用蒸餾時添加
+        # if hasattr(self, 'distill_loss_instance') and self.distill_loss_instance is not None:
+        #     batch["distill_instance"] = self.distill_loss_instance
+        #     LOGGER.debug(f"Added distillation instance to batch for epoch {self.epoch}")
+
+        # # 添加純蒸餾標誌
+        # if hasattr(self, 'pure_distill') and self.pure_distill:
+        #     batch["pure_distill"] = True
+
         return batch
 
     def get_desc(self):
@@ -211,6 +221,8 @@ class PoseValidator(DetectionValidator):
 
             for k in self.stats.keys():
                 self.stats[k].append(stat[k])
+
+            print("!!!update_metrics", self.stats)
 
             # Save
             if self.args.save_json:
