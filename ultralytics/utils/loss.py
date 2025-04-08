@@ -454,12 +454,23 @@ class v8PoseLoss(v8DetectionLoss):
         self.model = model
         self.fake = False
 
+        self.hyp_box = 0
+        self.hyp_pose = 0
+        self.hyp_kobj = 0
+        self.hyp_cls = 0
+        self.hyp_dfl = 0
+        self.hyp_distill = 0
+
     def __call__(self, preds, batch):
         """Calculate the total loss and detach it for pose estimation."""
         batch_size = batch["img"].shape[0]
 
-        self.hyp = self.model.args
-        print("self.hyp", self.hyp)
+        self.hyp_box = self.model.args.box
+        self.hyp_pose = self.model.args.pose
+        self.hyp_kobj = self.model.args.kobj
+        self.hyp_cls = self.model.args.cls
+        self.hyp_dfl = self.model.args.dfl
+        self.hyp_distill = self.model.args.distill
         
         # 在純蒸餾模式下，只計算蒸餾損失
         if "distill_instance" in batch and batch["distill_instance"] is not None:
@@ -479,14 +490,14 @@ class v8PoseLoss(v8DetectionLoss):
             distill_loss = self._compute_distillation_loss(preds, batch)
             
             # 填充顯示損失
-            display_loss[5] = distill_loss.detach() * self.hyp.distill
+            display_loss[5] = distill_loss.detach() * self.hyp_distill
             
             # 創建只包含蒸餾損失的損失張量
             total_loss = torch.zeros_like(display_loss)
             if getattr(self, 'fake', False):
                 total_loss[5] = torch.zeros_like(distill_loss, requires_grad=True)
             else:
-                total_loss[5] = distill_loss * self.hyp.distill
+                total_loss[5] = distill_loss * self.hyp_distill
             
             # LOGGER.debug(f"純蒸餾模式: 優化蒸餾損失 ({total_loss[5].item():.4f}), 姿態損失: {display_loss[1].item():.4f} (不優化)")
             
@@ -499,12 +510,12 @@ class v8PoseLoss(v8DetectionLoss):
             box_loss, pose_loss, kobj_loss, cls_loss, dfl_loss, loss = all_losses
             
             # 應用權重
-            loss[0] *= self.hyp.box    # box gain
-            loss[1] *= self.hyp.pose   # pose gain
-            loss[2] *= self.hyp.kobj   # kobj gain
-            loss[3] *= self.hyp.cls    # cls gain
-            loss[4] *= self.hyp.dfl    # dfl gain
-            # loss[5] *= self.hyp.distill  # distillation gain
+            loss[0] *= self.hyp_box    # box gain
+            loss[1] *= self.hyp_pose   # pose gain
+            loss[2] *= self.hyp_kobj   # kobj gain
+            loss[3] *= self.hyp_cls    # cls gain
+            loss[4] *= self.hyp_dfl    # dfl gain
+            # loss[5] *= self.hyp_distill  # distillation gain
             
             # 創建顯示損失
             display_loss = loss.detach().clone()
