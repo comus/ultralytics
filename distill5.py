@@ -23,7 +23,7 @@ student_model.train(
     patience=35,                        # 增加耐心值
     device=0,
     project="distill_projects",
-    name="yolo11n_extreme_breakthrough",
+    name="yolo11n_test",
     val=True,
     save_period=1,
     plots=True,
