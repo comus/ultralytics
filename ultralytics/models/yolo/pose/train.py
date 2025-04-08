@@ -114,7 +114,7 @@ class PoseTrainer(yolo.detect.DetectionTrainer):
         if self.epoch == 0:
             LOGGER.info("階段1: 純蒸餾")
 
-            distillation_loss = "mgd"
+            distillation_loss = "cwd"
             distillation_layers = ["22"]
             self.model.args.distill = 0.0
 
