@@ -98,7 +98,7 @@ class PoseTrainer(yolo.detect.DetectionTrainer):
                 v.requires_grad = False
             self.teacher = self.teacher.to(self.device)
             self.teacher.eval()
-            LOGGER.info(f"Using {self.distillation_loss} distillation with teacher model")
+            LOGGER.info(f"初始化教師模型已完成，設為評估模式")
 
         if isinstance(self.args.device, str) and self.args.device.lower() == "mps":
             LOGGER.warning(
