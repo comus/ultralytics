@@ -20,7 +20,7 @@ student_model.train(
     # 硬體優化設置
     batch=32,                           # 充分利用24GB顯存，同時保持精度
     workers=8,                          # 適合Xeon 16核處理器
-    device=0,                           # 使用第一張GPU
+    # device=0,                           # 使用第一張GPU
     amp=False,                          # 關閉混合精度，提高精度（顯存足夠）
     
     # 訓練超參數

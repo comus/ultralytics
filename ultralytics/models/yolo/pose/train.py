@@ -125,6 +125,10 @@ class PoseTrainer(yolo.detect.DetectionTrainer):
                 distiller=distillation_loss,
                 layers=distillation_layers,
             )
+
+            # # 輸出模型所有層的名字
+            # for name, param in self.model.named_parameters():
+            #     LOGGER.info(f"模型層名: {name}")
             
             # 預設凍結所有層
             for name, param in self.model.named_parameters():
@@ -164,21 +168,35 @@ class PoseTrainer(yolo.detect.DetectionTrainer):
             # 只解凍目標層的cv2.conv參數
             unfrozen_count = 0
             unfrozen_names = []
-            distill_layer_prefixes = []  # 存儲蒸餾層的前綴，用於識別相關BN層
 
-            for name, param in self.model.named_parameters():
-                if "model." in name and any(f".{layer}." in name for layer in distillation_layers):
-                    # 記錄下蒸餾層的前綴，例如 "model.1" 或 "model.2"
-                    for layer in distillation_layers:
-                        if f".{layer}." in name:
-                            layer_prefix = name.split(f".{layer}.")[0] + f".{layer}"
-                            if layer_prefix not in distill_layer_prefixes:
-                                distill_layer_prefixes.append(layer_prefix)
+            for name, ml in self.model.named_modules():
+                if name is not None:
+                    name_parts = name.split(".")
+                    
+                    if name_parts[0] != "model":
+                        continue
+                    if len(name_parts) >= 3:
+                        if name_parts[1] in distillation_layers:
+                            if "cv2" in name_parts[2]:
+                                if hasattr(ml, 'conv'):
+                                    param.requires_grad = True
+                                    unfrozen_count += 1
+                                    unfrozen_names.append(name)
+                                    LOGGER.info(f"解凍蒸餾層: {name}, 通道數: {ml.conv.out_channels}")
+
+            # for name, param in self.model.named_parameters():
+            #     if "model." in name and any(f".{layer}." in name for layer in distillation_layers):
+            #         # 記錄下蒸餾層的前綴，例如 "model.1" 或 "model.2"
+            #         for layer in distillation_layers:
+            #             if f".{layer}." in name:
+            #                 layer_prefix = name.split(f".{layer}.")[0] + f".{layer}"
+            #                 if layer_prefix not in distill_layer_prefixes:
+            #                     distill_layer_prefixes.append(layer_prefix)
                             
-                    if ".cv2.conv" in name:  # 精確匹配cv2的卷積層參數
-                        param.requires_grad = True
-                        unfrozen_count += 1
-                        unfrozen_names.append(name)
+            #         if ".cv2.conv" in name:  # 精確匹配cv2的卷積層參數
+            #             param.requires_grad = True
+            #             unfrozen_count += 1
+            #             unfrozen_names.append(name)
 
             # # 處理BN層：蒸餾層的BN保持訓練模式，其他BN設為評估模式
             # frozen_bn_count = 0
@@ -199,15 +217,15 @@ class PoseTrainer(yolo.detect.DetectionTrainer):
             #             m.track_running_stats = False
             #             frozen_bn_count += 1
 
-            # 凍結所有BN層並記錄
-            bn_layer_names = []
-            for name, m in self.model.named_modules():
-                if isinstance(m, torch.nn.BatchNorm2d):
-                    m.eval()  # 設置為評估模式
-                    m.track_running_stats = False  # 停止更新統計量
-                    bn_layer_names.append(name)
+            # # 凍結所有BN層並記錄
+            # bn_layer_names = []
+            # for name, m in self.model.named_modules():
+            #     if isinstance(m, torch.nn.BatchNorm2d):
+            #         m.eval()  # 設置為評估模式
+            #         m.track_running_stats = False  # 停止更新統計量
+            #         bn_layer_names.append(name)
             
-            LOGGER.info(f"已凍結 {len(bn_layer_names)} 個 BN 層，這些層不會更新統計量")
+            # LOGGER.info(f"已凍結 {len(bn_layer_names)} 個 BN 層，這些層不會更新統計量")
 
             # 計算可訓練參數比例
             total_params = sum(p.numel() for p in self.model.parameters())
