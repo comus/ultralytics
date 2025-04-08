@@ -386,19 +386,10 @@ class DistillationLoss:
         self.distill_loss_fn = FeatureLoss(
             channels_s=self.channels_s, 
             channels_t=self.channels_t, 
-            distiller=self.distiller[:3]
+            distiller=self.distiller
         )
         
-        # 記錄使用的蒸餾方法
-        method_map = {
-            'cwd': 'Channel-wise Distillation (CWD)',
-            'mgd': 'Masked Generative Distillation (MGD)',
-            'rev': 'Review KD',
-            'fgd': 'Feature Guided Distillation (FGD)',
-            'pkd': 'Probabilistic Knowledge Distillation (PKD)'
-        }
-        method_name = method_map.get(self.distiller, self.distiller)
-        LOGGER.info(f"使用 {method_name} 方法進行蒸餾")
+        LOGGER.info(f"使用 {self.distiller} 方法進行蒸餾")
 
     def _find_layers(self):
         """查找名為 cv2 且具有 conv 屬性的層"""
@@ -407,20 +398,20 @@ class DistillationLoss:
         self.teacher_module_pairs = []
         self.student_module_pairs = []
         
-        # 打印模型的一些層，以便於檢查結構
-        LOGGER.info("教師模型的一些關鍵層:")
-        for name, ml in self.modelt.named_modules():
-            if "model" in name and ("16" in name or "19" in name or "22" in name):
-                LOGGER.info(f"  - {name}: {ml.__class__.__name__}")
-                if hasattr(ml, 'conv'):
-                    LOGGER.info(f"    有 conv 屬性，通道數: {ml.conv.out_channels}")
+        # # 打印模型的一些層，以便於檢查結構
+        # LOGGER.info("教師模型的一些關鍵層:")
+        # for name, ml in self.modelt.named_modules():
+        #     if "model" in name and ("16" in name or "19" in name or "22" in name):
+        #         LOGGER.info(f"  - {name}: {ml.__class__.__name__}")
+        #         if hasattr(ml, 'conv'):
+        #             LOGGER.info(f"    有 conv 屬性，通道數: {ml.conv.out_channels}")
         
-        LOGGER.info("學生模型的一些關鍵層:")
-        for name, ml in self.models.named_modules():
-            if "model" in name and ("16" in name or "19" in name or "22" in name):
-                LOGGER.info(f"  - {name}: {ml.__class__.__name__}")
-                if hasattr(ml, 'conv'):
-                    LOGGER.info(f"    有 conv 屬性，通道數: {ml.conv.out_channels}")
+        # LOGGER.info("學生模型的一些關鍵層:")
+        # for name, ml in self.models.named_modules():
+        #     if "model" in name and ("16" in name or "19" in name or "22" in name):
+        #         LOGGER.info(f"  - {name}: {ml.__class__.__name__}")
+        #         if hasattr(ml, 'conv'):
+        #             LOGGER.info(f"    有 conv 屬性，通道數: {ml.conv.out_channels}")
         
         # 首先查找教師模型中的目標層
         for name, ml in self.modelt.named_modules():
@@ -454,34 +445,7 @@ class DistillationLoss:
         
         # 確保通道數和模塊數量匹配
         nl = min(len(self.channels_s), len(self.channels_t))
-        
-        # 如果沒有找到任何層，嘗試使用更寬鬆的條件
-        if nl == 0:
-            LOGGER.warning("使用標準條件未找到匹配層，嘗試使用更寬鬆的條件...")
-            
-            # 重置列表
-            self.channels_s = []
-            self.channels_t = []
-            self.teacher_module_pairs = []
-            self.student_module_pairs = []
-            
-            # 嘗試更寬鬆的條件：查找任何包含 conv 的模塊
-            for name, ml in self.modelt.named_modules():
-                if "model" in name and any(layer in name for layer in self.layers):
-                    if hasattr(ml, 'conv'):
-                        self.channels_t.append(ml.conv.out_channels)
-                        self.teacher_module_pairs.append(ml)
-                        LOGGER.info(f"寬鬆條件找到教師層: {name}")
-            
-            for name, ml in self.models.named_modules():
-                if "model" in name and any(layer in name for layer in self.layers):
-                    if hasattr(ml, 'conv'):
-                        self.channels_s.append(ml.conv.out_channels)
-                        self.student_module_pairs.append(ml)
-                        LOGGER.info(f"寬鬆條件找到學生層: {name}")
-            
-            nl = min(len(self.channels_s), len(self.channels_t))
-        
+          
         self.channels_s = self.channels_s[-nl:]
         self.channels_t = self.channels_t[-nl:]
         self.teacher_module_pairs = self.teacher_module_pairs[-nl:]
@@ -533,21 +497,11 @@ class DistillationLoss:
             
         # 註冊鉤子到教師和學生模型的對應層
         for i, (ml, ori) in enumerate(zip(self.teacher_module_pairs, self.student_module_pairs)):
-            # LOGGER.info(f"註冊第 {i+1} 對鉤子 - 教師: {ml.__class__.__name__}, 學生: {ori.__class__.__name__}")
             self.remove_handle.append(ml.register_forward_hook(make_teacher_hook(self.teacher_outputs)))
             self.remove_handle.append(ori.register_forward_hook(make_student_hook(self.student_outputs)))
-        
-        # LOGGER.info(f"註冊了 {len(self.remove_handle)} 個鉤子用於蒸餾")
 
     def get_loss(self):
-        """計算教師和學生模型之間的蒸餾損失"""
-        # # 檢查特徵收集情況
-        # LOGGER.info(f"教師輸出: {len(self.teacher_outputs)}, 學生輸出: {len(self.student_outputs)}")
-        # if len(self.teacher_outputs) > 0:
-        #     LOGGER.info(f"第一個教師特徵形狀: {self.teacher_outputs[0].shape}")
-        # if len(self.student_outputs) > 0:
-        #     LOGGER.info(f"第一個學生特徵形狀: {self.student_outputs[0].shape}")
-            
+        """計算教師和學生模型之間的蒸餾損失"""            
         if not self.teacher_outputs or not self.student_outputs:
             LOGGER.warning(f"沒有收集到特徵 - 教師: {len(self.teacher_outputs) if hasattr(self, 'teacher_outputs') else 0}, 學生: {len(self.student_outputs) if hasattr(self, 'student_outputs') else 0}")
             return torch.tensor(0.0, requires_grad=True, device=next(self.models.parameters()).device)
@@ -557,12 +511,7 @@ class DistillationLoss:
             return torch.tensor(0.0, requires_grad=True, device=next(self.models.parameters()).device)
         
         try:
-            # 打印特徵形狀，幫助調試
-            # LOGGER.info(f"教師特徵形狀: {[t.shape if isinstance(t, torch.Tensor) else type(t) for t in self.teacher_outputs]}")
-            # LOGGER.info(f"學生特徵形狀: {[s.shape if isinstance(s, torch.Tensor) else type(s) for s in self.student_outputs]}")
-            
             teacher_outputs = [t.detach() for t in self.teacher_outputs]
-            
             quant_loss = self.distill_loss_fn(y_s=self.student_outputs, y_t=teacher_outputs)
             
             # 檢查損失值是否合理
@@ -572,12 +521,7 @@ class DistillationLoss:
             elif quant_loss == 0:
                 LOGGER.warning("蒸餾損失為零，可能計算出錯")
             else:
-                # LOGGER.info(f"計算的蒸餾損失: {quant_loss.item():.6f}")
                 pass
-            
-            # 根據蒸餾方法調整權重
-            if self.distiller != 'cwd':
-                quant_loss *= 0.3
             
             # 清除收集的特徵，準備下一個批次
             self.teacher_outputs.clear()
