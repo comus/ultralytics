@@ -6,7 +6,7 @@ from ultralytics.utils import LOGGER
 student_model = YOLO("distill_projects/yolo11n_fgd_breakthrough/weights/best.pt")
 teacher_model = YOLO("yolo11x-pose.pt")  # 最強教師模型
 
-# 超極限終極訓練設置 - 修改後直接使用內建回調和損失函數
+# 超極限終極訓練設置 - 使用已整合到pose/train.py的回調函數
 student_model.train(
     data="coco-pose.yaml",
     teacher=teacher_model.model,
@@ -23,7 +23,7 @@ student_model.train(
     patience=35,                        # 增加耐心值
     device=0,
     project="distill_projects",
-    name="yolo11n_test",
+    name="yolo11n_extreme_breakthrough",
     val=True,
     save_period=1,
     plots=True,
@@ -54,7 +54,7 @@ student_model.train(
     save_json=True,                     # 保存評估JSON
     half=False,                         # 確保全精度訓練
     augment=False,                      # 初始禁用強增強
-    fraction=0.01,                       # 使用全部數據
+    fraction=0.01,                      # 測試時使用小數據集
     cache="disk",                       # 使用磁盤緩存加速
     verbose=True,                       # 詳細日誌
     seed=42,                            # 更優的隨機種子

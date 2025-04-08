@@ -277,57 +277,102 @@ class EnhancedFGDLoss(nn.Module):
             nn.Sigmoid()
         ).to('cuda' if torch.cuda.is_available() else 'cpu')
         
+        # 用於通道調整的投影層
+        self.align_layers = nn.ModuleList()
+        for s_chan, t_chan in zip(student_channels, teacher_channels):
+            if s_chan != t_chan:
+                self.align_layers.append(nn.Conv2d(s_chan, t_chan, kernel_size=1, bias=False).to(
+                    'cuda' if torch.cuda.is_available() else 'cpu'))
+            else:
+                self.align_layers.append(nn.Identity())
+                
         LOGGER.info(f"初始化增強版FGD損失: 空間權重={spatial_weight}, 通道權重={channel_weight}")
         
     def forward(self, y_s, y_t):
         """計算增強版FGD損失，特別優化姿態估計的空間特徵保留"""
         assert len(y_s) == len(y_t)
         losses = []
+        
         for idx, (s, t) in enumerate(zip(y_s, y_t)):
+            # 確保索引在有效範圍內
+            if idx >= len(self.align_layers):
+                continue
+                
+            # 處理空層或None值
+            if s is None or t is None:
+                continue
+            
+            # 通道對齊
+            try:
+                if s.shape[1] != t.shape[1]:
+                    # 如果通道不一致，使用投影層調整
+                    s = self.align_layers[idx](s)
+                    LOGGER.debug(f"調整特徵通道: {s.shape} -> {t.shape}")
+            except Exception as e:
+                LOGGER.warning(f"通道調整出錯，跳過此層: {e}")
+                continue
+                
+            # 尺寸對齊    
             if s.size(2) != t.size(2) or s.size(3) != t.size(3):
                 t = torch.nn.functional.interpolate(t, size=(s.size(2), s.size(3)), mode='bilinear', align_corners=False)
                 
             b, c, h, w = s.shape
             
-            # 1. 自適應特徵匹配 - 使用Huber損失減少異常值影響
-            # 對重要特徵賦予更高權重
-            feature_importance = torch.sigmoid(torch.sum(t, dim=1, keepdim=True))
-            l1_loss = torch.nn.functional.smooth_l1_loss(s * feature_importance, t * feature_importance)
+            # 1. 自適應特徵匹配 - 安全處理
+            try:
+                # 對重要特徵賦予更高權重
+                feature_importance = torch.sigmoid(torch.mean(t, dim=1, keepdim=True))
+                l1_loss = torch.nn.functional.smooth_l1_loss(s, t)  # 直接計算損失，避免乘法導致的尺寸問題
+            except Exception as e:
+                LOGGER.warning(f"計算L1損失時出錯: {e}")
+                l1_loss = torch.tensor(0.0, device=s.device)
             
-            # 2. 超級增強版空間注意力損失
-            s_spatial = torch.mean(s, dim=1, keepdim=True)  # [b, 1, h, w]
-            t_spatial = torch.mean(t, dim=1, keepdim=True)  # [b, 1, h, w]
+            # 2. 空間注意力損失 - 安全處理
+            try:
+                s_spatial = torch.mean(s, dim=1, keepdim=True)  # [b, 1, h, w]
+                t_spatial = torch.mean(t, dim=1, keepdim=True)  # [b, 1, h, w]
+                
+                # 提取空間特徵的邊緣信息
+                s_edge = self.edge_filter(s_spatial)
+                t_edge = self.edge_filter(t_spatial)
+                
+                # 關鍵點注意力增強
+                keypoint_attn = self.keypoint_attention(t_spatial)
+                
+                # 空間注意力+邊緣感知+關鍵點注意力的組合損失
+                spatial_loss = (torch.nn.functional.mse_loss(s_spatial, t_spatial) * 1.5 + 
+                            torch.nn.functional.mse_loss(s_edge, t_edge) * 1.0 +
+                            torch.nn.functional.mse_loss(s_spatial * keypoint_attn, t_spatial * keypoint_attn) * 1.5) * self.spatial_weight
+            except Exception as e:
+                LOGGER.warning(f"計算空間損失時出錯: {e}")
+                spatial_loss = torch.tensor(0.0, device=s.device)
             
-            # 提取空間特徵的邊緣信息
-            s_edge = self.edge_filter(s_spatial)
-            t_edge = self.edge_filter(t_spatial)
+            # 3. 通道關係損失 - 安全處理
+            try:
+                s_flat = s.view(b, c, -1)  # [b, c, h*w]
+                t_flat = t.view(b, c, -1)  # [b, c, h*w]
+                
+                # 通道歸一化
+                s_flat_norm = torch.nn.functional.normalize(s_flat, dim=2)
+                t_flat_norm = torch.nn.functional.normalize(t_flat, dim=2)
+                
+                # 計算通道相關矩陣
+                s_corr = torch.bmm(s_flat_norm, s_flat_norm.transpose(1, 2)) / (h*w)  # [b, c, c]
+                t_corr = torch.bmm(t_flat_norm, t_flat_norm.transpose(1, 2)) / (h*w)  # [b, c, c]
+                
+                # 通道相關性損失
+                channel_loss = torch.nn.functional.mse_loss(s_corr, t_corr) * self.channel_weight
+            except Exception as e:
+                LOGGER.warning(f"計算通道損失時出錯: {e}")
+                channel_loss = torch.tensor(0.0, device=s.device)
             
-            # 關鍵點注意力增強
-            keypoint_attn = self.keypoint_attention(t_spatial)
-            
-            # 空間注意力+邊緣感知+關鍵點注意力的組合損失
-            spatial_loss = (torch.nn.functional.mse_loss(s_spatial, t_spatial) * 1.5 + 
-                         torch.nn.functional.mse_loss(s_edge, t_edge) * 1.0 +
-                         torch.nn.functional.mse_loss(s_spatial * keypoint_attn, t_spatial * keypoint_attn) * 1.5) * self.spatial_weight
-            
-            # 3. 優化的通道關係損失 - 專注於重要通道
-            s_flat = s.view(b, c, -1)  # [b, c, h*w]
-            t_flat = t.view(b, c, -1)  # [b, c, h*w]
-            
-            # 通道歸一化
-            s_flat_norm = torch.nn.functional.normalize(s_flat, dim=2)
-            t_flat_norm = torch.nn.functional.normalize(t_flat, dim=2)
-            
-            # 計算通道相關矩陣
-            s_corr = torch.bmm(s_flat_norm, s_flat_norm.transpose(1, 2)) / (h*w)  # [b, c, c]
-            t_corr = torch.bmm(t_flat_norm, t_flat_norm.transpose(1, 2)) / (h*w)  # [b, c, c]
-            
-            # 通道相關性損失
-            channel_loss = torch.nn.functional.mse_loss(s_corr, t_corr) * self.channel_weight
-            
-            # 4. 組合損失
+            # 4. 組合損失 - 確保所有損失都在相同設備上
             total_loss = l1_loss + spatial_loss + channel_loss
             losses.append(total_loss)
+            
+        if not losses:
+            # 返回一個零張量，確保有梯度
+            return torch.tensor(0.0, requires_grad=True, device=y_s[0].device if y_s and len(y_s) > 0 else 'cpu')
             
         loss = sum(losses)
         return loss

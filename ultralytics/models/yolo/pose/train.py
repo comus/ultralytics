@@ -84,7 +84,7 @@ class PoseTrainer(yolo.detect.DetectionTrainer):
             "kd": "cwd",   # 默認使用 CWD
             "review": "rev",
             "feature": "fgd",
-            "enhancedfgd": "enhancedfgd"  # 新增增強版FGD
+            "enhancedfgd": "enhancedfgd"  # 增強版特徵引導蒸餾
         }
         
         # 標準化蒸餾方法名稱
@@ -111,6 +111,7 @@ class PoseTrainer(yolo.detect.DetectionTrainer):
             # 添加极限学习率调整和高级数据增强回调
             _callbacks["on_train_epoch_start"].append(self.extreme_adaptive_lr_callback)
             _callbacks["on_train_epoch_start"].append(self.advanced_augmentation_callback)
+            _callbacks["on_train_epoch_start"].append(self.optimizer_config_callback)
             
             # 添加训练进度监控回调
             _callbacks["on_fit_epoch_end"].append(self.training_progress_callback)
@@ -136,50 +137,43 @@ class PoseTrainer(yolo.detect.DetectionTrainer):
     def extreme_adaptive_lr_callback(self, trainer):
         """極限版自適應學習率調整策略，用於顯著突破性能瓶頸"""
         # 在訓練的不同階段實施更激進策略
+        LOGGER.info(f"執行學習率調整 - 當前 epoch: {trainer.epoch}")
+        
         if trainer.epoch == 0:
             # 初始階段使用較高學習率
-            LOGGER.info("Initial phase: using higher learning rate")
-            for g in trainer.optimizer.param_groups:
-                g['lr'] = 0.00007  # 開始階段更高
-        
+            target_lr = 0.00007
+            LOGGER.info(f"Initial phase: setting higher learning rate to {target_lr}")
         elif trainer.epoch == 3:
             # 第一次大幅提高學習率突破平台
-            LOGGER.info("First major learning rate boost to escape initial plateau")
-            for g in trainer.optimizer.param_groups:
-                g['lr'] = 0.0002  # 第一次大幅提高
-                
+            target_lr = 0.0002
+            LOGGER.info(f"First major learning rate boost to {target_lr}")
         elif trainer.epoch == 5:
             # 第二次提高學習率突破下一個平台
-            LOGGER.info("Second learning rate boost for breakthrough")
-            for g in trainer.optimizer.param_groups:
-                g['lr'] = 0.00025  # 第二次大幅提高
-                
+            target_lr = 0.00025
+            LOGGER.info(f"Second learning rate boost to {target_lr}")
         elif trainer.epoch == 8:
             # 恢復到中等學習率進行優化
-            LOGGER.info("Restoring to medium learning rate for optimization")
-            for g in trainer.optimizer.param_groups:
-                g['lr'] = 0.00005  # 中等學習率精細優化
-        
+            target_lr = 0.00005
+            LOGGER.info(f"Restoring to medium learning rate: {target_lr}")
         elif trainer.epoch == 12:
             # 適度降低學習率
-            LOGGER.info("Moderate tuning phase: reduced learning rate")
-            for g in trainer.optimizer.param_groups:
-                g['lr'] = 0.00002  # 降低學習率
-                
+            target_lr = 0.00002
+            LOGGER.info(f"Moderate tuning phase: reduced learning rate to {target_lr}")
         elif trainer.epoch == 15:
             # 降低學習率進行精細優化階段
-            LOGGER.info("Fine-tuning phase: low learning rate")
-            for g in trainer.optimizer.param_groups:
-                g['lr'] = 0.000005  # 精細優化學習率
-                
+            target_lr = 0.000005
+            LOGGER.info(f"Fine-tuning phase: low learning rate of {target_lr}")
         elif trainer.epoch == 20:
             # 極限精細優化階段
-            LOGGER.info("Ultra-fine tuning phase: minimal learning rate")
-            for g in trainer.optimizer.param_groups:
-                g['lr'] = 0.000001  # 極限精細優化學習率
-                
+            target_lr = 0.000001
+            LOGGER.info(f"Ultra-fine tuning phase: minimal learning rate of {target_lr}")
+        else:
+            # 其他epoch不更改學習率，保持原始設置
+            return
+            
         # 顯示當前學習率
         for i, g in enumerate(trainer.optimizer.param_groups):
+            g['lr'] = target_lr
             LOGGER.info(f"Epoch {trainer.epoch}: Group {i} learning rate = {g['lr']:.8f}")
             
     def advanced_augmentation_callback(self, trainer):
@@ -187,7 +181,8 @@ class PoseTrainer(yolo.detect.DetectionTrainer):
         if trainer.epoch == 0:
             # 初始階段：使用適中增強
             LOGGER.info("Initial phase: moderate augmentation")
-            trainer.train_loader.dataset.hsv_values = [0.15, 0.15, 0.15]  # 適中HSV變化
+            if hasattr(trainer.train_loader.dataset, 'hsv_values'):
+                trainer.train_loader.dataset.hsv_values = [0.15, 0.15, 0.15]  # 適中HSV變化
             if hasattr(trainer.train_loader.dataset, 'mosaic'):
                 trainer.train_loader.dataset.mosaic = False   # 初始就禁用馬賽克
             if hasattr(trainer.train_loader.dataset, 'mixup'):
@@ -196,7 +191,8 @@ class PoseTrainer(yolo.detect.DetectionTrainer):
         elif trainer.epoch == 3:
             # 大幅提高學習率的同時增加增強強度
             LOGGER.info("Boosting phase: stronger augmentation")
-            trainer.train_loader.dataset.hsv_values = [0.25, 0.25, 0.2]  # 較強HSV變化
+            if hasattr(trainer.train_loader.dataset, 'hsv_values'):
+                trainer.train_loader.dataset.hsv_values = [0.25, 0.25, 0.2]  # 較強HSV變化
             if hasattr(trainer.train_loader.dataset, 'translate'):
                 trainer.train_loader.dataset.translate = 0.15  # 輕微平移
             if hasattr(trainer.train_loader.dataset, 'scale'):
@@ -205,7 +201,8 @@ class PoseTrainer(yolo.detect.DetectionTrainer):
         elif trainer.epoch == 8:
             # 學習率下降時減少增強強度
             LOGGER.info("Mid phase: moderate augmentation")
-            trainer.train_loader.dataset.hsv_values = [0.15, 0.15, 0.1]  # 適中HSV變化
+            if hasattr(trainer.train_loader.dataset, 'hsv_values'):
+                trainer.train_loader.dataset.hsv_values = [0.15, 0.15, 0.1]  # 適中HSV變化
             if hasattr(trainer.train_loader.dataset, 'translate'):
                 trainer.train_loader.dataset.translate = 0.1  # 輕微平移
             if hasattr(trainer.train_loader.dataset, 'scale'):
@@ -214,7 +211,8 @@ class PoseTrainer(yolo.detect.DetectionTrainer):
         elif trainer.epoch == 15:
             # 後期：減少增強專注精細優化
             LOGGER.info("Late phase: minimal augmentation for fine-tuning")
-            trainer.train_loader.dataset.hsv_values = [0.05, 0.05, 0.05]  # 輕微HSV
+            if hasattr(trainer.train_loader.dataset, 'hsv_values'):
+                trainer.train_loader.dataset.hsv_values = [0.05, 0.05, 0.05]  # 輕微HSV
             if hasattr(trainer.train_loader.dataset, 'translate'):
                 trainer.train_loader.dataset.translate = 0.0  # 禁用平移
             if hasattr(trainer.train_loader.dataset, 'scale'):
@@ -225,7 +223,8 @@ class PoseTrainer(yolo.detect.DetectionTrainer):
         elif trainer.epoch == 20:
             # 最終階段：完全禁用所有增強以實現極致精度
             LOGGER.info("Final phase: zero augmentation for ultimate precision")
-            trainer.train_loader.dataset.hsv_values = [0.0, 0.0, 0.0]  # 禁用HSV
+            if hasattr(trainer.train_loader.dataset, 'hsv_values'):
+                trainer.train_loader.dataset.hsv_values = [0.0, 0.0, 0.0]  # 禁用HSV
             if hasattr(trainer.train_loader.dataset, 'mosaic'):
                 trainer.train_loader.dataset.mosaic = False   # 確保禁用馬賽克
             if hasattr(trainer.train_loader.dataset, 'mixup'):
@@ -255,6 +254,15 @@ class PoseTrainer(yolo.detect.DetectionTrainer):
                 
             if current_map > 0.520:
                 LOGGER.info(f"🏆 極限突破！當前mAP: {current_map:.6f} > 0.520")
+                
+    def optimizer_config_callback(self, trainer):
+        """優化優化器參數以實現更好的收斂和突破"""
+        # 只在第一個epoch設置
+        if trainer.epoch == 0:
+            for g in trainer.optimizer.param_groups:
+                # 對於AdamW優化器，設置beta值
+                if 'betas' in g:
+                    g['betas'] = (0.937, 0.999)  # 優化的beta值
 
     def distill_on_train_start(self, trainer):
         """訓練開始時初始化蒸餾損失實例和凍結非目標層"""
