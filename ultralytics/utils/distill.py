@@ -517,6 +517,17 @@ class DistillationLoss:
         self.remove_handle = []
         self.teacher_outputs = []
         self.student_outputs = []
+
+        # 進行模型預熱
+        device = 'cuda' if torch.cuda.is_available() else 'cpu'
+        with torch.no_grad():
+            try:
+                dummy_input = torch.randn(1, 3, 640, 640)
+                _ = self.models(dummy_input.to(device))
+                _ = self.modelt(dummy_input.to(device))
+                LOGGER.info("模型預熱成功")
+            except Exception as e:
+                LOGGER.warning(f"模型預熱失敗: {e}")
         
         # 初始化通道列表和模塊對
         self.channels_s = []
