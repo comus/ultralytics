@@ -457,6 +457,9 @@ class v8PoseLoss(v8DetectionLoss):
     def __call__(self, preds, batch):
         """Calculate the total loss and detach it for pose estimation."""
         batch_size = batch["img"].shape[0]
+
+        self.hyp = self.model.args
+        print("self.hyp", self.hyp)
         
         # 在純蒸餾模式下，只計算蒸餾損失
         if "distill_instance" in batch and batch["distill_instance"] is not None:
