@@ -491,9 +491,6 @@ class v8PoseLoss(v8DetectionLoss):
             return total_loss * batch_size, display_loss
         
         else:
-
-            print("!!!!!!!!!!!!!!!!!!!!!!!!!!!")
-
             # 標準模式：計算並優化所有損失
             all_losses = self._compute_regular_losses(preds, batch)
             box_loss, pose_loss, kobj_loss, cls_loss, dfl_loss, loss = all_losses
