@@ -25,7 +25,7 @@ student_model.train(
     
     # 訓練超參數
     epochs=18,                          # 階段總輪數: 3+4+11
-    optimizer="AdamW",                  # 使用AdamW優化器
+    optimizer="Adam",                  # 使用AdamW優化器
     weight_decay=0.001,                 # 較高的權重衰減防止過擬合
     # cos_lr=False,                       # 禁用余弦退火，使用自定義學習率
     
