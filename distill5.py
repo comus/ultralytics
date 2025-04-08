@@ -271,7 +271,7 @@ student_model.train(
     warmup_epochs=0.0,                 # 無需熱身
     close_mosaic=0,                    # 從頭關閉mosaic
     amp=False,                         # 確保全精度
-    overlap=True,                      # 改善遮擋情況
+    overlap_mask=True,                 # 改善遮擋情況 (修正overlap→overlap_mask)
     
     # 進階數據處理設置
     hsv_h=0.05,                        # 初始極輕微色調增強
@@ -283,8 +283,7 @@ student_model.train(
     fliplr=0.5,                        # 啟用水平翻轉以增加多樣性
     mosaic=0.0,                        # 禁用馬賽克增強
     
-    # 特殊關鍵點設置
-    kpt_shape=[17, 3],                 # 確保正確的關鍵點形狀
+    # 特殊關鍵點設置 (移除無效的kpt_shape參數)
     single_cls=False,                  # 維持多類別區分
     nbs=8,                             # 標稱批次大小
     rect=False,                        # 非矩形訓練
@@ -295,7 +294,6 @@ student_model.train(
     cache="disk",                      # 使用磁盤緩存加速
     
     # 額外優化參數
-    label_smoothing=0.015,             # 適度增加標籤平滑以提高魯棒性
     dropout=0.0,                       # 禁用dropout以保留全部特徵
     verbose=True,                      # 詳細日誌
     seed=42,                           # 更優的隨機種子
