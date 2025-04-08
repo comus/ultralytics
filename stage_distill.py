@@ -48,6 +48,15 @@ student_model.train(
     save_period=1,                      # 每個epoch保存一次
     patience=18,                        # 禁用早停，完成全部輪數
     fraction=0.01,                      # 訓練集比例
+
+
+
+
+
+
+    warmup_epochs=5,
+    warmup_momentum=0.8,
+    warmup_bias_lr=0.1,
 )
 
 LOGGER.info("蒸餾訓練完成！")
