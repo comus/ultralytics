@@ -18,7 +18,7 @@ student_model.train(
     # pure_distill=True,
     
     # 硬體優化設置
-    batch=32,                           # 充分利用24GB顯存，同時保持精度
+    batch=128,                           # 充分利用24GB顯存，同時保持精度
     workers=8,                          # 適合Xeon 16核處理器
     # device=0,                           # 使用第一張GPU
     amp=False,                          # 關閉混合精度，提高精度（顯存足夠）
@@ -30,7 +30,7 @@ student_model.train(
     # cos_lr=False,                       # 禁用余弦退火，使用自定義學習率
     
     # # 初始參數 (會被回調動態調整)
-    lr0=0.00008,                        # 初始學習率
+    lr0=0.0008,                        # 初始學習率
     lrf=0.01,                       # 最終學習率比例
     # distill=0.0,                       # 蒸餾權重
     # pose=0.0,                           # 姿態權重
@@ -54,9 +54,9 @@ student_model.train(
 
 
 
-    warmup_epochs=5,
-    warmup_momentum=0.8,
-    warmup_bias_lr=0.1,
+    warmup_epochs=3,
+    warmup_momentum=0.85,
+    warmup_bias_lr=0.08,
 )
 
 LOGGER.info("蒸餾訓練完成！")
