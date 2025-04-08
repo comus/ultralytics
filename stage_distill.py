@@ -14,7 +14,7 @@ student_model.train(
     data="coco-pose.yaml",
     teacher=teacher_model.model,
     distillation_loss="enhancedfgd",    # 使用增強版FGD損失
-    distillation_layers=["6", "8", "13", "16", "19", "22"],  # 關鍵層選擇
+    distillation_layers=["22"],  # 關鍵層選擇
     pure_distill=True,
     
     # 硬體優化設置
@@ -32,7 +32,7 @@ student_model.train(
     # # 初始參數 (會被三階段回調動態調整)
     # lr0=0.00005,                        # 初始學習率
     # lrf=0.000001,                       # 最終學習率比例
-    distill=15.0,                       # 蒸餾權重
+    distill=1.0,                       # 蒸餾權重
     # pose=0.0,                           # 姿態權重
     
     # 數據處理
