@@ -15,6 +15,7 @@ student_model.train(
     teacher=teacher_model.model,
     distillation_loss="enhancedfgd",    # 使用增強版FGD損失
     distillation_layers=["6", "8", "13", "16", "19", "22"],  # 關鍵層選擇
+    pure_distill=True,
     
     # 硬體優化設置
     batch=24,                           # 充分利用24GB顯存，同時保持精度
@@ -46,6 +47,7 @@ student_model.train(
     val=True,                           # 每個epoch驗證
     save_period=1,                      # 每個epoch保存一次
     patience=18,                        # 禁用早停，完成全部輪數
+    fraction=0.01,                      # 訓練集比例
 )
 
 LOGGER.info("三階段蒸餾訓練完成！")
