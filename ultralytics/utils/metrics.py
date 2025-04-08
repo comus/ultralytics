@@ -1130,7 +1130,6 @@ class PoseMetrics(SegmentMetrics):
         )[2:]
         self.pose.nc = len(self.names)
         self.pose.update(results_pose)
-        # print("!!!self.pose.update results_pose")
         results_box = ap_per_class(
             tp,
             conf,
@@ -1144,7 +1143,6 @@ class PoseMetrics(SegmentMetrics):
         )[2:]
         self.box.nc = len(self.names)
         self.box.update(results_box)
-        # print("!!!self.box.update results_box")
 
     @property
     def keys(self):
