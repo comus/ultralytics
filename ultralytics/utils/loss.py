@@ -459,7 +459,7 @@ class v8PoseLoss(v8DetectionLoss):
         batch_size = batch["img"].shape[0]
         
         # 在純蒸餾模式下，只計算蒸餾損失
-        if batch.get('pure_distill', False):
+        if "distill_instance" in batch and batch["distill_instance"] is not None:
             # 創建固定損失張量，用於顯示但不參與反向傳播
             with torch.no_grad():
                 # 創建臨時損失張量用於顯示
@@ -490,43 +490,25 @@ class v8PoseLoss(v8DetectionLoss):
             # 返回只用於優化的蒸餾損失和用於顯示的所有損失
             return total_loss * batch_size, display_loss
         
-        # # 創建固定損失張量，用於顯示但不參與反向傳播
-        # with torch.no_grad():
-        #     # 創建臨時損失張量用於顯示
-        #     display_loss = torch.zeros(6, device=self.device)
+        else:
             
-        #     try:
-        #         # 仍然計算姿態損失以進行監控，但不連接計算圖
-        #         _, pose_loss_value, _, _, _, _ = self._compute_regular_losses(preds, batch)
-        #         display_loss[1] = pose_loss_value
-        #     except Exception as e:
-        #         LOGGER.warning(f"計算顯示損失時出錯: {e}")
-       
-        # total_loss = torch.zeros_like(display_loss, requires_grad=False)
-
-        # return total_loss * batch_size, display_loss
-
-        # 標準模式：計算並優化所有損失
-        all_losses = self._compute_regular_losses(preds, batch)
-        box_loss, pose_loss, kobj_loss, cls_loss, dfl_loss, loss = all_losses
-        
-        # 添加蒸餾損失（如果有）
-        distill_loss = self._compute_distillation_loss(preds, batch)
-        loss[5] = distill_loss
-        
-        # 應用權重
-        loss[0] *= self.hyp.box    # box gain
-        loss[1] *= self.hyp.pose   # pose gain
-        loss[2] *= self.hyp.kobj   # kobj gain
-        loss[3] *= self.hyp.cls    # cls gain
-        loss[4] *= self.hyp.dfl    # dfl gain
-        loss[5] *= self.hyp.distill  # distillation gain
-        
-        # 創建顯示損失
-        display_loss = loss.detach().clone()
-        
-        # 標準模式: 返回所有損失之和
-        return loss * batch_size, display_loss
+            # 標準模式：計算並優化所有損失
+            all_losses = self._compute_regular_losses(preds, batch)
+            box_loss, pose_loss, kobj_loss, cls_loss, dfl_loss, loss = all_losses
+            
+            # 應用權重
+            loss[0] *= self.hyp.box    # box gain
+            loss[1] *= self.hyp.pose   # pose gain
+            loss[2] *= self.hyp.kobj   # kobj gain
+            loss[3] *= self.hyp.cls    # cls gain
+            loss[4] *= self.hyp.dfl    # dfl gain
+            # loss[5] *= self.hyp.distill  # distillation gain
+            
+            # 創建顯示損失
+            display_loss = loss.detach().clone()
+            
+            # 標準模式: 返回所有損失之和
+            return loss * batch_size, display_loss
 
     def _compute_distillation_loss(self, preds, batch):
         """計算實際的蒸餾損失，返回可用於優化的損失值"""
@@ -633,9 +615,6 @@ class v8PoseLoss(v8DetectionLoss):
             pose_loss = pose_loss_value
             kobj_loss = kobj_loss_value
             loss[1], loss[2] = pose_loss, kobj_loss
-            
-            # if not batch.get('pure_distill', False):
-            #     print("pose loss", pose_loss)
 
         return box_loss, pose_loss, kobj_loss, cls_loss, dfl_loss, loss
 

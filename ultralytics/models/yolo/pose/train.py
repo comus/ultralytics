@@ -209,10 +209,6 @@ class PoseTrainer(yolo.detect.DetectionTrainer):
         if hasattr(self, 'distill_loss_instance') and self.distill_loss_instance is not None:
             batch["distill_instance"] = self.distill_loss_instance
             LOGGER.debug(f"Added distillation instance to batch for epoch {self.epoch}")
-
-        # 添加純蒸餾標誌
-        if hasattr(self, 'pure_distill') and self.pure_distill:
-            batch["pure_distill"] = True
         
         return batch
 
