@@ -131,14 +131,23 @@ class ReviewKDLoss(nn.Module):
         return loss
 
 class FGDLoss(nn.Module):
-    """Feature Guided Distillation Loss - 優化版本，專為姿態估計任務設計"""
-    def __init__(self, student_channels, teacher_channels, spatial_weight=1.5, channel_weight=1.0):
+    """增強版特徵引導蒸餾 - 專為姿態估計優化"""
+    def __init__(self, student_channels, teacher_channels, spatial_weight=2.0, channel_weight=0.6):
         super(FGDLoss, self).__init__()
-        self.spatial_weight = spatial_weight    # 空間特徵權重，姿態估計更注重空間
-        self.channel_weight = channel_weight    # 通道特徵權重
+        self.spatial_weight = spatial_weight    # 更強的空間權重
+        self.channel_weight = channel_weight    # 降低通道權重
+        # 增加邊緣感知機制
+        self.edge_filter = nn.Conv2d(1, 1, kernel_size=3, padding=1, bias=False).to(
+            'cuda' if torch.cuda.is_available() else 'cpu')
+        self.edge_filter.weight.data.copy_(torch.tensor([
+            [-1, -1, -1],
+            [-1,  8, -1],
+            [-1, -1, -1]
+        ]).view(1, 1, 3, 3) / 8.0)
+        self.edge_filter.requires_grad_(False)  # 凍結參數
         
     def forward(self, y_s, y_t):
-        """計算FGD損失，強調空間特徵保留
+        """計算增強版FGD損失，特別優化姿態估計的空間特徵保留
         
         Args:
             y_s (list): 學生模型的預測，形狀為 (N, C, H, W) 的張量列表
@@ -153,35 +162,39 @@ class FGDLoss(nn.Module):
             if s.size(2) != t.size(2) or s.size(3) != t.size(3):
                 t = F.interpolate(t, size=(s.size(2), s.size(3)), mode='bilinear', align_corners=False)
                 
-            # 空間關係損失 - 保留空間結構信息，對姿態估計關鍵
             b, c, h, w = s.shape
             
-            # 1. L2損失 - 基本特徵匹配
-            l2_loss = F.mse_loss(s, t)
+            # 1. 基本特徵匹配 - 使用Huber損失減少異常值影響
+            l2_loss = F.smooth_l1_loss(s, t)
             
-            # 2. 空間注意力損失 - 確保空間關係一致性
-            # 創建空間注意力圖
+            # 2. 增強版空間注意力損失
             s_spatial = torch.mean(s, dim=1, keepdim=True)  # [b, 1, h, w]
             t_spatial = torch.mean(t, dim=1, keepdim=True)  # [b, 1, h, w]
             
-            # 空間注意力圖L2損失
-            spatial_loss = F.mse_loss(s_spatial, t_spatial) * self.spatial_weight
+            # 提取空間特徵的邊緣信息
+            s_edge = self.edge_filter(s_spatial)
+            t_edge = self.edge_filter(t_spatial)
             
-            # 3. 通道關係損失 - 確保語義信息一致性
-            # 計算通道間相似性矩陣
+            # 空間注意力+邊緣感知的組合損失
+            spatial_loss = (F.mse_loss(s_spatial, t_spatial) + 
+                           F.mse_loss(s_edge, t_edge)) * self.spatial_weight
+            
+            # 3. 通道關係損失 - 專注於重要通道
             s_flat = s.view(b, c, -1)  # [b, c, h*w]
             t_flat = t.view(b, c, -1)  # [b, c, h*w]
             
-            s_flat_norm = F.normalize(s_flat, dim=2)  # 在空間維度上標準化
+            # 通道歸一化
+            s_flat_norm = F.normalize(s_flat, dim=2)
             t_flat_norm = F.normalize(t_flat, dim=2)
             
+            # 計算通道相關矩陣
             s_corr = torch.bmm(s_flat_norm, s_flat_norm.transpose(1, 2)) / (h*w)  # [b, c, c]
             t_corr = torch.bmm(t_flat_norm, t_flat_norm.transpose(1, 2)) / (h*w)  # [b, c, c]
             
-            # 通道相關性矩陣L2損失
+            # 通道相關性損失
             channel_loss = F.mse_loss(s_corr, t_corr) * self.channel_weight
             
-            # 組合損失
+            # 4. 組合損失
             total_loss = l2_loss + spatial_loss + channel_loss
             losses.append(total_loss)
             
@@ -277,8 +290,7 @@ class FeatureLoss(nn.Module):
         elif distiller == 'rev':
             self.feature_loss = ReviewKDLoss(channels_s, channels_t)
         elif distiller == 'fgd':
-            # 優化：為姿態估計任務配置更高的空間權重
-            self.feature_loss = FGDLoss(channels_s, channels_t, spatial_weight=1.5, channel_weight=1.0)
+            self.feature_loss = FGDLoss(channels_s, channels_t, spatial_weight=2.0, channel_weight=0.6)
         elif distiller == 'pkd':
             self.feature_loss = PKDLoss(channels_s, channels_t)
         else:
