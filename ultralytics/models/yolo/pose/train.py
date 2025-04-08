@@ -106,6 +106,8 @@ class PoseTrainer(yolo.detect.DetectionTrainer):
             _callbacks["on_val_end"].append(self.distill_on_val_end)
             _callbacks["on_train_end"].append(self.distill_on_train_end)
             _callbacks["teardown"].append(self.distill_teardown)
+
+        _callbacks["on_train_start"].append(self.on_train_start)
         
         # 調用父類的初始化方法
         super().__init__(cfg, overrides, _callbacks)
@@ -186,6 +188,31 @@ class PoseTrainer(yolo.detect.DetectionTrainer):
                 distiller=self.distillation_loss,
                 layers=self.distillation_layers
             )
+
+    def on_train_start(self, trainer):
+        # 預設凍結所有層
+        for name, param in self.model.named_parameters():
+            param.requires_grad = False
+
+        # 凍結所有BN層並記錄
+        bn_layer_names = []
+        for name, m in self.model.named_modules():
+            if isinstance(m, torch.nn.BatchNorm2d):
+                m.eval()  # 設置為評估模式
+                m.track_running_stats = False  # 停止更新統計量
+                bn_layer_names.append(name)
+        
+        LOGGER.info(f"\n已凍結 {len(bn_layer_names)} 個 BN 層，這些層不會更新統計量:")
+        # 顯示部分BN層名稱作為示例
+        for i, name in enumerate(bn_layer_names):
+            if i < 10 or i >= len(bn_layer_names) - 5:  # 顯示前10個和最後5個
+                LOGGER.info(f"  - {name}")
+            elif i == 10:
+                LOGGER.info(f"  ... (省略 {len(bn_layer_names) - 15} 個 BN 層) ...")
+        
+        LOGGER.info("純蒸餾模式: 所有BN層已凍結，不再更新統計量")
+        LOGGER.info("------------------------------------")
+
 
     def distill_on_epoch_start(self, trainer):
         """每個 epoch 開始時註冊鉤子"""
