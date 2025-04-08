@@ -144,8 +144,8 @@ class PoseTrainer(yolo.detect.DetectionTrainer):
             LOGGER.info("階段2: 解凍蒸餾層")
 
             distillation_loss = "cwd"
-            distillation_layers = ["6", "8", "13", "16", "19", "22"]
-            self.model.args.distill = 0.00000001
+            distillation_layers = ["22"]
+            self.model.args.distill = 0.000000001
 
             # 預設凍結所有層
             for name, param in self.model.named_parameters():
