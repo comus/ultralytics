@@ -131,12 +131,14 @@ class ReviewKDLoss(nn.Module):
         return loss
 
 class FGDLoss(nn.Module):
-    """Feature Guided Distillation Loss"""
-    def __init__(self, student_channels, teacher_channels):
+    """Feature Guided Distillation Loss - 優化版本，專為姿態估計任務設計"""
+    def __init__(self, student_channels, teacher_channels, spatial_weight=1.5, channel_weight=1.0):
         super(FGDLoss, self).__init__()
+        self.spatial_weight = spatial_weight    # 空間特徵權重，姿態估計更注重空間
+        self.channel_weight = channel_weight    # 通道特徵權重
         
     def forward(self, y_s, y_t):
-        """計算FGD損失
+        """計算FGD損失，強調空間特徵保留
         
         Args:
             y_s (list): 學生模型的預測，形狀為 (N, C, H, W) 的張量列表
@@ -151,9 +153,38 @@ class FGDLoss(nn.Module):
             if s.size(2) != t.size(2) or s.size(3) != t.size(3):
                 t = F.interpolate(t, size=(s.size(2), s.size(3)), mode='bilinear', align_corners=False)
                 
-            # L2損失
-            loss = F.mse_loss(s, t)
-            losses.append(loss)
+            # 空間關係損失 - 保留空間結構信息，對姿態估計關鍵
+            b, c, h, w = s.shape
+            
+            # 1. L2損失 - 基本特徵匹配
+            l2_loss = F.mse_loss(s, t)
+            
+            # 2. 空間注意力損失 - 確保空間關係一致性
+            # 創建空間注意力圖
+            s_spatial = torch.mean(s, dim=1, keepdim=True)  # [b, 1, h, w]
+            t_spatial = torch.mean(t, dim=1, keepdim=True)  # [b, 1, h, w]
+            
+            # 空間注意力圖L2損失
+            spatial_loss = F.mse_loss(s_spatial, t_spatial) * self.spatial_weight
+            
+            # 3. 通道關係損失 - 確保語義信息一致性
+            # 計算通道間相似性矩陣
+            s_flat = s.view(b, c, -1)  # [b, c, h*w]
+            t_flat = t.view(b, c, -1)  # [b, c, h*w]
+            
+            s_flat_norm = F.normalize(s_flat, dim=2)  # 在空間維度上標準化
+            t_flat_norm = F.normalize(t_flat, dim=2)
+            
+            s_corr = torch.bmm(s_flat_norm, s_flat_norm.transpose(1, 2)) / (h*w)  # [b, c, c]
+            t_corr = torch.bmm(t_flat_norm, t_flat_norm.transpose(1, 2)) / (h*w)  # [b, c, c]
+            
+            # 通道相關性矩陣L2損失
+            channel_loss = F.mse_loss(s_corr, t_corr) * self.channel_weight
+            
+            # 組合損失
+            total_loss = l2_loss + spatial_loss + channel_loss
+            losses.append(total_loss)
+            
         loss = sum(losses)
         return loss
 
@@ -246,7 +277,8 @@ class FeatureLoss(nn.Module):
         elif distiller == 'rev':
             self.feature_loss = ReviewKDLoss(channels_s, channels_t)
         elif distiller == 'fgd':
-            self.feature_loss = FGDLoss(channels_s, channels_t)
+            # 優化：為姿態估計任務配置更高的空間權重
+            self.feature_loss = FGDLoss(channels_s, channels_t, spatial_weight=1.5, channel_weight=1.0)
         elif distiller == 'pkd':
             self.feature_loss = PKDLoss(channels_s, channels_t)
         else:
@@ -296,7 +328,13 @@ class FeatureLoss(nn.Module):
             t = t.type(next(self.align_module[idx].parameters()).dtype)
 
             try:
-                if self.distiller == "cwd":
+                # 特別處理FGD方法，直接傳遞特徵而不進行標準化
+                if self.distiller == "fgd":
+                    if s.shape[1] != t.shape[1]:  # 如果通道數不匹配
+                        s = self.align_module[idx](s)
+                    stu_feats.append(s)
+                    tea_feats.append(t.detach())
+                elif self.distiller == "cwd":
                     s = self.align_module[idx](s)
                     # LOGGER.info(f"  對齊後學生特徵形狀: {s.shape}")
                     stu_feats.append(s)
