@@ -25,7 +25,7 @@ student_model.train(
     # teacher=teacher_model.model,
     # distillation_loss="cwd",
     # distillation_layers=["6", "8", "13", "16", "19", "22"],  # 使用所有關鍵層
-    epochs=20,                            
+    epochs=40,                            
     batch=32,
     workers=8,
     lr0=0.0003,                           
