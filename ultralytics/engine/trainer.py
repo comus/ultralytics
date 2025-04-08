@@ -637,6 +637,8 @@ class BaseTrainer:
             (tuple): A tuple containing metrics dictionary and fitness score.
         """
         metrics = self.validator(self)
+        print("!!!validate metrics", metrics)
+        print("!!!validate loss", self.loss)
         fitness = metrics.pop("fitness", -self.loss.detach().cpu().numpy())  # use loss as fitness measure if not found
         if not self.best_fitness or self.best_fitness < fitness:
             self.best_fitness = fitness
@@ -644,6 +646,8 @@ class BaseTrainer:
             if RANK in {-1, 0}:  # 只在主进程中保存
                 self.best_metrics_logger.save_metrics(self.epoch, metrics, fitness)
             
+        print("!!!validate metrics", metrics)
+        print("!!!validate fitness", fitness)
         return metrics, fitness
 
     def get_model(self, cfg=None, weights=None, verbose=True):
