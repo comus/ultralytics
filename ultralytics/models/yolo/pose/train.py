@@ -135,14 +135,14 @@ class PoseTrainer(yolo.detect.DetectionTrainer):
                 param.requires_grad = False
 
             # 凍結所有BN層並記錄
-            bn_layer_names = []
-            for name, m in self.model.named_modules():
-                if isinstance(m, torch.nn.BatchNorm2d):
-                    m.eval()  # 設置為評估模式
-                    m.track_running_stats = False  # 停止更新統計量
-                    bn_layer_names.append(name)
+            # bn_layer_names = []
+            # for name, m in self.model.named_modules():
+            #     if isinstance(m, torch.nn.BatchNorm2d):
+            #         m.eval()  # 設置為評估模式
+            #         m.track_running_stats = False  # 停止更新統計量
+            #         bn_layer_names.append(name)
             
-            LOGGER.info(f"已凍結 {len(bn_layer_names)} 個 BN 層，這些層不會更新統計量")
+            # LOGGER.info(f"已凍結 {len(bn_layer_names)} 個 BN 層，這些層不會更新統計量")
 
         if self.epoch == 1:
             LOGGER.info("階段2: 解凍蒸餾層")
