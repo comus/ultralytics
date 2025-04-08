@@ -128,14 +128,6 @@ class PoseTrainer(yolo.detect.DetectionTrainer):
     def distill_on_train_start(self, trainer):
         """訓練開始時初始化蒸餾損失實例和凍結非目標層"""
         if self.teacher is not None and self.distillation_loss is not None:
-            # 初始化蒸餾損失實例
-            self.distill_loss_instance = DistillationLoss(
-                models=self.model,
-                modelt=self.teacher,
-                distiller=self.distillation_loss,
-                layers=self.distillation_layers
-            )
-
             # 在純蒸餾模式下進行優化參數選擇
             if self.pure_distill:
                 # 獲取需要蒸餾的層ID
@@ -186,6 +178,14 @@ class PoseTrainer(yolo.detect.DetectionTrainer):
                 
                 LOGGER.info("純蒸餾模式: 所有BN層已凍結，不再更新統計量")
                 LOGGER.info("------------------------------------")
+
+            # 初始化蒸餾損失實例
+            self.distill_loss_instance = DistillationLoss(
+                models=self.model,
+                modelt=self.teacher,
+                distiller=self.distillation_loss,
+                layers=self.distillation_layers
+            )
 
     def distill_on_epoch_start(self, trainer):
         """每個 epoch 開始時註冊鉤子"""
