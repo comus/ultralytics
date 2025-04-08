@@ -204,6 +204,9 @@ class PoseTrainer(yolo.detect.DetectionTrainer):
     def preprocess_batch(self, batch):
         """預處理批次數據並添加蒸餾相關信息"""
         batch = super().preprocess_batch(batch)
+
+        print("hasattr(self, 'distill_loss_instance')", hasattr(self, 'distill_loss_instance'))
+        print("self.distill_loss_instance", self.distill_loss_instance)
         
         # 添加蒸餾相關信息，僅在啟用蒸餾時添加
         if hasattr(self, 'distill_loss_instance') and self.distill_loss_instance is not None:
