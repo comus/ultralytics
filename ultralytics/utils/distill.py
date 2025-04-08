@@ -4,43 +4,39 @@ import torch.nn.functional as F
 from ultralytics.utils import LOGGER
 
 class CWDLoss(nn.Module):
-    """PyTorch version of `Channel-wise Distillation for Semantic Segmentation.
-    <https://arxiv.org/abs/2011.13256>`_.
+    """Channel-wise Knowledge Distillation for Dense Prediction.
+    https://arxiv.org/abs/2011.13256
     """
-
     def __init__(self, channels_s, channels_t, tau=1.0):
         super().__init__()
         self.tau = tau
-
+        
     def forward(self, y_s, y_t):
-        """Forward computation.
+        """計算CWD損失
+        
         Args:
-            y_s (list): The student model prediction with
-                shape (N, C, H, W) in list.
-            y_t (list): The teacher model prediction with
-                shape (N, C, H, W) in list.
-        Return:
-            torch.Tensor: The calculated loss value of all stages.
+            y_s (list): 學生模型的預測，形狀為 (N, C, H, W) 的張量列表
+            y_t (list): 教師模型的預測，形狀為 (N, C, H, W) 的張量列表
+            
+        Returns:
+            torch.Tensor: 所有階段的計算損失總和
         """
         assert len(y_s) == len(y_t)
         losses = []
-
         for idx, (s, t) in enumerate(zip(y_s, y_t)):
-            assert s.shape == t.shape
+            if s.size(2) != t.size(2) or s.size(3) != t.size(3):
+                t = F.interpolate(t, size=(s.size(2), s.size(3)), mode='bilinear', align_corners=False)
+                
             N, C, H, W = s.shape
-
-            # normalize in channel dimension
+            # 在通道維度上歸一化
             softmax_pred_T = F.softmax(t.view(-1, W * H) / self.tau, dim=1)
-
             logsoftmax = torch.nn.LogSoftmax(dim=1)
             cost = torch.sum(
                 softmax_pred_T * logsoftmax(t.view(-1, W * H) / self.tau) -
                 softmax_pred_T * logsoftmax(s.view(-1, W * H) / self.tau)) * (self.tau ** 2)
-
             losses.append(cost / (C * N))
         loss = sum(losses)
         return loss
-
 
 class MGDLoss(nn.Module):
     """Masked Generative Distillation"""
