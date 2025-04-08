@@ -6,7 +6,6 @@ from copy import copy
 
 import torch.nn as nn
 import torch
-import torch.optim as optim
 
 from ultralytics.models import yolo
 from ultralytics.nn.tasks import PoseModel
@@ -70,14 +69,36 @@ class PoseTrainer(yolo.detect.DetectionTrainer):
 
         # 設置教師模型和蒸餾方法
         self.teacher = overrides.get("teacher", None)
+        self.distillation_loss = overrides.get("distillation_loss", None)
+        self.distillation_layers = overrides.get("distillation_layers", None)
         self.distill_loss_instance = None
+        self.pure_distill = overrides.get("pure_distill", False)
+
+        # 蒸餾方法映射字典，方便將簡短名稱映射到完整實現
+        self.distillation_methods = {
+            "cwd": "cwd",  # Channel-wise Distillation
+            "mgd": "mgd",  # Masked Generative Distillation
+            "rev": "rev",  # Review KD
+            "fgd": "fgd",  # Feature Guided Distillation
+            "pkd": "pkd",  # Probabilistic Knowledge Distillation
+            "kd": "cwd",   # 默認使用 CWD
+            "review": "rev",
+            "feature": "fgd"
+        }
         
-        # 如果有教師模型和蒸餾方法
-        if self.teacher is not None:
-            # 創建自定義回調列表
+        # 標準化蒸餾方法名稱
+        if self.distillation_loss:
+            self.distillation_loss = self.distillation_methods.get(
+                self.distillation_loss.lower(), self.distillation_loss
+            )
+        
+        # 如果有教师模型和蒸馏方法，添加对应的回调
+        if self.teacher is not None and self.distillation_loss is not None:
+            # 创建自定义回调列表
             if _callbacks is None:
                 _callbacks = callbacks.get_default_callbacks()
-
+                
+            # 添加蒸馏相关回调到各事件中
             _callbacks["on_train_start"].append(self.distill_on_train_start)
             _callbacks["on_train_epoch_start"].append(self.distill_on_epoch_start)
             _callbacks["on_train_epoch_end"].append(self.distill_on_epoch_end)
@@ -85,8 +106,6 @@ class PoseTrainer(yolo.detect.DetectionTrainer):
             _callbacks["on_val_end"].append(self.distill_on_val_end)
             _callbacks["on_train_end"].append(self.distill_on_train_end)
             _callbacks["teardown"].append(self.distill_teardown)
-            
-            LOGGER.info("已啟用蒸餾訓練策略")
         
         # 調用父類的初始化方法
         super().__init__(cfg, overrides, _callbacks)
@@ -98,7 +117,7 @@ class PoseTrainer(yolo.detect.DetectionTrainer):
                 v.requires_grad = False
             self.teacher = self.teacher.to(self.device)
             self.teacher.eval()
-            LOGGER.info(f"初始化教師模型已完成，設為評估模式")
+            LOGGER.info(f"Using {self.distillation_loss} distillation with teacher model")
 
         if isinstance(self.args.device, str) and self.args.device.lower() == "mps":
             LOGGER.warning(
@@ -106,187 +125,108 @@ class PoseTrainer(yolo.detect.DetectionTrainer):
                 "See https://github.com/ultralytics/ultralytics/issues/4031."
             )
 
-
     def distill_on_train_start(self, trainer):
-        if self.teacher is not None:
-            # 初始化蒸餾損失實例，支持增強版FGD
+        """訓練開始時初始化蒸餾損失實例和凍結非目標層"""
+        if self.teacher is not None and self.distillation_loss is not None:
+            # 初始化蒸餾損失實例
             self.distill_loss_instance = DistillationLoss(
                 models=self.model,
                 modelt=self.teacher,
-                distiller="cwd",
-                layers=["22"]
+                distiller=self.distillation_loss,
+                layers=self.distillation_layers
             )
 
-            # 獲取需要蒸餾的層ID
-            target_layers = ["22"]
-            
-            # 預設凍結所有層
-            for name, param in self.model.named_parameters():
-                param.requires_grad = False
-            
-            # 只解凍目標層的cv2.conv參數
-            unfrozen_count = 0
-            unfrozen_names = []
-            for name, param in self.model.named_parameters():
-                if "model." in name and any(f".{layer}." in name for layer in target_layers):
-                    if ".cv2.conv" in name:  # 精確匹配cv2的卷積層參數
-                        param.requires_grad = True
-                        unfrozen_count += 1
-                        unfrozen_names.append(name)
-            
-            # 計算可訓練參數比例
-            total_params = sum(p.numel() for p in self.model.parameters())
-            trainable_params = sum(p.numel() for p in self.model.parameters() if p.requires_grad)
-            
-            LOGGER.info(f"純蒸餾模式：只優化層 {target_layers} 中的 cv2.conv 參數")
-            LOGGER.info(f"解凍了 {unfrozen_count} 個參數組，可訓練參數比例: {trainable_params/total_params:.2%}")
+            # 在純蒸餾模式下進行優化參數選擇
+            if self.pure_distill:
+                # 獲取需要蒸餾的層ID
+                target_layers = self.distillation_layers
+                
+                # 預設凍結所有層
+                for name, param in self.model.named_parameters():
+                    param.requires_grad = False
+                
+                # 只解凍目標層的cv2.conv參數
+                unfrozen_count = 0
+                unfrozen_names = []
+                for name, param in self.model.named_parameters():
+                    if "model." in name and any(f".{layer}." in name for layer in target_layers):
+                        if ".cv2.conv" in name:  # 精確匹配cv2的卷積層參數
+                            param.requires_grad = True
+                            unfrozen_count += 1
+                            unfrozen_names.append(name)
+                
+                # 計算可訓練參數比例
+                total_params = sum(p.numel() for p in self.model.parameters())
+                trainable_params = sum(p.numel() for p in self.model.parameters() if p.requires_grad)
+                
+                LOGGER.info(f"純蒸餾模式：只優化層 {target_layers} 中的 cv2.conv 參數")
+                LOGGER.info(f"解凍了 {unfrozen_count} 個參數組，可訓練參數比例: {trainable_params/total_params:.2%}")
 
-            # 記錄凍結狀態的更詳細資訊
-            LOGGER.info("--------- 參數凍結狀態總結 ---------")
-            LOGGER.info("以下參數將被訓練 (requires_grad=True):")
-            for name in unfrozen_names:
-                LOGGER.info(f"  - {name}")
-            
-            # 凍結所有BN層並記錄
-            bn_layer_names = []
-            for name, m in self.model.named_modules():
-                if isinstance(m, torch.nn.BatchNorm2d):
-                    m.eval()  # 設置為評估模式
-                    m.track_running_stats = False  # 停止更新統計量
-                    bn_layer_names.append(name)
-            
-            LOGGER.info(f"\n已凍結 {len(bn_layer_names)} 個 BN 層，這些層不會更新統計量:")
-            # 顯示部分BN層名稱作為示例
-            for i, name in enumerate(bn_layer_names):
-                if i < 10 or i >= len(bn_layer_names) - 5:  # 顯示前10個和最後5個
+                # 記錄凍結狀態的更詳細資訊
+                LOGGER.info("--------- 參數凍結狀態總結 ---------")
+                LOGGER.info("以下參數將被訓練 (requires_grad=True):")
+                for name in unfrozen_names:
                     LOGGER.info(f"  - {name}")
-                elif i == 10:
-                    LOGGER.info(f"  ... (省略 {len(bn_layer_names) - 15} 個 BN 層) ...")
-            
-            LOGGER.info("純蒸餾模式: 所有BN層已凍結，不再更新統計量")
-            LOGGER.info("------------------------------------")
+                
+                # 凍結所有BN層並記錄
+                bn_layer_names = []
+                for name, m in self.model.named_modules():
+                    if isinstance(m, torch.nn.BatchNorm2d):
+                        m.eval()  # 設置為評估模式
+                        m.track_running_stats = False  # 停止更新統計量
+                        bn_layer_names.append(name)
+                
+                LOGGER.info(f"\n已凍結 {len(bn_layer_names)} 個 BN 層，這些層不會更新統計量:")
+                # 顯示部分BN層名稱作為示例
+                for i, name in enumerate(bn_layer_names):
+                    if i < 10 or i >= len(bn_layer_names) - 5:  # 顯示前10個和最後5個
+                        LOGGER.info(f"  - {name}")
+                    elif i == 10:
+                        LOGGER.info(f"  ... (省略 {len(bn_layer_names) - 15} 個 BN 層) ...")
+                
+                LOGGER.info("純蒸餾模式: 所有BN層已凍結，不再更新統計量")
+                LOGGER.info("------------------------------------")
 
     def distill_on_epoch_start(self, trainer):
-        if self.epoch == 0:
-            LOGGER.info("階段1: 純蒸餾")
-
-            distillation_loss = "cwd"
-            distillation_layers = ["22"]
-            self.model.args.distill = 0.0
-
-            # 初始化蒸餾損失實例
-            # self.distill_loss_instance = DistillationLoss(
-            #     models=self.model,
-            #     modelt=self.teacher,
-            #     distiller=distillation_loss,
-            #     layers=distillation_layers,
-            # )
-            
-            # # 預設凍結所有層
-            # for name, param in self.model.named_parameters():
-            #     param.requires_grad = False
-            
-            # # 優化: 解凍目標層的所有參數，除了BN層
-            # unfrozen_count = 0
-            # unfrozen_names = []
-            # for name, param in self.model.named_parameters():
-            #     if "model." in name and any(f".{layer}." in name for layer in distillation_layers):
-            #         # 解凍非BN層參數
-            #         if not any(bn_type in name for bn_type in ['.bn.', '.norm.']):
-            #             param.requires_grad = True
-            #             unfrozen_count += 1
-            #             unfrozen_names.append(name)
-            
-            # # 計算可訓練參數比例
-            # total_params = sum(p.numel() for p in self.model.parameters())
-            # trainable_params = sum(p.numel() for p in self.model.parameters() if p.requires_grad)
-            
-            # LOGGER.info(f"優化層 {distillation_layers} 中的非BN參數")
-            # LOGGER.info(f"解凍了 {unfrozen_count} 個參數組，可訓練參數比例: {trainable_params/total_params:.2%}")
-
-            # # 凍結所有BN層並記錄
-            # bn_layer_names = []
-            # for name, m in self.model.named_modules():
-            #     if isinstance(m, torch.nn.BatchNorm2d):
-            #         m.eval()  # 設置為評估模式
-            #         m.track_running_stats = False  # 停止更新統計量
-            #         bn_layer_names.append(name)
-            
-            # LOGGER.info(f"已凍結 {len(bn_layer_names)} 個 BN 層，這些層不會更新統計量")
-
-            # ------------------------------------------------------------
-
-            # # 預設凍結所有層
-            # for name, param in self.model.named_parameters():
-            #     param.requires_grad = False
-            
-            # # 只解凍目標層的cv2.conv參數
-            # unfrozen_count = 0
-            # unfrozen_names = []
-            # for name, param in self.model.named_parameters():
-            #     if "model." in name and any(f".{layer}." in name for layer in distillation_layers):
-            #         if ".cv2.conv" in name:  # 精確匹配cv2的卷積層參數
-            #             param.requires_grad = True
-            #             unfrozen_count += 1
-            #             unfrozen_names.append(name)
-            
-            # # 計算可訓練參數比例
-            # total_params = sum(p.numel() for p in self.model.parameters())
-            # trainable_params = sum(p.numel() for p in self.model.parameters() if p.requires_grad)
-            
-            # LOGGER.info(f"純蒸餾模式：只優化層 {distillation_layers} 中的 cv2.conv 參數")
-            # LOGGER.info(f"解凍了 {unfrozen_count} 個參數組，可訓練參數比例: {trainable_params/total_params:.2%}")
-
-            # # 記錄凍結狀態的更詳細資訊
-            # LOGGER.info("--------- 參數凍結狀態總結 ---------")
-            # LOGGER.info("以下參數將被訓練 (requires_grad=True):")
-            # for name in unfrozen_names:
-            #     LOGGER.info(f"  - {name}")
-            
-            # # 凍結所有BN層並記錄
-            # bn_layer_names = []
-            # for name, m in self.model.named_modules():
-            #     if isinstance(m, torch.nn.BatchNorm2d):
-            #         m.eval()  # 設置為評估模式
-            #         m.track_running_stats = False  # 停止更新統計量
-            #         bn_layer_names.append(name)
-            
-            # LOGGER.info(f"\n已凍結 {len(bn_layer_names)} 個 BN 層，這些層不會更新統計量:")
-            # # 顯示部分BN層名稱作為示例
-            # for i, name in enumerate(bn_layer_names):
-            #     if i < 10 or i >= len(bn_layer_names) - 5:  # 顯示前10個和最後5個
-            #         LOGGER.info(f"  - {name}")
-            #     elif i == 10:
-            #         LOGGER.info(f"  ... (省略 {len(bn_layer_names) - 15} 個 BN 層) ...")
-            
-            # LOGGER.info("純蒸餾模式: 所有BN層已凍結，不再更新統計量")
-            # LOGGER.info("------------------------------------")
-
-        # 註冊鉤子
-        self.distill_loss_instance.register_hook()
-        for i, h in enumerate(self.distill_loss_instance.remove_handle):
-            LOGGER.info(f"鉤子 {i+1} 已註冊: {h}")
-            
+        """每個 epoch 開始時註冊鉤子"""
+        if hasattr(self, 'distill_loss_instance') and self.distill_loss_instance is not None:
+            self.distill_loss_instance.register_hook()
+            # 添加這行來測試鉤子是否正確註冊
+            for i, h in enumerate(self.distill_loss_instance.remove_handle):
+                LOGGER.info(f"鉤子 {i+1} 已註冊: {h}")
 
     def distill_on_epoch_end(self, trainer):
-        self.distill_loss_instance.remove_handle_()
-        LOGGER.debug(f"Removed distillation hooks at epoch {self.epoch} end")
+        """每個 epoch 結束時取消鉤子"""
+        if hasattr(self, 'distill_loss_instance') and self.distill_loss_instance is not None:
+            self.distill_loss_instance.remove_handle_()
+            LOGGER.debug(f"Removed distillation hooks at epoch {self.epoch} end")
 
     def distill_on_val_start(self, validator):
-        self.distill_loss_instance.remove_handle_()
-        LOGGER.debug("Ensuring distillation hooks are removed for validation")
+        """驗證開始時確保鉤子被移除"""
+        if hasattr(self, 'distill_loss_instance') and self.distill_loss_instance is not None:
+            # 確保在驗證過程中沒有鉤子
+            self.distill_loss_instance.remove_handle_()
+            LOGGER.debug("Ensuring distillation hooks are removed for validation")
 
     def distill_on_val_end(self, validator):
+        """驗證結束後不需要做任何事，因為每個 epoch 開始時會重新註冊鉤子"""
         pass
 
     def distill_on_train_end(self, trainer):
-        self.distill_loss_instance.remove_handle_()
-        LOGGER.info("Cleaned up distillation resources at training end")
+        """訓練結束時清理資源"""
+        if hasattr(self, 'distill_loss_instance') and self.distill_loss_instance is not None:
+            self.distill_loss_instance.remove_handle_()
+            LOGGER.info("Cleaned up distillation resources at training end")
 
     def distill_teardown(self, trainer):
-        self.distill_loss_instance.remove_handle_()
-        self.distill_loss_instance = None
-        LOGGER.debug("Final cleanup of distillation resources during teardown")
+        """最終清理，確保鉤子被移除"""
+        if hasattr(self, 'distill_loss_instance') and self.distill_loss_instance is not None:
+            try:
+                self.distill_loss_instance.remove_handle_()
+            except Exception as e:
+                LOGGER.warning(f"Error removing hooks during teardown: {e}")
+            self.distill_loss_instance = None
+            LOGGER.debug("Final cleanup of distillation resources during teardown")
 
     def get_model(self, cfg=None, weights=None, verbose=True):
         """
@@ -314,6 +254,10 @@ class PoseTrainer(yolo.detect.DetectionTrainer):
         if hasattr(self, 'distill_loss_instance') and self.distill_loss_instance is not None:
             batch["distill_instance"] = self.distill_loss_instance
             LOGGER.debug(f"Added distillation instance to batch for epoch {self.epoch}")
+
+        # 添加純蒸餾標誌
+        if hasattr(self, 'pure_distill') and self.pure_distill:
+            batch["pure_distill"] = True
         
         return batch
 
