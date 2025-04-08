@@ -114,7 +114,7 @@ class PoseTrainer(yolo.detect.DetectionTrainer):
         if self.epoch == 0:
             LOGGER.info("階段1: 純蒸餾")
 
-            distillation_loss = "cwd"
+            distillation_loss = "mgd"
             distillation_layers = ["22"]
             self.model.args.distill = 0.0
 
@@ -146,6 +146,16 @@ class PoseTrainer(yolo.detect.DetectionTrainer):
             distillation_loss = "cwd"
             distillation_layers = ["22"]
             self.model.args.distill = 0.000000001
+
+            self.distill_loss_instance.remove_handle_()
+
+            # 初始化蒸餾損失實例
+            self.distill_loss_instance = DistillationLoss(
+                models=self.model,
+                modelt=self.teacher,
+                distiller=distillation_loss,
+                layers=distillation_layers,
+            )
 
             # 預設凍結所有層
             for name, param in self.model.named_parameters():
