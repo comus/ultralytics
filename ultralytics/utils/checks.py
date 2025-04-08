@@ -816,7 +816,16 @@ def print_args(args: Optional[dict] = None, show_file=True, show_func=False):
     except ValueError:
         file = Path(file).stem
     s = (f"{file}: " if show_file else "") + (f"{func}: " if show_func else "")
-    LOGGER.info(colorstr(s) + ", ".join(f"{k}={strip_auth(v)}" for k, v in args.items()))
+    
+    # Create argument strings, show "..." for "teacher" parameter
+    arg_strings = []
+    for k, v in args.items():
+        if k == "teacher":
+            arg_strings.append(f"{k}=...")
+        else:
+            arg_strings.append(f"{k}={strip_auth(v)}")
+    
+    LOGGER.info(colorstr(s) + ", ".join(arg_strings))
 
 
 def cuda_device_count() -> int:

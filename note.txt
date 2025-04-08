@@ -1,0 +1,182 @@
+BaseTrainer 在 _do_train 時會 _setup_train
+setup train 會 call setup_model
+setup_model 會 call self.get_model
+PoseTrainer 會透過 get_model 返回 model (PoseModel)
+
+BaseTrainer 在 _do_train 時就會
+```
+# Forward
+with autocast(self.amp):
+    batch = self.preprocess_batch(batch)
+    loss, self.loss_items = self.model(batch)
+    self.loss = loss.sum()
+    if RANK != -1:
+        self.loss *= world_size
+    self.tloss = (
+        (self.tloss * i + self.loss_items) / (i + 1) if self.tloss is not None else self.loss_items
+    )
+```
+在這裡就會進行 forward
+    - BaseModel.forward 時就會 return self.loss
+        - 設置 self.criterion = self.init_criterion()
+        - BaseModel.loss 會 preds = self.forward (此時的 BaseModel.forward 是用作 predict, return self.predict)
+        - return self.criterion(preds, batch)
+            - return v8PoseLoss(self)
+
+
+v8PoseLoss 的 self 是什麼?
+代表 PoseModel(DetectionModel(BaseModel))
+
+v8PoseLoss 根據 model 做了什麼
+首先會執行 def __init__(self, model) 進行初始化（參數是 model）
+之後在 train 的途中會執行 def __call__(self, preds, batch)
+preds, batch 是誰給的?
+- 是 BaseModel loss(self, batch, preds=None) 給的
+    batch
+        - 是 BaseModel forward(self, x, *args, **kwargs) 給的
+        - 但 BaseTrainer 的 _do_train 只有給 batch
+            - loss, self.loss_items = self.model(batch)
+    preds 是 loss 裡自己 self.forward(self.predict) 產生的
+        - self.forward (此時的 BaseModel.forward 是用作 predict, return self.predict)
+
+batch 的 type 是 dict
+- dict_keys(['batch_idx', 'bboxes', 'cls', 'im_file', 'img', 'keypoints', 'ori_shape', 'ratio_pad', 'resized_shape'])
+
+
+所以我要做的是讓學生模型有 teacher
+model.teacher
+
+
+
+
+
+class BaseTrainer:
+    def setup_model(self):
+        self.model = self.get_model(cfg=cfg, weights=weights, verbose=RANK == -1)  # calls Model(cfg, weights)
+    def _setup_train(self, world_size):
+        ckpt = self.setup_model()
+
+
+class PoseTrainer(yolo.detect.DetectionTrainer):
+    def get_model(self, cfg=None, weights=None, verbose=True):
+        model = PoseModel(cfg, ch=3, nc=self.data["nc"], data_kpt_shape=self.data["kpt_shape"], verbose=verbose)
+
+
+
+
+
+
+BaseTrainer 在 _do_train 時 會 call self.validate
+    - metrics = self.validator(self)
+        - metrics = self.validator(self)
+            - 建立
+                - 在 _setup_train 時已建立
+                    - self.validator = self.get_validator()
+                        - pose trainer 的 get_validator
+                            - return yolo.pose.PoseValidator
+
+根據提供的代碼，在這個實現中，validation 主要用於：
+早停機制：通過 self.stopper(epoch + 1, self.fitness) 判斷是否提前結束訓練。
+記錄評估指標：把驗證結果記錄到日誌和 CSV 文件中。
+保存最佳模型：當獲得更好的 fitness 時，會更新 self.best_fitness 並保存最佳模型。
+不會直接影響學習速率：在這段代碼中，validation 的結果並不會直接用來調整學習率。
+學習率的調整主要是通過預設的調度器（scheduler）來完成的，
+例如代碼中的 self._setup_scheduler() 和 self.scheduler.step()，
+它們是基於訓練輪次（epoch）而不是驗證結果來調整學習率。
+
+
+# BaseTrainer 在 _do_train 時 會 call self.validate
+class BaseTrainer:
+    def _do_train(self, world_size=1):
+        # Validation
+        if self.args.val or final_epoch or self.stopper.possible_stop or self.stop:
+            self.metrics, self.fitness = self.validate()
+
+# 每個 epoch 都會執行一下 BaseTrainer 的 validate
+# 所有 epochs 跑完最後會執行 BaseTrainer 的 final_eval
+#  - 最佳化模型
+#  - 再 validate 多一次
+    class BaseTrainer:
+        def validate(self):
+            metrics = self.validator(self)
+        def final_eval(self):
+            strip_optimizer(f, updates={k: ckpt[k]} if k in ckpt else None)
+            self.metrics = self.validator(model=f)
+
+
+# BaseTrainer 在 _setup_train 時會 call get_validator
+class BaseTrainer:
+    def _setup_train(self, world_size):
+        self.validator = self.get_validator()
+
+
+
+
+# pose trainer 會用到 get_validator 產生 PoseValidator 物件
+class PoseTrainer(yolo.detect.DetectionTrainer):
+    def get_validator(self):
+        """Returns an instance of the PoseValidator class for validation."""
+        self.loss_names = "box_loss", "pose_loss", "kobj_loss", "cls_loss", "dfl_loss"
+        return yolo.pose.PoseValidator(
+            self.test_loader, save_dir=self.save_dir, args=copy(self.args), _callbacks=self.callbacks
+        )
+
+
+
+
+每個 epoch 會呼叫一次 validator
+class BaseValidator:
+    def __call__(self, trainer=None, model=None):
+
+class DetectionValidator(BaseValidator):
+
+class PoseValidator(DetectionValidator):
+    # pose validator 會有自己的 desc
+    def get_desc(self):
+
+
+BaseModel forward 時就會呼叫 loss
+class BaseModel(torch.nn.Module):
+    """The BaseModel class serves as a base class for all the models in the Ultralytics YOLO family."""
+
+    def forward(self, x, *args, **kwargs):
+        """
+        Perform forward pass of the model for either training or inference.
+
+        If x is a dict, calculates and returns the loss for training. Otherwise, returns predictions for inference.
+
+        Args:
+            x (torch.Tensor | dict): Input tensor for inference, or dict with image tensor and labels for training.
+            *args (Any): Variable length argument list.
+            **kwargs (Any): Arbitrary keyword arguments.
+
+        Returns:
+            (torch.Tensor): Loss if x is a dict (training), or network predictions (inference).
+        """
+        if isinstance(x, dict):  # for cases of training and validating while training.
+            return self.loss(x, *args, **kwargs)
+        return self.predict(x, *args, **kwargs)
+
+
+
+class BaseModel(torch.nn.Module):
+    def loss(self, batch, preds=None):
+        if getattr(self, "criterion", None) is None:
+            self.criterion = self.init_criterion()
+
+        preds = self.forward(batch["img"]) if preds is None else preds
+        return self.criterion(preds, batch)
+
+class DetectionModel(BaseModel):
+
+class PoseModel(DetectionModel):
+    def init_criterion(self):
+        """Initialize the loss criterion for the PoseModel."""
+        return v8PoseLoss(self)
+    
+
+用來將最後模型壓縮的
+def strip_optimizer
+
+可以得到 fused model 的 info
+model_info

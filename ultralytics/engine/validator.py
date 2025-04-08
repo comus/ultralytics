@@ -229,6 +229,7 @@ class BaseValidator:
 
             self.run_callbacks("on_val_batch_end")
         stats = self.get_stats()
+        # print("!!!stats", stats)
         self.check_stats(stats)
         self.speed = dict(zip(self.speed.keys(), (x.t / len(self.dataloader.dataset) * 1e3 for x in dt)))
         self.finalize_metrics()
@@ -237,6 +238,7 @@ class BaseValidator:
         if self.training:
             model.float()
             results = {**stats, **trainer.label_loss_items(self.loss.cpu() / len(self.dataloader), prefix="val")}
+            print("results", {k: round(float(v), 5) for k, v in results.items()})
             return {k: round(float(v), 5) for k, v in results.items()}  # return results as 5 decimal place floats
         else:
             LOGGER.info(

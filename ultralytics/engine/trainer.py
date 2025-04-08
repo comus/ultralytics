@@ -54,6 +54,7 @@ from ultralytics.utils.torch_utils import (
     torch_distributed_zero_first,
     unset_deterministic,
 )
+from ultralytics.engine.best_metrics import BestMetricsLogger
 
 
 class BaseTrainer:
@@ -157,6 +158,8 @@ class BaseTrainer:
         self.callbacks = _callbacks or callbacks.get_default_callbacks()
         if RANK in {-1, 0}:
             callbacks.add_integration_callbacks(self)
+
+        self.best_metrics_logger = BestMetricsLogger(self.save_dir)
 
     def add_callback(self, event: str, callback):
         """Append the given callback to the event's callback list."""
@@ -523,7 +526,8 @@ class BaseTrainer:
     def _model_train(self):
         """Set model in training mode."""
         self.model.train()
-        # Freeze BN stat
+
+        # 原有的凍結邏輯
         for n, m in self.model.named_modules():
             if any(filter(lambda f: f in n, self.freeze_layer_names)) and isinstance(m, nn.BatchNorm2d):
                 m.eval()
@@ -633,9 +637,17 @@ class BaseTrainer:
             (tuple): A tuple containing metrics dictionary and fitness score.
         """
         metrics = self.validator(self)
+        print("!!!validate metrics", metrics)
+        print("!!!validate loss", self.loss)
         fitness = metrics.pop("fitness", -self.loss.detach().cpu().numpy())  # use loss as fitness measure if not found
         if not self.best_fitness or self.best_fitness < fitness:
             self.best_fitness = fitness
+            # 记录最佳指标
+            if RANK in {-1, 0}:  # 只在主进程中保存
+                self.best_metrics_logger.save_metrics(self.epoch, metrics, fitness)
+            
+        print("!!!validate metrics", metrics)
+        print("!!!validate fitness", fitness)
         return metrics, fitness
 
     def get_model(self, cfg=None, weights=None, verbose=True):
