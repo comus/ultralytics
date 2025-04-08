@@ -145,7 +145,7 @@ class PoseTrainer(yolo.detect.DetectionTrainer):
 
             distillation_loss = "cwd"
             distillation_layers = ["22"]
-            self.model.args.distill = 0.0
+            self.model.args.distill = 1.0
 
             # 預設凍結所有層
             for name, param in self.model.named_parameters():
