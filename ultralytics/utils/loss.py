@@ -485,13 +485,15 @@ class v8PoseLoss(v8DetectionLoss):
             else:
                 total_loss[5] = distill_loss * self.hyp.distill
             
-            LOGGER.debug(f"純蒸餾模式: 優化蒸餾損失 ({total_loss[5].item():.4f}), 姿態損失: {display_loss[1].item():.4f} (不優化)")
+            # LOGGER.debug(f"純蒸餾模式: 優化蒸餾損失 ({total_loss[5].item():.4f}), 姿態損失: {display_loss[1].item():.4f} (不優化)")
             
             # 返回只用於優化的蒸餾損失和用於顯示的所有損失
             return total_loss * batch_size, display_loss
         
         else:
-            
+
+            print("!!!!!!!!!!!!!!!!!!!!!!!!!!!")
+
             # 標準模式：計算並優化所有損失
             all_losses = self._compute_regular_losses(preds, batch)
             box_loss, pose_loss, kobj_loss, cls_loss, dfl_loss, loss = all_losses
