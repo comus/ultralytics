@@ -157,10 +157,10 @@ class PoseTrainer(yolo.detect.DetectionTrainer):
             
             # LOGGER.info(f"已凍結 {len(bn_layer_names)} 個 BN 層，這些層不會更新統計量")
 
-            # 註冊鉤子
-            self.distill_loss_instance.register_hook()
-            for i, h in enumerate(self.distill_loss_instance.remove_handle):
-                LOGGER.info(f"鉤子 {i+1} 已註冊: {h}")
+        # 註冊鉤子
+        self.distill_loss_instance.register_hook()
+        for i, h in enumerate(self.distill_loss_instance.remove_handle):
+            LOGGER.info(f"鉤子 {i+1} 已註冊: {h}")
             
 
     def distill_on_epoch_end(self, trainer):
