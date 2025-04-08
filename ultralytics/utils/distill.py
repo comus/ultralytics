@@ -551,20 +551,20 @@ class DistillationLoss:
         self.teacher_module_pairs = []
         self.student_module_pairs = []
         
-        # 打印模型的一些層，以便於檢查結構
-        LOGGER.info("教師模型的一些關鍵層:")
-        for name, ml in self.modelt.named_modules():
-            if "model" in name and ("16" in name or "19" in name or "22" in name):
-                LOGGER.info(f"  - {name}: {ml.__class__.__name__}")
-                if hasattr(ml, 'conv'):
-                    LOGGER.info(f"    有 conv 屬性，通道數: {ml.conv.out_channels}")
+        # # 打印模型的一些層，以便於檢查結構
+        # LOGGER.info("教師模型的一些關鍵層:")
+        # for name, ml in self.modelt.named_modules():
+        #     if "model" in name and ("16" in name or "19" in name or "22" in name):
+        #         LOGGER.info(f"  - {name}: {ml.__class__.__name__}")
+        #         if hasattr(ml, 'conv'):
+        #             LOGGER.info(f"    有 conv 屬性，通道數: {ml.conv.out_channels}")
         
-        LOGGER.info("學生模型的一些關鍵層:")
-        for name, ml in self.models.named_modules():
-            if "model" in name and ("16" in name or "19" in name or "22" in name):
-                LOGGER.info(f"  - {name}: {ml.__class__.__name__}")
-                if hasattr(ml, 'conv'):
-                    LOGGER.info(f"    有 conv 屬性，通道數: {ml.conv.out_channels}")
+        # LOGGER.info("學生模型的一些關鍵層:")
+        # for name, ml in self.models.named_modules():
+        #     if "model" in name and ("16" in name or "19" in name or "22" in name):
+        #         LOGGER.info(f"  - {name}: {ml.__class__.__name__}")
+        #         if hasattr(ml, 'conv'):
+        #             LOGGER.info(f"    有 conv 屬性，通道數: {ml.conv.out_channels}")
         
         # 首先查找教師模型中的目標層
         for name, ml in self.modelt.named_modules():
