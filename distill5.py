@@ -23,12 +23,12 @@ student_model.train(
     patience=35,                        # 增加耐心值
     device=0,
     project="distill_projects",
-    name="yolo11n_extreme_breakthrough",
+    name="yolo11n_balanced_distill",    # 新的實驗名稱，反映平衡蒸餾策略
     val=True,
     save_period=1,
     plots=True,
-    distill=0.6,                        # 大幅增強蒸餾權重
-    pose=50.0,                          # 大幅增強姿態權重
+    distill=4.0,                        # 顯著提高蒸餾權重，與姿態權重更平衡
+    pose=30.0,                          # 略微降低姿態權重，與蒸餾權重保持更合理比例
     warmup_epochs=0.0,                  # 無需熱身
     close_mosaic=0,                     # 從頭關閉mosaic
     amp=False,                          # 確保全精度
@@ -54,9 +54,41 @@ student_model.train(
     save_json=True,                     # 保存評估JSON
     half=False,                         # 確保全精度訓練
     augment=False,                      # 初始禁用強增強
-    fraction=0.01,                      # 測試時使用小數據集
+    fraction=1.0,                       # 使用完整數據集訓練
     cache="disk",                       # 使用磁盤緩存加速
     verbose=True,                       # 詳細日誌
     seed=42,                            # 更優的隨機種子
     dropout=0.0,                        # 禁用dropout以保留全部特徵
 ) 
+
+# 也可創建一個更快速驗證版本進行快速測試
+"""
+# 快速驗證版本 - 修改以下參數
+    name="yolo11n_balance_validation", 
+    fraction=0.01,                      # 使用小數據集快速驗證
+    epochs=15,                          # 較少的訓練輪次
+    batch=32,                           # 較大批次加速訓練
+"""
+
+# 動態權重調整說明：
+# 可以在ultralytics/models/yolo/pose/train.py中advanced_augmentation_callback
+# 函數旁添加一個新的callback函數來動態調整權重
+"""
+def distill_weights_callback(self, trainer):
+    '''根據訓練階段動態調整蒸餾和姿態權重'''
+    if trainer.epoch == 0:
+        # 初始階段：高蒸餾權重
+        trainer.hyp.distill = 4.0
+        trainer.hyp.pose = 20.0
+        LOGGER.info(f"初始階段：蒸餾權重={trainer.hyp.distill}，姿態權重={trainer.hyp.pose}")
+    elif trainer.epoch == 10:
+        # 中期階段：平衡權重
+        trainer.hyp.distill = 2.5
+        trainer.hyp.pose = 30.0
+        LOGGER.info(f"中期階段：蒸餾權重={trainer.hyp.distill}，姿態權重={trainer.hyp.pose}")
+    elif trainer.epoch == 20:
+        # 後期階段：提高姿態權重
+        trainer.hyp.distill = 1.5
+        trainer.hyp.pose = 40.0
+        LOGGER.info(f"後期階段：蒸餾權重={trainer.hyp.distill}，姿態權重={trainer.hyp.pose}")
+""" 
