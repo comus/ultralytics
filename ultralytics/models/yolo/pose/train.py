@@ -145,7 +145,7 @@ class PoseTrainer(yolo.detect.DetectionTrainer):
 
             distillation_loss = "cwd"
             distillation_layers = ["22"]
-            self.model.args.distill = 1.0
+            self.model.args.distill = 0.0
 
             # 預設凍結所有層
             for name, param in self.model.named_parameters():
@@ -216,6 +216,7 @@ class PoseTrainer(yolo.detect.DetectionTrainer):
     def distill_on_epoch_end(self, trainer):
         self.distill_loss_instance.remove_handle_()
         LOGGER.debug(f"Removed distillation hooks at epoch {self.epoch} end")
+        LOGGER.info(f"self.lr: {self.lr}")
 
     def distill_on_val_start(self, validator):
         self.distill_loss_instance.remove_handle_()
