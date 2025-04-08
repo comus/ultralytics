@@ -452,7 +452,7 @@ class v8PoseLoss(v8DetectionLoss):
         sigmas = torch.from_numpy(OKS_SIGMA).to(self.device) if is_pose else torch.ones(nkpt, device=self.device) / nkpt
         self.keypoint_loss = KeypointLoss(sigmas=sigmas)
         self.model = model
-        self.fake = False
+        self.fake = True
 
         self.hyp_box = 0
         self.hyp_pose = 0
