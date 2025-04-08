@@ -1,4 +1,4 @@
-# stage_distill.py - 三階段蒸餾訓練策略
+# stage_distill.py - 蒸餾訓練策略
 from ultralytics import YOLO
 from ultralytics.utils import LOGGER
 
@@ -6,33 +6,33 @@ from ultralytics.utils import LOGGER
 student_model = YOLO("yolo11n-pose.pt")  # 學生模型
 teacher_model = YOLO("yolo11x-pose.pt")  # 教師模型
 
-LOGGER.info("初始化三階段蒸餾訓練策略...")
+LOGGER.info("初始化蒸餾訓練策略...")
 LOGGER.info("硬體: RTX 4090 24GB, Xeon Platinum 8352V, 120GB RAM")
 
-# 執行三階段蒸餾訓練
+# 執行蒸餾訓練
 student_model.train(
     data="coco-pose.yaml",
     teacher=teacher_model.model,
-    distillation_loss="enhancedfgd",    # 使用增強版FGD損失
-    distillation_layers=["22"],  # 關鍵層選擇
-    pure_distill=True,
+    # distillation_loss="enhancedfgd",    # 使用增強版FGD損失
+    # distillation_layers=["22"],  # 關鍵層選擇
+    # pure_distill=True,
     
     # 硬體優化設置
-    batch=24,                           # 充分利用24GB顯存，同時保持精度
+    batch=32,                           # 充分利用24GB顯存，同時保持精度
     workers=8,                          # 適合Xeon 16核處理器
     device=0,                           # 使用第一張GPU
     amp=False,                          # 關閉混合精度，提高精度（顯存足夠）
     
     # 訓練超參數
-    epochs=18,                          # 三階段總輪數: 3+4+11
+    epochs=18,                          # 階段總輪數: 3+4+11
     optimizer="AdamW",                  # 使用AdamW優化器
     weight_decay=0.001,                 # 較高的權重衰減防止過擬合
     # cos_lr=False,                       # 禁用余弦退火，使用自定義學習率
     
-    # # 初始參數 (會被三階段回調動態調整)
+    # # 初始參數 (會被回調動態調整)
     # lr0=0.00005,                        # 初始學習率
     # lrf=0.000001,                       # 最終學習率比例
-    distill=0.0,                       # 蒸餾權重
+    # distill=0.0,                       # 蒸餾權重
     # pose=0.0,                           # 姿態權重
     
     # 數據處理
@@ -50,4 +50,4 @@ student_model.train(
     fraction=0.01,                      # 訓練集比例
 )
 
-LOGGER.info("三階段蒸餾訓練完成！")
+LOGGER.info("蒸餾訓練完成！")
