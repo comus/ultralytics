@@ -170,24 +170,34 @@ class PoseTrainer(yolo.detect.DetectionTrainer):
                         unfrozen_count += 1
                         unfrozen_names.append(name)
 
-            # 處理BN層：蒸餾層的BN保持訓練模式，其他BN設為評估模式
-            frozen_bn_count = 0
-            active_bn_count = 0
+            # # 處理BN層：蒸餾層的BN保持訓練模式，其他BN設為評估模式
+            # frozen_bn_count = 0
+            # active_bn_count = 0
+            # for name, m in self.model.named_modules():
+            #     if isinstance(m, torch.nn.BatchNorm2d):
+            #         # 檢查此BN層是否屬於蒸餾層
+            #         is_in_distill_layer = any(prefix in name for prefix in distill_layer_prefixes)
+                    
+            #         if is_in_distill_layer:
+            #             # 蒸餾層的BN保持訓練模式
+            #             m.train()
+            #             m.track_running_stats = True
+            #             active_bn_count += 1
+            #         else:
+            #             # 非蒸餾層的BN設為評估模式
+            #             m.eval()
+            #             m.track_running_stats = False
+            #             frozen_bn_count += 1
+
+            # 凍結所有BN層並記錄
+            bn_layer_names = []
             for name, m in self.model.named_modules():
                 if isinstance(m, torch.nn.BatchNorm2d):
-                    # 檢查此BN層是否屬於蒸餾層
-                    is_in_distill_layer = any(prefix in name for prefix in distill_layer_prefixes)
-                    
-                    if is_in_distill_layer:
-                        # 蒸餾層的BN保持訓練模式
-                        m.train()
-                        m.track_running_stats = True
-                        active_bn_count += 1
-                    else:
-                        # 非蒸餾層的BN設為評估模式
-                        m.eval()
-                        m.track_running_stats = False
-                        frozen_bn_count += 1
+                    m.eval()  # 設置為評估模式
+                    m.track_running_stats = False  # 停止更新統計量
+                    bn_layer_names.append(name)
+            
+            LOGGER.info(f"已凍結 {len(bn_layer_names)} 個 BN 層，這些層不會更新統計量")
 
             # 計算可訓練參數比例
             total_params = sum(p.numel() for p in self.model.parameters())
@@ -195,16 +205,16 @@ class PoseTrainer(yolo.detect.DetectionTrainer):
 
             LOGGER.info(f"純蒸餾模式：只優化層 {distillation_layers} 中的 cv2.conv 參數")
             LOGGER.info(f"解凍了 {unfrozen_count} 個參數組，可訓練參數比例: {trainable_params/total_params:.2%}")
-            LOGGER.info(f"保持 {active_bn_count} 個蒸餾層的BN處於訓練模式，凍結了 {frozen_bn_count} 個非蒸餾層的BN")
+            # LOGGER.info(f"保持 {active_bn_count} 個蒸餾層的BN處於訓練模式，凍結了 {frozen_bn_count} 個非蒸餾層的BN")
 
             # 記錄凍結狀態的更詳細資訊
             LOGGER.info("--------- 參數凍結狀態總結 ---------")
             LOGGER.info("以下參數將被訓練 (requires_grad=True):")
             for name in unfrozen_names:
                 LOGGER.info(f"  - {name}")
-            LOGGER.info("以下層的BN保持訓練模式:")
-            for prefix in distill_layer_prefixes:
-                LOGGER.info(f"  - {prefix}")
+            # LOGGER.info("以下層的BN保持訓練模式:")
+            # for prefix in distill_layer_prefixes:
+            #     LOGGER.info(f"  - {prefix}")
 
 
         # 註冊鉤子
