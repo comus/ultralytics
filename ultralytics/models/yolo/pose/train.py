@@ -126,37 +126,37 @@ class PoseTrainer(yolo.detect.DetectionTrainer):
                 layers=distillation_layers,
             )
             
-            # # 預設凍結所有層
-            # for name, param in self.model.named_parameters():
-            #     param.requires_grad = False
+            # 預設凍結所有層
+            for name, param in self.model.named_parameters():
+                param.requires_grad = False
             
-            # # 優化: 解凍目標層的所有參數，除了BN層
-            # unfrozen_count = 0
-            # unfrozen_names = []
-            # for name, param in self.model.named_parameters():
-            #     if "model." in name and any(f".{layer}." in name for layer in distillation_layers):
-            #         # 解凍非BN層參數
-            #         if not any(bn_type in name for bn_type in ['.bn.', '.norm.']):
-            #             param.requires_grad = True
-            #             unfrozen_count += 1
-            #             unfrozen_names.append(name)
+            # 優化: 解凍目標層的所有參數，除了BN層
+            unfrozen_count = 0
+            unfrozen_names = []
+            for name, param in self.model.named_parameters():
+                if "model." in name and any(f".{layer}." in name for layer in distillation_layers):
+                    # 解凍非BN層參數
+                    if not any(bn_type in name for bn_type in ['.bn.', '.norm.']):
+                        param.requires_grad = True
+                        unfrozen_count += 1
+                        unfrozen_names.append(name)
             
-            # # 計算可訓練參數比例
-            # total_params = sum(p.numel() for p in self.model.parameters())
-            # trainable_params = sum(p.numel() for p in self.model.parameters() if p.requires_grad)
+            # 計算可訓練參數比例
+            total_params = sum(p.numel() for p in self.model.parameters())
+            trainable_params = sum(p.numel() for p in self.model.parameters() if p.requires_grad)
             
-            # LOGGER.info(f"優化層 {distillation_layers} 中的非BN參數")
-            # LOGGER.info(f"解凍了 {unfrozen_count} 個參數組，可訓練參數比例: {trainable_params/total_params:.2%}")
+            LOGGER.info(f"優化層 {distillation_layers} 中的非BN參數")
+            LOGGER.info(f"解凍了 {unfrozen_count} 個參數組，可訓練參數比例: {trainable_params/total_params:.2%}")
 
-            # # 凍結所有BN層並記錄
-            # bn_layer_names = []
-            # for name, m in self.model.named_modules():
-            #     if isinstance(m, torch.nn.BatchNorm2d):
-            #         m.eval()  # 設置為評估模式
-            #         m.track_running_stats = False  # 停止更新統計量
-            #         bn_layer_names.append(name)
+            # 凍結所有BN層並記錄
+            bn_layer_names = []
+            for name, m in self.model.named_modules():
+                if isinstance(m, torch.nn.BatchNorm2d):
+                    m.eval()  # 設置為評估模式
+                    m.track_running_stats = False  # 停止更新統計量
+                    bn_layer_names.append(name)
             
-            # LOGGER.info(f"已凍結 {len(bn_layer_names)} 個 BN 層，這些層不會更新統計量")
+            LOGGER.info(f"已凍結 {len(bn_layer_names)} 個 BN 層，這些層不會更新統計量")
 
         # 註冊鉤子
         self.distill_loss_instance.register_hook()
