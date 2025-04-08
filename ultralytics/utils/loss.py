@@ -452,7 +452,7 @@ class v8PoseLoss(v8DetectionLoss):
         sigmas = torch.from_numpy(OKS_SIGMA).to(self.device) if is_pose else torch.ones(nkpt, device=self.device) / nkpt
         self.keypoint_loss = KeypointLoss(sigmas=sigmas)
         self.model = model
-        self.fake = True
+        self.fake = False
 
     def __call__(self, preds, batch):
         """Calculate the total loss and detach it for pose estimation."""
