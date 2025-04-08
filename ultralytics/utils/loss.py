@@ -452,6 +452,7 @@ class v8PoseLoss(v8DetectionLoss):
         sigmas = torch.from_numpy(OKS_SIGMA).to(self.device) if is_pose else torch.ones(nkpt, device=self.device) / nkpt
         self.keypoint_loss = KeypointLoss(sigmas=sigmas)
         self.model = model
+        self.fake = True
 
     def __call__(self, preds, batch):
         """Calculate the total loss and detach it for pose estimation."""
@@ -479,7 +480,10 @@ class v8PoseLoss(v8DetectionLoss):
             
             # 創建只包含蒸餾損失的損失張量
             total_loss = torch.zeros_like(display_loss)
-            total_loss[5] = distill_loss * self.hyp.distill
+            if getattr(self, 'fake', False):
+                total_loss[5] = torch.zeros_like(distill_loss, requires_grad=True)
+            else:
+                total_loss[5] = distill_loss * self.hyp.distill
             
             LOGGER.debug(f"純蒸餾模式: 優化蒸餾損失 ({total_loss[5].item():.4f}), 姿態損失: {display_loss[1].item():.4f} (不優化)")
             
