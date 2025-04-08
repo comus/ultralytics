@@ -252,6 +252,86 @@ class PKDLoss(nn.Module):
         loss = sum(losses)
         return loss
 
+class EnhancedFGDLoss(nn.Module):
+    """增強版特徵引導蒸餾 - 專為姿態估計優化，提供更好的關鍵點定位能力"""
+    def __init__(self, student_channels, teacher_channels, spatial_weight=3.5, channel_weight=0.4):
+        super(EnhancedFGDLoss, self).__init__()
+        self.spatial_weight = spatial_weight    # 更強的空間權重
+        self.channel_weight = channel_weight    # 降低通道權重
+        
+        # 增強版邊緣感知機制
+        self.edge_filter = nn.Conv2d(1, 1, kernel_size=3, padding=1, bias=False).to(
+            'cuda' if torch.cuda.is_available() else 'cpu')
+        self.edge_filter.weight.data.copy_(torch.tensor([
+            [-1, -1, -1],
+            [-1,  8, -1],
+            [-1, -1, -1]
+        ]).view(1, 1, 3, 3) / 8.0)
+        self.edge_filter.requires_grad_(False)  # 凍結參數
+        
+        # 關鍵點注意力機制
+        self.keypoint_attention = nn.Sequential(
+            nn.Conv2d(1, 8, kernel_size=3, padding=1),
+            nn.ReLU(inplace=True),
+            nn.Conv2d(8, 1, kernel_size=3, padding=1),
+            nn.Sigmoid()
+        ).to('cuda' if torch.cuda.is_available() else 'cpu')
+        
+        LOGGER.info(f"初始化增強版FGD損失: 空間權重={spatial_weight}, 通道權重={channel_weight}")
+        
+    def forward(self, y_s, y_t):
+        """計算增強版FGD損失，特別優化姿態估計的空間特徵保留"""
+        assert len(y_s) == len(y_t)
+        losses = []
+        for idx, (s, t) in enumerate(zip(y_s, y_t)):
+            if s.size(2) != t.size(2) or s.size(3) != t.size(3):
+                t = torch.nn.functional.interpolate(t, size=(s.size(2), s.size(3)), mode='bilinear', align_corners=False)
+                
+            b, c, h, w = s.shape
+            
+            # 1. 自適應特徵匹配 - 使用Huber損失減少異常值影響
+            # 對重要特徵賦予更高權重
+            feature_importance = torch.sigmoid(torch.sum(t, dim=1, keepdim=True))
+            l1_loss = torch.nn.functional.smooth_l1_loss(s * feature_importance, t * feature_importance)
+            
+            # 2. 超級增強版空間注意力損失
+            s_spatial = torch.mean(s, dim=1, keepdim=True)  # [b, 1, h, w]
+            t_spatial = torch.mean(t, dim=1, keepdim=True)  # [b, 1, h, w]
+            
+            # 提取空間特徵的邊緣信息
+            s_edge = self.edge_filter(s_spatial)
+            t_edge = self.edge_filter(t_spatial)
+            
+            # 關鍵點注意力增強
+            keypoint_attn = self.keypoint_attention(t_spatial)
+            
+            # 空間注意力+邊緣感知+關鍵點注意力的組合損失
+            spatial_loss = (torch.nn.functional.mse_loss(s_spatial, t_spatial) * 1.5 + 
+                         torch.nn.functional.mse_loss(s_edge, t_edge) * 1.0 +
+                         torch.nn.functional.mse_loss(s_spatial * keypoint_attn, t_spatial * keypoint_attn) * 1.5) * self.spatial_weight
+            
+            # 3. 優化的通道關係損失 - 專注於重要通道
+            s_flat = s.view(b, c, -1)  # [b, c, h*w]
+            t_flat = t.view(b, c, -1)  # [b, c, h*w]
+            
+            # 通道歸一化
+            s_flat_norm = torch.nn.functional.normalize(s_flat, dim=2)
+            t_flat_norm = torch.nn.functional.normalize(t_flat, dim=2)
+            
+            # 計算通道相關矩陣
+            s_corr = torch.bmm(s_flat_norm, s_flat_norm.transpose(1, 2)) / (h*w)  # [b, c, c]
+            t_corr = torch.bmm(t_flat_norm, t_flat_norm.transpose(1, 2)) / (h*w)  # [b, c, c]
+            
+            # 通道相關性損失
+            channel_loss = torch.nn.functional.mse_loss(s_corr, t_corr) * self.channel_weight
+            
+            # 4. 組合損失
+            total_loss = l1_loss + spatial_loss + channel_loss
+            losses.append(total_loss)
+            
+        loss = sum(losses)
+        return loss
+
 class FeatureLoss(nn.Module):
     """特徵層蒸餾損失，支持多種蒸餾方法，包括特徵對齊"""
     def __init__(self, channels_s, channels_t, distiller='mgd', loss_weight=1.0):
@@ -291,6 +371,9 @@ class FeatureLoss(nn.Module):
             self.feature_loss = ReviewKDLoss(channels_s, channels_t)
         elif distiller == 'fgd':
             self.feature_loss = FGDLoss(channels_s, channels_t, spatial_weight=2.0, channel_weight=0.6)
+        elif distiller == 'enhancedfgd':
+            self.feature_loss = EnhancedFGDLoss(channels_s, channels_t, spatial_weight=3.5, channel_weight=0.4)
+            LOGGER.info("使用增強版FGD蒸餾方法")
         elif distiller == 'pkd':
             self.feature_loss = PKDLoss(channels_s, channels_t)
         else:
@@ -393,6 +476,7 @@ class DistillationLoss:
                        'mgd' - Masked Generative Distillation
                        'rev' - Review KD
                        'fgd' - Feature Guided Distillation
+                       'enhancedfgd' - 增強版特徵引導蒸餾
                        'pkd' - Probabilistic Knowledge Distillation
             layers: 要蒸餾的層，默認使用 ["6", "8", "13", "16", "19", "22"]
         """
@@ -436,7 +520,7 @@ class DistillationLoss:
         self.distill_loss_fn = FeatureLoss(
             channels_s=self.channels_s, 
             channels_t=self.channels_t, 
-            distiller=self.distiller[:3]
+            distiller=self.distiller
         )
         
         # 記錄使用的蒸餾方法
@@ -445,6 +529,7 @@ class DistillationLoss:
             'mgd': 'Masked Generative Distillation (MGD)',
             'rev': 'Review KD',
             'fgd': 'Feature Guided Distillation (FGD)',
+            'enhancedfgd': '增強版特徵引導蒸餾 (Enhanced FGD)',
             'pkd': 'Probabilistic Knowledge Distillation (PKD)'
         }
         method_name = method_map.get(self.distiller, self.distiller)

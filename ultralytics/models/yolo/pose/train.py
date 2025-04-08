@@ -83,7 +83,8 @@ class PoseTrainer(yolo.detect.DetectionTrainer):
             "pkd": "pkd",  # Probabilistic Knowledge Distillation
             "kd": "cwd",   # 默認使用 CWD
             "review": "rev",
-            "feature": "fgd"
+            "feature": "fgd",
+            "enhancedfgd": "enhancedfgd"  # 新增增強版FGD
         }
         
         # 標準化蒸餾方法名稱
@@ -106,6 +107,13 @@ class PoseTrainer(yolo.detect.DetectionTrainer):
             _callbacks["on_val_end"].append(self.distill_on_val_end)
             _callbacks["on_train_end"].append(self.distill_on_train_end)
             _callbacks["teardown"].append(self.distill_teardown)
+            
+            # 添加极限学习率调整和高级数据增强回调
+            _callbacks["on_train_epoch_start"].append(self.extreme_adaptive_lr_callback)
+            _callbacks["on_train_epoch_start"].append(self.advanced_augmentation_callback)
+            
+            # 添加训练进度监控回调
+            _callbacks["on_fit_epoch_end"].append(self.training_progress_callback)
         
         # 調用父類的初始化方法
         super().__init__(cfg, overrides, _callbacks)
@@ -125,10 +133,133 @@ class PoseTrainer(yolo.detect.DetectionTrainer):
                 "See https://github.com/ultralytics/ultralytics/issues/4031."
             )
 
+    def extreme_adaptive_lr_callback(self, trainer):
+        """極限版自適應學習率調整策略，用於顯著突破性能瓶頸"""
+        # 在訓練的不同階段實施更激進策略
+        if trainer.epoch == 0:
+            # 初始階段使用較高學習率
+            LOGGER.info("Initial phase: using higher learning rate")
+            for g in trainer.optimizer.param_groups:
+                g['lr'] = 0.00007  # 開始階段更高
+        
+        elif trainer.epoch == 3:
+            # 第一次大幅提高學習率突破平台
+            LOGGER.info("First major learning rate boost to escape initial plateau")
+            for g in trainer.optimizer.param_groups:
+                g['lr'] = 0.0002  # 第一次大幅提高
+                
+        elif trainer.epoch == 5:
+            # 第二次提高學習率突破下一個平台
+            LOGGER.info("Second learning rate boost for breakthrough")
+            for g in trainer.optimizer.param_groups:
+                g['lr'] = 0.00025  # 第二次大幅提高
+                
+        elif trainer.epoch == 8:
+            # 恢復到中等學習率進行優化
+            LOGGER.info("Restoring to medium learning rate for optimization")
+            for g in trainer.optimizer.param_groups:
+                g['lr'] = 0.00005  # 中等學習率精細優化
+        
+        elif trainer.epoch == 12:
+            # 適度降低學習率
+            LOGGER.info("Moderate tuning phase: reduced learning rate")
+            for g in trainer.optimizer.param_groups:
+                g['lr'] = 0.00002  # 降低學習率
+                
+        elif trainer.epoch == 15:
+            # 降低學習率進行精細優化階段
+            LOGGER.info("Fine-tuning phase: low learning rate")
+            for g in trainer.optimizer.param_groups:
+                g['lr'] = 0.000005  # 精細優化學習率
+                
+        elif trainer.epoch == 20:
+            # 極限精細優化階段
+            LOGGER.info("Ultra-fine tuning phase: minimal learning rate")
+            for g in trainer.optimizer.param_groups:
+                g['lr'] = 0.000001  # 極限精細優化學習率
+                
+        # 顯示當前學習率
+        for i, g in enumerate(trainer.optimizer.param_groups):
+            LOGGER.info(f"Epoch {trainer.epoch}: Group {i} learning rate = {g['lr']:.8f}")
+            
+    def advanced_augmentation_callback(self, trainer):
+        """根據訓練階段高度靈活地調整增強策略"""
+        if trainer.epoch == 0:
+            # 初始階段：使用適中增強
+            LOGGER.info("Initial phase: moderate augmentation")
+            trainer.train_loader.dataset.hsv_values = [0.15, 0.15, 0.15]  # 適中HSV變化
+            if hasattr(trainer.train_loader.dataset, 'mosaic'):
+                trainer.train_loader.dataset.mosaic = False   # 初始就禁用馬賽克
+            if hasattr(trainer.train_loader.dataset, 'mixup'):
+                trainer.train_loader.dataset.mixup = False    # 禁用mixup
+                
+        elif trainer.epoch == 3:
+            # 大幅提高學習率的同時增加增強強度
+            LOGGER.info("Boosting phase: stronger augmentation")
+            trainer.train_loader.dataset.hsv_values = [0.25, 0.25, 0.2]  # 較強HSV變化
+            if hasattr(trainer.train_loader.dataset, 'translate'):
+                trainer.train_loader.dataset.translate = 0.15  # 輕微平移
+            if hasattr(trainer.train_loader.dataset, 'scale'):
+                trainer.train_loader.dataset.scale = 0.2  # 增加縮放
+            
+        elif trainer.epoch == 8:
+            # 學習率下降時減少增強強度
+            LOGGER.info("Mid phase: moderate augmentation")
+            trainer.train_loader.dataset.hsv_values = [0.15, 0.15, 0.1]  # 適中HSV變化
+            if hasattr(trainer.train_loader.dataset, 'translate'):
+                trainer.train_loader.dataset.translate = 0.1  # 輕微平移
+            if hasattr(trainer.train_loader.dataset, 'scale'):
+                trainer.train_loader.dataset.scale = 0.1  # 減少縮放
+                
+        elif trainer.epoch == 15:
+            # 後期：減少增強專注精細優化
+            LOGGER.info("Late phase: minimal augmentation for fine-tuning")
+            trainer.train_loader.dataset.hsv_values = [0.05, 0.05, 0.05]  # 輕微HSV
+            if hasattr(trainer.train_loader.dataset, 'translate'):
+                trainer.train_loader.dataset.translate = 0.0  # 禁用平移
+            if hasattr(trainer.train_loader.dataset, 'scale'):
+                trainer.train_loader.dataset.scale = 0.0  # 禁用縮放
+            if hasattr(trainer.train_loader.dataset, 'fliplr'):
+                trainer.train_loader.dataset.fliplr = 0.3     # 只保留少量水平翻轉
+            
+        elif trainer.epoch == 20:
+            # 最終階段：完全禁用所有增強以實現極致精度
+            LOGGER.info("Final phase: zero augmentation for ultimate precision")
+            trainer.train_loader.dataset.hsv_values = [0.0, 0.0, 0.0]  # 禁用HSV
+            if hasattr(trainer.train_loader.dataset, 'mosaic'):
+                trainer.train_loader.dataset.mosaic = False   # 確保禁用馬賽克
+            if hasattr(trainer.train_loader.dataset, 'mixup'):
+                trainer.train_loader.dataset.mixup = False    # 確保禁用mixup
+            if hasattr(trainer.train_loader.dataset, 'fliplr'):
+                trainer.train_loader.dataset.fliplr = 0.0     # 禁用水平翻轉
+                
+    def training_progress_callback(self, trainer):
+        """增強版訓練進度監控，設定更高的目標"""
+        if not hasattr(trainer, 'metrics') or trainer.metrics is None:
+            return
+        
+        metrics = trainer.metrics
+        if "pose_map50-95" in metrics:
+            current_map = metrics.get("pose_map50-95", 0)
+            LOGGER.info(f"Epoch {trainer.epoch}: Pose mAP50-95 = {current_map:.6f}")
+            
+            # 突破官方記錄提示，設定更高目標
+            if current_map > 0.505:
+                LOGGER.info(f"🚀 突破官方記錄！當前mAP: {current_map:.6f} > 0.505")
+                
+            if current_map > 0.510:
+                LOGGER.info(f"🔥 明顯超越官方記錄！當前mAP: {current_map:.6f} > 0.510")
+                
+            if current_map > 0.515:
+                LOGGER.info(f"💯 大幅超越官方記錄！當前mAP: {current_map:.6f} > 0.515")
+                
+            if current_map > 0.520:
+                LOGGER.info(f"🏆 極限突破！當前mAP: {current_map:.6f} > 0.520")
+
     def distill_on_train_start(self, trainer):
         """訓練開始時初始化蒸餾損失實例和凍結非目標層"""
         if self.teacher is not None and self.distillation_loss is not None:
-            # 初始化蒸餾損失實例
+            # 初始化蒸餾損失實例，支持增強版FGD
             self.distill_loss_instance = DistillationLoss(
                 models=self.model,
                 modelt=self.teacher,
