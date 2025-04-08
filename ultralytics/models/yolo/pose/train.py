@@ -139,43 +139,64 @@ class PoseTrainer(yolo.detect.DetectionTrainer):
         # 在訓練的不同階段實施更激進策略
         LOGGER.info(f"執行學習率調整 - 當前 epoch: {trainer.epoch}")
         
+        # 禁用默認的學習率調度器，防止其覆蓋我們的設置
+        if hasattr(trainer, 'scheduler'):
+            # 將scheduler的factor設為0，確保它不會影響學習率
+            if hasattr(trainer.scheduler, 'lr_lambdas'):
+                for lr_lambda in trainer.scheduler.lr_lambdas:
+                    if not hasattr(lr_lambda, '_disabled'):
+                        def disabled_lambda(*args, **kwargs):
+                            return 1.0
+                        lr_lambda.__call__ = disabled_lambda
+                        lr_lambda._disabled = True
+                LOGGER.info("已禁用默認學習率調度器")
+        
+        # 設置不同階段的學習率
         if trainer.epoch == 0:
-            # 初始階段使用較高學習率
             target_lr = 0.00007
             LOGGER.info(f"Initial phase: setting higher learning rate to {target_lr}")
         elif trainer.epoch == 3:
-            # 第一次大幅提高學習率突破平台
             target_lr = 0.0002
             LOGGER.info(f"First major learning rate boost to {target_lr}")
         elif trainer.epoch == 5:
-            # 第二次提高學習率突破下一個平台
             target_lr = 0.00025
             LOGGER.info(f"Second learning rate boost to {target_lr}")
         elif trainer.epoch == 8:
-            # 恢復到中等學習率進行優化
             target_lr = 0.00005
             LOGGER.info(f"Restoring to medium learning rate: {target_lr}")
         elif trainer.epoch == 12:
-            # 適度降低學習率
             target_lr = 0.00002
             LOGGER.info(f"Moderate tuning phase: reduced learning rate to {target_lr}")
         elif trainer.epoch == 15:
-            # 降低學習率進行精細優化階段
             target_lr = 0.000005
             LOGGER.info(f"Fine-tuning phase: low learning rate of {target_lr}")
         elif trainer.epoch == 20:
-            # 極限精細優化階段
             target_lr = 0.000001
             LOGGER.info(f"Ultra-fine tuning phase: minimal learning rate of {target_lr}")
         else:
-            # 其他epoch不更改學習率，保持原始設置
+            # 如果不是特定的epoch，我們檢查當前學習率
+            current_lr = trainer.optimizer.param_groups[0]['lr']
+            LOGGER.info(f"當前學習率: {current_lr:.8f} - 不進行調整")
             return
             
-        # 顯示當前學習率
+        # 強制設置所有參數組的學習率，並確保scheduler不會再次更改它
         for i, g in enumerate(trainer.optimizer.param_groups):
+            old_lr = g['lr']
             g['lr'] = target_lr
-            LOGGER.info(f"Epoch {trainer.epoch}: Group {i} learning rate = {g['lr']:.8f}")
+            LOGGER.info(f"Epoch {trainer.epoch}: Group {i} 學習率從 {old_lr:.8f} 調整為 {g['lr']:.8f}")
             
+        # 確保設置生效後不被scheduler覆蓋
+        if hasattr(trainer, 'scheduler') and hasattr(trainer.scheduler, 'step'):
+            orig_step = trainer.scheduler.step
+            
+            def new_step(*args, **kwargs):
+                LOGGER.info("攔截scheduler.step調用，保持學習率不變")
+                # 不執行原始step方法，改為無操作
+                pass
+                
+            trainer.scheduler.step = new_step
+            LOGGER.info("已攔截scheduler.step方法，確保學習率不被重置")
+
     def advanced_augmentation_callback(self, trainer):
         """根據訓練階段高度靈活地調整增強策略"""
         if trainer.epoch == 0:
