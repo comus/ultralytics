@@ -129,24 +129,6 @@ class PoseTrainer(yolo.detect.DetectionTrainer):
             # 預設凍結所有層
             for name, param in self.model.named_parameters():
                 param.requires_grad = False
-            
-            # # 優化: 解凍目標層的所有參數，除了BN層
-            # unfrozen_count = 0
-            # unfrozen_names = []
-            # for name, param in self.model.named_parameters():
-            #     if "model." in name and any(f".{layer}." in name for layer in distillation_layers):
-            #         # 解凍非BN層參數
-            #         if not any(bn_type in name for bn_type in ['.bn.', '.norm.']):
-            #             param.requires_grad = True
-            #             unfrozen_count += 1
-            #             unfrozen_names.append(name)
-            
-            # # 計算可訓練參數比例
-            # total_params = sum(p.numel() for p in self.model.parameters())
-            # trainable_params = sum(p.numel() for p in self.model.parameters() if p.requires_grad)
-            
-            # LOGGER.info(f"優化層 {distillation_layers} 中的非BN參數")
-            # LOGGER.info(f"解凍了 {unfrozen_count} 個參數組，可訓練參數比例: {trainable_params/total_params:.2%}")
 
             # 凍結所有BN層並記錄
             bn_layer_names = []
@@ -157,6 +139,69 @@ class PoseTrainer(yolo.detect.DetectionTrainer):
                     bn_layer_names.append(name)
             
             LOGGER.info(f"已凍結 {len(bn_layer_names)} 個 BN 層，這些層不會更新統計量")
+
+        if self.epoch == 1:
+            LOGGER.info("階段2: 解凍蒸餾層")
+
+            # 預設凍結所有層
+            for name, param in self.model.named_parameters():
+                param.requires_grad = False
+
+            # 只解凍目標層的cv2.conv參數
+            unfrozen_count = 0
+            unfrozen_names = []
+            distill_layer_prefixes = []  # 存儲蒸餾層的前綴，用於識別相關BN層
+
+            for name, param in self.model.named_parameters():
+                if "model." in name and any(f".{layer}." in name for layer in distillation_layers):
+                    # 記錄下蒸餾層的前綴，例如 "model.1" 或 "model.2"
+                    for layer in distillation_layers:
+                        if f".{layer}." in name:
+                            layer_prefix = name.split(f".{layer}.")[0] + f".{layer}"
+                            if layer_prefix not in distill_layer_prefixes:
+                                distill_layer_prefixes.append(layer_prefix)
+                            
+                    if ".cv2.conv" in name:  # 精確匹配cv2的卷積層參數
+                        param.requires_grad = True
+                        unfrozen_count += 1
+                        unfrozen_names.append(name)
+
+            # 處理BN層：蒸餾層的BN保持訓練模式，其他BN設為評估模式
+            frozen_bn_count = 0
+            active_bn_count = 0
+            for name, m in self.model.named_modules():
+                if isinstance(m, torch.nn.BatchNorm2d):
+                    # 檢查此BN層是否屬於蒸餾層
+                    is_in_distill_layer = any(prefix in name for prefix in distill_layer_prefixes)
+                    
+                    if is_in_distill_layer:
+                        # 蒸餾層的BN保持訓練模式
+                        m.train()
+                        m.track_running_stats = True
+                        active_bn_count += 1
+                    else:
+                        # 非蒸餾層的BN設為評估模式
+                        m.eval()
+                        m.track_running_stats = False
+                        frozen_bn_count += 1
+
+            # 計算可訓練參數比例
+            total_params = sum(p.numel() for p in self.model.parameters())
+            trainable_params = sum(p.numel() for p in self.model.parameters() if p.requires_grad)
+
+            LOGGER.info(f"純蒸餾模式：只優化層 {distillation_layers} 中的 cv2.conv 參數")
+            LOGGER.info(f"解凍了 {unfrozen_count} 個參數組，可訓練參數比例: {trainable_params/total_params:.2%}")
+            LOGGER.info(f"保持 {active_bn_count} 個蒸餾層的BN處於訓練模式，凍結了 {frozen_bn_count} 個非蒸餾層的BN")
+
+            # 記錄凍結狀態的更詳細資訊
+            LOGGER.info("--------- 參數凍結狀態總結 ---------")
+            LOGGER.info("以下參數將被訓練 (requires_grad=True):")
+            for name in unfrozen_names:
+                LOGGER.info(f"  - {name}")
+            LOGGER.info("以下層的BN保持訓練模式:")
+            for prefix in distill_layer_prefixes:
+                LOGGER.info(f"  - {prefix}")
+
 
         # 註冊鉤子
         self.distill_loss_instance.register_hook()
