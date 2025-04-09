@@ -821,155 +821,176 @@ class DistillationLoss:
         
         return loss
 
-    def conservative_multi_layer_distillation(self, student_features, teacher_features):
-        """超保守的多層特徵蒸餾，專注於特徵提取層"""
-        total_loss = 0
-        layer_weights = {
-            "2": 0.1,   # 早期特徵層，權重低
-            "4": 0.2,   # P3層
-            "7": 0.3,   # P4層
-            "22": 0.4   # P5層，權重最高
-        }
+    def conservative_multi_layer_distillation(self, student_feature, teacher_feature, layer_idx=0):
+        """超保守的特徵蒸餾，針對單層特徵進行處理"""
         
-        for layer_name, (s_feat, t_feat) in student_features.items():
-            if layer_name not in layer_weights:
-                continue
-                
-            # 獲取當前層的權重
-            layer_weight = layer_weights[layer_name]
-            
-            # 基本尺寸信息
-            if len(s_feat.shape) < 3 or len(t_feat.shape) < 3:
-                LOGGER.warning(f"層 {layer_name} 的特徵維度不足，跳過: {s_feat.shape}, {t_feat.shape}")
-                continue
-                
-            batch_size = s_feat.shape[0]
-            
-            # 確保空間維度相同
-            if s_feat.shape[2:] != t_feat.shape[2:]:
-                t_feat = F.interpolate(t_feat, size=s_feat.shape[2:], mode='bilinear', align_corners=False)
-            
-            # 保存原始學生特徵作為參考
-            with torch.no_grad():
-                original_student = s_feat.clone()
-                
-            # 特徵差異統計
-            drift = F.mse_loss(s_feat, original_student)
-            
-            # 特徵提取層處理
-            # 如果通道數不同，將教師特徵通道降維到學生特徵通道數
-            if s_feat.shape[1] != t_feat.shape[1]:
-                # 使用1x1卷積進行通道降維
-                channel_adapter = nn.Conv2d(t_feat.shape[1], s_feat.shape[1], kernel_size=1).to(s_feat.device)
-                # 初始化為單位映射（儘可能保留信息）
-                nn.init.dirac_(channel_adapter.weight)
-                nn.init.zeros_(channel_adapter.bias)
-                t_feat = channel_adapter(t_feat)
-            
-            # 計算特徵差異
-            max_diff = (t_feat - s_feat).abs().max().item()
-            mean_diff = (t_feat - s_feat).abs().mean().item()
-            std_diff = (t_feat - s_feat).abs().std().item()
-            
-            # 計算分位數
-            flat_diff = (t_feat - s_feat).abs().reshape(-1)
-            percentiles = torch.tensor([0.5, 0.75, 0.9, 0.95, 0.99]) * 100
-            percentile_values = torch.quantile(flat_diff, percentiles.to(s_feat.device) / 100)
-            
-            # 計算接近零的元素比例
-            near_zero = (flat_diff < 0.01).float().mean().item() * 100
-            
-            # 特徵相似度計算
-            s_flat = s_feat.reshape(batch_size, s_feat.shape[1], -1)
-            t_flat = t_feat.reshape(batch_size, t_feat.shape[1], -1)
-            
-            # 標準化
-            s_norm = F.normalize(s_flat, p=2, dim=2)
-            t_norm = F.normalize(t_flat, p=2, dim=2)
-            
-            # 非常溫和的指導 - 只移動5%
-            guide_strength = 0.05
-            target = s_feat + guide_strength * (t_feat - s_feat)
-            
-            # 計算損失 - 使用Huber損失減輕離群值影響
-            distill_loss = F.smooth_l1_loss(s_feat, target)
-            
-            # 安全閾值
-            max_allowed_drift = 0.0005
-            
-            # 如果漂移太大，減少損失
-            if drift > max_allowed_drift:
-                safety_factor = max_allowed_drift / (drift + 1e-10)
-                layer_loss = distill_loss * safety_factor
-                LOGGER.warning(f"層 {layer_name} 安全機制激活! 漂移={drift:.6f}, 安全係數={safety_factor:.6f}")
-            else:
-                layer_loss = distill_loss
-            
-            # 應用層權重
-            weighted_loss = layer_loss * layer_weight
-            total_loss += weighted_loss
-            
-            # 記錄特徵差異統計
-            LOGGER.info(f"層 {layer_name} 特徵差異統計:")
-            LOGGER.info(f"  形狀: 教師{t_feat.shape}, 學生{s_feat.shape}")
-            LOGGER.info(f"  最大差異: {max_diff:.8f}, 平均差異: {mean_diff:.8f}, 標準差: {std_diff:.8f}")
-            LOGGER.info(f"  接近零的元素比例: {near_zero:.2f}%")
-            LOGGER.info(f"  分位數分析: 50%: {percentile_values[0].item():.8f}, 75%: {percentile_values[1].item():.8f}, "
-                    f"90%: {percentile_values[2].item():.8f}, 95%: {percentile_values[3].item():.8f}, "
-                    f"99%: {percentile_values[4].item():.8f}")
-            LOGGER.info(f"  層權重: {layer_weight:.2f}, 原始損失: {distill_loss.item():.8f}, 加權損失: {weighted_loss.item():.8f}")
+        # 檢查是否為P5層並應用特定策略
+        is_p5 = False
         
-        LOGGER.info(f"計算出的總損失: {total_loss.item():.8f}")
-        return total_loss
+        # 檢查形狀以判斷層類型
+        if student_feature.shape[1] == 256 and teacher_feature.shape[1] == 512 and student_feature.shape[2] == 20:
+            LOGGER.info("通過特徵形狀猜測層 {} 可能是P5層".format(layer_idx))
+            is_p5 = True
+        
+        if is_p5:
+            LOGGER.info("對層 {} 應用P5特化蒸餾方法".format(layer_idx))
+            return self.p5_feature_distillation(student_feature, teacher_feature)
+        
+        # 基本尺寸信息
+        if len(student_feature.shape) < 3 or len(teacher_feature.shape) < 3:
+            LOGGER.warning(f"層 {layer_idx} 的特徵維度不足，跳過: {student_feature.shape}, {teacher_feature.shape}")
+            return torch.tensor(0.0, device=student_feature.device)
+            
+        batch_size = student_feature.shape[0]
+        
+        # 確保空間維度相同
+        if student_feature.shape[2:] != teacher_feature.shape[2:]:
+            teacher_feature = F.interpolate(teacher_feature, size=student_feature.shape[2:], mode='bilinear', align_corners=False)
+        
+        # 保存原始學生特徵作為參考
+        with torch.no_grad():
+            original_student = student_feature.clone()
+            
+        # 檢查通道數是否相同
+        if student_feature.shape[1] != teacher_feature.shape[1]:
+            LOGGER.info(f"對層 {layer_idx} 應用通用通道自適應蒸餾方法")
+            # 通道不同，使用注意力自適應蒸餾
+            return self.channel_adaptive_distillation(student_feature, teacher_feature)
+        
+        # 如果通道數相同，使用直接特徵匹配
+        # 特徵差異統計
+        drift = F.mse_loss(student_feature, original_student)
+        
+        # 計算特徵差異
+        max_diff = (teacher_feature - student_feature).abs().max().item()
+        mean_diff = (teacher_feature - student_feature).abs().mean().item()
+        std_diff = (teacher_feature - student_feature).abs().std().item()
+        
+        # 計算分位數
+        flat_diff = (teacher_feature - student_feature).abs().reshape(-1)
+        percentiles = torch.tensor([0.5, 0.75, 0.9, 0.95, 0.99]) * 100
+        percentile_values = torch.quantile(flat_diff, percentiles.to(student_feature.device) / 100)
+        
+        # 計算接近零的元素比例
+        near_zero = (flat_diff < 0.01).float().mean().item() * 100
+        
+        # 特徵相似度計算
+        s_flat = student_feature.reshape(batch_size, student_feature.shape[1], -1)
+        t_flat = teacher_feature.reshape(batch_size, teacher_feature.shape[1], -1)
+        
+        # 標準化
+        s_norm = F.normalize(s_flat, p=2, dim=2)
+        t_norm = F.normalize(t_flat, p=2, dim=2)
+        
+        # 非常溫和的指導 - 只移動5%
+        guide_strength = 0.05
+        target = student_feature + guide_strength * (teacher_feature - student_feature)
+        
+        # 計算損失 - 使用Huber損失減輕離群值影響
+        distill_loss = F.smooth_l1_loss(student_feature, target)
+        
+        # 安全閾值
+        max_allowed_drift = 0.0005
+        
+        # 如果漂移太大，減少損失
+        if drift > max_allowed_drift:
+            safety_factor = max_allowed_drift / (drift + 1e-10)
+            layer_loss = distill_loss * safety_factor
+            LOGGER.warning(f"層 {layer_idx} 安全機制激活! 漂移={drift:.6f}, 安全係數={safety_factor:.6f}")
+        else:
+            layer_loss = distill_loss
+        
+        # 權重根據層的深度決定 (這裡簡單設置為1.0)
+        layer_weight = 1.0
+        weighted_loss = layer_loss * layer_weight
+        
+        # 記錄特徵差異統計
+        LOGGER.info(f"層 {layer_idx} 特徵差異統計:")
+        LOGGER.info(f"  形狀: 教師{teacher_feature.shape}, 學生{student_feature.shape}")
+        LOGGER.info(f"  最大差異: {max_diff:.8f}, 平均差異: {mean_diff:.8f}, 標準差: {std_diff:.8f}")
+        LOGGER.info(f"  接近零的元素比例: {near_zero:.2f}%")
+        LOGGER.info(f"  分位數分析: 50%: {percentile_values[0].item():.8f}, 75%: {percentile_values[1].item():.8f}, "
+                f"90%: {percentile_values[2].item():.8f}, 95%: {percentile_values[3].item():.8f}, "
+                f"99%: {percentile_values[4].item():.8f}")
+        LOGGER.info(f"  層權重: {layer_weight:.2f}, 原始損失: {distill_loss.item():.8f}, 加權損失: {weighted_loss.item():.8f}")
+        
+        return weighted_loss
 
     def channel_adaptive_distillation(self, student_feature, teacher_feature):
         """
-        通用的通道自適應蒸餾方法，用於處理非P5層的不同通道數特徵圖
-        
-        Args:
-            student_feature: 學生模型特徵圖
-            teacher_feature: 教師模型特徵圖
-        
-        Returns:
-            蒸餾損失
+        通道自適應蒸餾方法，用於處理通道數不同的特徵
+        使用空間注意力和通道注意力機制
         """
-        # 確保空間維度相同
-        if student_feature.shape[2:] != teacher_feature.shape[2:]:
-            teacher_feature = F.interpolate(
-                teacher_feature, 
-                size=student_feature.shape[2:],
-                mode='bilinear', 
-                align_corners=False
-            )
+        # 提取批次大小和其他維度信息
+        batch_size = student_feature.shape[0]
+        s_channels = student_feature.shape[1]
+        t_channels = teacher_feature.shape[1]
         
-        # 計算空間注意力圖
-        student_spatial = torch.mean(student_feature, dim=1, keepdim=True)  # [B, 1, H, W]
-        teacher_spatial = torch.mean(teacher_feature, dim=1, keepdim=True)  # [B, 1, H, W]
+        # 1. 空間注意力機制
+        # 計算空間注意力圖 (對通道維度求平方和)
+        s_spatial_attn = torch.sum(student_feature ** 2, dim=1, keepdim=True)  # [B, 1, H, W]
+        t_spatial_attn = torch.sum(teacher_feature ** 2, dim=1, keepdim=True)  # [B, 1, H, W]
         
-        # 空間注意力損失
-        spatial_loss = F.mse_loss(student_spatial, teacher_spatial)
+        # 標準化
+        s_spatial_norm = self.normalize_attention(s_spatial_attn)
+        t_spatial_norm = self.normalize_attention(t_spatial_attn)
         
-        # 計算通道注意力 (全局平均池化)
-        s_channel = F.adaptive_avg_pool2d(student_feature, 1)  # [B, C_s, 1, 1]
-        t_channel = F.adaptive_avg_pool2d(teacher_feature, 1)  # [B, C_t, 1, 1]
+        # 計算空間注意力損失
+        spatial_loss = F.mse_loss(s_spatial_norm, t_spatial_norm)
         
-        # 標準化通道注意力
-        s_channel = F.normalize(s_channel.squeeze(-1).squeeze(-1), p=2, dim=1)
-        t_channel = F.normalize(t_channel.squeeze(-1).squeeze(-1), p=2, dim=1)
+        # 2. 通道注意力機制
+        # 使用全局平均池化獲取通道描述符
+        s_gap = F.adaptive_avg_pool2d(student_feature, 1).view(batch_size, s_channels)  # [B, C_s]
+        t_gap = F.adaptive_avg_pool2d(teacher_feature, 1).view(batch_size, t_channels)  # [B, C_t]
         
-        # 取較小的通道數
-        min_channels = min(student_feature.shape[1], teacher_feature.shape[1])
-        channel_loss = F.mse_loss(s_channel[:, :min_channels], t_channel[:, :min_channels])
+        # 降維到相同維度進行比較
+        # 使用簡單的線性層將教師通道降維到學生通道
+        channel_adapter = nn.Linear(t_channels, s_channels).to(student_feature.device)
+        # 初始化參數
+        nn.init.xavier_uniform_(channel_adapter.weight)
+        nn.init.zeros_(channel_adapter.bias)
         
-        # 組合損失
-        total_loss = spatial_loss * 0.7 + channel_loss * 0.3
+        t_gap_adapted = channel_adapter(t_gap)  # [B, C_s]
         
-        LOGGER.info(f"通道自適應蒸餾損失詳情:")
+        # 標準化
+        s_gap_norm = F.normalize(s_gap, p=2, dim=1)
+        t_gap_norm = F.normalize(t_gap_adapted, p=2, dim=1)
+        
+        # 計算通道注意力損失
+        channel_loss = F.mse_loss(s_gap_norm, t_gap_norm)
+        
+        # 3. 綜合損失，權重偏向空間注意力
+        spatial_weight = 0.7
+        channel_weight = 0.3
+        total_loss = spatial_weight * spatial_loss + channel_weight * channel_loss
+        
+        # 記錄日誌
+        LOGGER.info("通道自適應蒸餾損失詳情:")
         LOGGER.info(f"  空間注意力損失: {spatial_loss.item():.6f}")
         LOGGER.info(f"  通道注意力損失: {channel_loss.item():.6f}")
         LOGGER.info(f"  總損失: {total_loss.item():.6f}")
         
         return total_loss
+
+    def normalize_attention(self, attention_map):
+        """標準化注意力圖到 [0,1] 範圍"""
+        B = attention_map.shape[0]
+        result = torch.zeros_like(attention_map)
+        
+        for b in range(B):
+            # 獲取當前樣本的注意力圖
+            attn = attention_map[b]
+            
+            # 計算最小值和最大值
+            min_val = attn.min()
+            max_val = attn.max()
+            
+            # 標準化到 [0,1]
+            if max_val > min_val:
+                result[b] = (attn - min_val) / (max_val - min_val)
+        
+        return result
+
 
 
     # def get_loss(self):
