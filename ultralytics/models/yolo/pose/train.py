@@ -126,6 +126,14 @@ class PoseTrainer(yolo.detect.DetectionTrainer):
                 layers=distillation_layers,
             )
 
+        # 在訓練開始前檢查
+        for name, param in self.teacher.named_parameters():
+            if param.requires_grad:
+                LOGGER.warning(f"教師參數 {name} 未凍結！")
+
+        if self.teacher.training:
+            LOGGER.warning("教師模型不在評估模式！")
+
             # # 輸出模型所有層的名字
             # for name, param in self.model.named_parameters():
             #     LOGGER.info(f"模型層名: {name}")

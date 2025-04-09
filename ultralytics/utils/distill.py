@@ -655,37 +655,53 @@ class DistillationLoss:
 
     def get_loss(self):
         """計算教師和學生模型之間的蒸餾損失"""            
+        # if not self.teacher_outputs or not self.student_outputs:
+        #     LOGGER.warning(f"沒有收集到特徵 - 教師: {len(self.teacher_outputs) if hasattr(self, 'teacher_outputs') else 0}, 學生: {len(self.student_outputs) if hasattr(self, 'student_outputs') else 0}")
+        #     return torch.tensor(0.0, requires_grad=True, device=next(self.models.parameters()).device)
+        
+        # if len(self.teacher_outputs) != len(self.student_outputs):
+        #     LOGGER.warning(f"輸出不匹配 - 教師: {len(self.teacher_outputs)}, 學生: {len(self.student_outputs)}")
+        #     return torch.tensor(0.0, requires_grad=True, device=next(self.models.parameters()).device)
+        
+        # try:
+        #     teacher_outputs = [t.detach() for t in self.teacher_outputs]
+        #     quant_loss = self.distill_loss_fn(y_s=self.student_outputs, y_t=teacher_outputs)
+            
+        #     # 檢查損失值是否合理
+        #     if torch.isnan(quant_loss) or torch.isinf(quant_loss):
+        #         LOGGER.warning(f"蒸餾損失值無效: {quant_loss}")
+        #         quant_loss = torch.tensor(0.0, requires_grad=True, device=next(self.models.parameters()).device)
+        #     elif quant_loss == 0:
+        #         LOGGER.warning("蒸餾損失為零，可能計算出錯")
+        #     else:
+        #         pass
+            
+        #     # 清除收集的特徵，準備下一個批次
+        #     self.teacher_outputs.clear()
+        #     self.student_outputs.clear()
+            
+        #     return quant_loss
+        # except Exception as e:
+        #     LOGGER.error(f"計算蒸餾損失時出錯: {e}")
+        #     import traceback
+        #     LOGGER.error(traceback.format_exc())  # 打印完整的錯誤堆疊
+        #     return torch.tensor(0.0, requires_grad=True, device=next(self.models.parameters()).device)
+
         if not self.teacher_outputs or not self.student_outputs:
-            LOGGER.warning(f"沒有收集到特徵 - 教師: {len(self.teacher_outputs) if hasattr(self, 'teacher_outputs') else 0}, 學生: {len(self.student_outputs) if hasattr(self, 'student_outputs') else 0}")
             return torch.tensor(0.0, requires_grad=True, device=next(self.models.parameters()).device)
         
-        if len(self.teacher_outputs) != len(self.student_outputs):
-            LOGGER.warning(f"輸出不匹配 - 教師: {len(self.teacher_outputs)}, 學生: {len(self.student_outputs)}")
-            return torch.tensor(0.0, requires_grad=True, device=next(self.models.parameters()).device)
+        # 添加調試輸出
+        for i, (t, s) in enumerate(zip(self.teacher_outputs, self.student_outputs)):
+            if isinstance(t, torch.Tensor) and isinstance(s, torch.Tensor):
+                diff = (t - s).abs().mean().item()
+                LOGGER.info(f"層 {i} 特徵差異: {diff:.6f}")
         
-        try:
-            teacher_outputs = [t.detach() for t in self.teacher_outputs]
-            quant_loss = self.distill_loss_fn(y_s=self.student_outputs, y_t=teacher_outputs)
-            
-            # 檢查損失值是否合理
-            if torch.isnan(quant_loss) or torch.isinf(quant_loss):
-                LOGGER.warning(f"蒸餾損失值無效: {quant_loss}")
-                quant_loss = torch.tensor(0.0, requires_grad=True, device=next(self.models.parameters()).device)
-            elif quant_loss == 0:
-                LOGGER.warning("蒸餾損失為零，可能計算出錯")
-            else:
-                pass
-            
-            # 清除收集的特徵，準備下一個批次
-            self.teacher_outputs.clear()
-            self.student_outputs.clear()
-            
-            return quant_loss
-        except Exception as e:
-            LOGGER.error(f"計算蒸餾損失時出錯: {e}")
-            import traceback
-            LOGGER.error(traceback.format_exc())  # 打印完整的錯誤堆疊
-            return torch.tensor(0.0, requires_grad=True, device=next(self.models.parameters()).device)
+        loss = 0
+        for t, s in zip(self.teacher_outputs, self.student_outputs):
+            if isinstance(t, torch.Tensor) and isinstance(s, torch.Tensor):
+                loss += F.mse_loss(s, t.detach())
+        
+        return loss
 
     def remove_handle_(self):
         """安全移除已註冊的鉤子"""
