@@ -823,19 +823,20 @@ class DistillationLoss:
 
     def p5_feature_distillation(self, student_feature, teacher_feature):
         """
-        針對YOLO11-pose P5層的優化CWD蒸餾方法
+        完全重新設計的P5層蒸餾方法，專注於姿勢估計任務
         
         Args:
             student_feature: 學生模型特徵圖 [B, 256, H, W]
             teacher_feature: 教師模型特徵圖 [B, 512, H, W]
         
         Returns:
-            改進的姿勢識別P5層蒸餾損失
+            姿勢估計專用蒸餾損失
         """
-        # 獲取批次大小和特徵維度
+        # 基本尺寸信息
         batch_size = student_feature.shape[0]
         student_channels = student_feature.shape[1]  # 256
         teacher_channels = teacher_feature.shape[1]  # 512
+        spatial_size = student_feature.shape[2:]  # (H, W)
         
         # 確保空間維度相同
         if student_feature.shape[2:] != teacher_feature.shape[2:]:
@@ -846,197 +847,212 @@ class DistillationLoss:
                 align_corners=False
             )
         
-        # 1. 改進的CWD通道匹配損失
-        # 通道特徵獲取
-        s_pool = F.adaptive_avg_pool2d(student_feature, 1).squeeze(-1).squeeze(-1)  # [B, 256]
-        t_pool = F.adaptive_avg_pool2d(teacher_feature, 1).squeeze(-1).squeeze(-1)  # [B, 512]
+        # ======== 1. 基於PCA的通道重要性分析 ========
+        # 重塑特徵以進行PCA
+        t_flat = teacher_feature.reshape(batch_size, teacher_channels, -1)  # [B, 512, H*W]
         
-        # 標準化特徵
-        s_norm = F.normalize(s_pool, p=2, dim=1)  # [B, 256]
-        t_norm = F.normalize(t_pool, p=2, dim=1)  # [B, 512]
+        # 計算批次內每個樣本的PCA
+        teacher_pca_components = []
+        teacher_pca_variances = []
         
-        # 計算余弦相似度矩陣
-        sim_matrix = torch.matmul(s_norm.unsqueeze(2), t_norm.unsqueeze(1))  # [B, 256, 512]
-        
-        # 為每個學生通道找到最佳匹配的教師通道
-        max_sim_s2t, _ = sim_matrix.max(dim=2)  # [B, 256]
-        
-        # 為每個教師通道找到最佳匹配的學生通道
-        max_sim_t2s, _ = sim_matrix.max(dim=1)  # [B, 512]
-        
-        # 只關注前256個教師通道(假設這些是最重要的)
-        important_teacher_channels = min(student_channels, teacher_channels)
-        
-        # 計算改進的CWD損失
-        # 我們希望這個相似度越高越好，所以用(1-sim)作為損失
-        cwd_loss_s2t = (1.0 - max_sim_s2t).mean()
-        cwd_loss_t2s = (1.0 - max_sim_t2s[:, :important_teacher_channels]).mean()
-        
-        # 兩個方向的匹配損失加權組合
-        cwd_loss = 0.7 * cwd_loss_s2t + 0.3 * cwd_loss_t2s
-        
-        # 2. 改進的空間注意力損失 - 跨所有通道計算空間注意力
-        # 將所有通道加權平均，權重為通道的L2範數
-        s_channel_weight = torch.norm(s_pool, p=2, dim=1, keepdim=True)  # [B, 1]
-        t_channel_weight = torch.norm(t_pool, p=2, dim=1, keepdim=True)  # [B, 1]
-        
-        # 標準化權重
-        s_channel_weight = F.normalize(s_channel_weight, p=1, dim=1)  # [B, 1]
-        t_channel_weight = F.normalize(t_channel_weight, p=1, dim=1)  # [B, 1]
-        
-        # 計算加權空間注意力圖
-        s_spatial = torch.sum(
-            student_feature * s_channel_weight.view(batch_size, 1, 1, 1),
-            dim=1
-        )  # [B, H, W]
-        
-        t_spatial = torch.sum(
-            teacher_feature * t_channel_weight.view(batch_size, 1, 1, 1),
-            dim=1
-        )  # [B, H, W]
-        
-        # 標準化空間注意力圖
-        s_spatial = F.normalize(s_spatial.reshape(batch_size, -1), p=2, dim=1).reshape(batch_size, *s_spatial.shape[1:])
-        t_spatial = F.normalize(t_spatial.reshape(batch_size, -1), p=2, dim=1).reshape(batch_size, *t_spatial.shape[1:])
-        
-        # 空間注意力損失
-        spatial_loss = F.mse_loss(s_spatial, t_spatial)
-        
-        # 3. 關鍵點位置感知損失
-        # 使用Top-K激活值作為關鍵點，而不是簡單的閾值
-        h, w = s_spatial.shape[1], s_spatial.shape[2]
-        num_keypoints = 17  # COCO數據集中的關鍵點數量
-        
-        # 找出Top-K激活值
-        s_flat_spatial = s_spatial.reshape(batch_size, -1)  # [B, H*W]
-        t_flat_spatial = t_spatial.reshape(batch_size, -1)  # [B, H*W]
-        
-        # 取Top-K作為潛在關鍵點
-        _, s_topk_indices = torch.topk(s_flat_spatial, num_keypoints, dim=1)  # [B, 17]
-        _, t_topk_indices = torch.topk(t_flat_spatial, num_keypoints, dim=1)  # [B, 17]
-        
-        # 創建關鍵點掩碼
-        s_keypoint_mask = torch.zeros_like(s_flat_spatial)
-        t_keypoint_mask = torch.zeros_like(t_flat_spatial)
-        
-        # 填充掩碼
         for b in range(batch_size):
-            s_keypoint_mask[b, s_topk_indices[b]] = 1.0
-            t_keypoint_mask[b, t_topk_indices[b]] = 1.0
+            # 獲取當前樣本的特徵
+            t_sample = t_flat[b].transpose(0, 1)  # [H*W, 512]
+            
+            # 中心化
+            t_mean = t_sample.mean(dim=0, keepdim=True)
+            t_centered = t_sample - t_mean
+            
+            # 計算協方差矩陣
+            cov = torch.mm(t_centered.transpose(0, 1), t_centered) / (t_centered.shape[0] - 1)
+            
+            # 計算特徵值和特徵向量
+            try:
+                eigenvalues, eigenvectors = torch.linalg.eigh(cov)
+                
+                # 按特徵值大小排序（降序）
+                idx = torch.argsort(eigenvalues, descending=True)
+                eigenvalues = eigenvalues[idx]
+                eigenvectors = eigenvectors[:, idx]
+                
+                # 保存PCA組件和方差
+                teacher_pca_components.append(eigenvectors)
+                teacher_pca_variances.append(eigenvalues / torch.sum(eigenvalues))
+            except:
+                # 如果發生錯誤，使用簡單平均作為後備方案
+                LOGGER.warning("PCA計算失敗，使用簡單平均作為通道重要性")
+                avg_importance = torch.ones(teacher_channels, device=teacher_feature.device) / teacher_channels
+                teacher_pca_components.append(torch.eye(teacher_channels, device=teacher_feature.device))
+                teacher_pca_variances.append(avg_importance)
         
-        # 重塑為原始空間維度
-        s_keypoint_mask = s_keypoint_mask.reshape(batch_size, h, w)
-        t_keypoint_mask = t_keypoint_mask.reshape(batch_size, h, w)
+        # 將PCA結果堆疊成批次
+        teacher_pca_components = torch.stack(teacher_pca_components)  # [B, 512, 512]
+        teacher_pca_variances = torch.stack(teacher_pca_variances)    # [B, 512]
         
-        # 應用高斯模糊使掩碼更加平滑
-        # 在pytorch中模擬高斯模糊，通過平均池化來近似
+        # ======== 2. 生成空間掩碼 ========
+        # 計算教師空間掩碼 - 基於重要通道的累積激活
+        # 選取最重要的K個主成分
+        K = 32  # 前32個主成分
+        important_components = teacher_pca_components[:, :, :K]  # [B, 512, K]
+        
+        # 投影原始特徵到這些主成分
+        t_important = torch.bmm(
+            teacher_feature.reshape(batch_size, teacher_channels, -1).transpose(1, 2),  # [B, H*W, 512]
+            important_components  # [B, 512, K]
+        )  # [B, H*W, K]
+        
+        # 計算空間重要性掩碼
+        t_spatial_importance = torch.norm(t_important, p=2, dim=2)  # [B, H*W]
+        t_spatial_importance = t_spatial_importance.reshape(batch_size, *spatial_size)  # [B, H, W]
+        
+        # 標準化空間重要性
+        t_spatial_importance = (t_spatial_importance - t_spatial_importance.min(dim=1, keepdim=True)[0].min(dim=2, keepdim=True)[0]) / \
+                            (t_spatial_importance.max(dim=1, keepdim=True)[0].max(dim=2, keepdim=True)[0] - 
+                            t_spatial_importance.min(dim=1, keepdim=True)[0].min(dim=2, keepdim=True)[0] + 1e-10)
+        
+        # 創建空間掩碼 - 高於60%的重要性值被保留
+        spatial_mask = (t_spatial_importance > 0.6).float()
+        
+        # 使用高斯濾波平滑掩碼
         kernel_size = 3
         padding = kernel_size // 2
-        s_keypoint_mask = F.avg_pool2d(
-            s_keypoint_mask.unsqueeze(1),
-            kernel_size=kernel_size,
-            stride=1,
+        spatial_mask = F.avg_pool2d(
+            spatial_mask.unsqueeze(1),
+            kernel_size=kernel_size, 
+            stride=1, 
             padding=padding
         ).squeeze(1)
         
-        t_keypoint_mask = F.avg_pool2d(
-            t_keypoint_mask.unsqueeze(1),
-            kernel_size=kernel_size,
-            stride=1,
-            padding=padding
-        ).squeeze(1)
+        # ======== 3. 姿勢感知通道選擇 ========
+        # 從教師模型中選擇最重要的通道
+        # 使用前student_channels個主成分的方差作為權重
+        # (按方差排序，選擇前256個)
+        _, top_indices = torch.topk(teacher_pca_variances, student_channels, dim=1)  # [B, 256]
         
-        # 組合掩碼 (聯集)
-        combined_mask = torch.clamp(s_keypoint_mask + t_keypoint_mask, 0, 1)
-        
-        # 關鍵點位置損失 - 只關注掩碼區域
-        keypoint_loss = F.mse_loss(
-            s_spatial * combined_mask,
-            t_spatial * combined_mask
-        ) / (combined_mask.mean() + 1e-8)  # 除以掩碼覆蓋比例進行歸一化
-        
-        # 4. 改進的結構相關性損失 - 使用匹配的通道
-        # 從相似度矩陣為每個學生通道選擇最佳匹配的教師通道
-        _, s2t_indices = sim_matrix.max(dim=2)  # [B, 256] - 每個學生通道最匹配的教師通道索引
-        
-        # 收集匹配的教師特徵
-        t_matched = []
+        # 為每個批次樣本選擇重要通道
+        t_selected = []
         for b in range(batch_size):
-            # 獲取當前批次的匹配教師通道
-            matched_indices = s2t_indices[b]  # [256]
-            t_selected = torch.index_select(
-                teacher_feature[b], 0, matched_indices
-            )  # [256, H, W]
-            t_matched.append(t_selected)
+            t_sample = teacher_feature[b]  # [512, H, W]
+            indices = top_indices[b]  # [256]
+            t_selected.append(t_sample[indices])  # [256, H, W]
         
-        t_matched = torch.stack(t_matched)  # [B, 256, H, W]
+        t_selected = torch.stack(t_selected)  # [B, 256, H, W]
         
-        # 計算空間相關性
+        # ======== 4. 特徵匹配損失 ========
+        # 4.1 高重要性區域的空間損失
+        # 只在重要區域匹配特徵
+        spatial_mask_expanded = spatial_mask.unsqueeze(1)  # [B, 1, H, W]
+        
+        # 在重要區域計算MSE損失
+        masked_spatial_loss = F.mse_loss(
+            student_feature * spatial_mask_expanded,
+            t_selected * spatial_mask_expanded
+        ) / (spatial_mask.mean() + 1e-10)  # 除以掩碼覆蓋比例進行歸一化
+        
+        # 4.2 通道相關性損失
+        # 計算通道相關性矩陣
         s_flat = student_feature.reshape(batch_size, student_channels, -1)  # [B, 256, H*W]
-        t_matched_flat = t_matched.reshape(batch_size, student_channels, -1)  # [B, 256, H*W]
+        t_sel_flat = t_selected.reshape(batch_size, student_channels, -1)  # [B, 256, H*W]
         
-        # 標準化特徵
-        s_flat_norm = F.normalize(s_flat, p=2, dim=2)  # [B, 256, H*W]
-        t_matched_flat_norm = F.normalize(t_matched_flat, p=2, dim=2)  # [B, 256, H*W]
-        
-        # 計算通道間相關性矩陣
-        s_corr = torch.bmm(s_flat_norm, s_flat_norm.transpose(1, 2))  # [B, 256, 256]
-        t_corr = torch.bmm(t_matched_flat_norm, t_matched_flat_norm.transpose(1, 2))  # [B, 256, 256]
+        # 計算通道相關性
+        s_corr = torch.bmm(s_flat, s_flat.transpose(1, 2)) / s_flat.shape[2]  # [B, 256, 256]
+        t_corr = torch.bmm(t_sel_flat, t_sel_flat.transpose(1, 2)) / t_sel_flat.shape[2]  # [B, 256, 256]
         
         # 標準化相關性矩陣
-        s_corr = F.normalize(s_corr, p='fro', dim=(1,2))
-        t_corr = F.normalize(t_corr, p='fro', dim=(1,2))
+        s_corr_norm = F.normalize(s_corr.view(batch_size, -1), p=2, dim=1).view_as(s_corr)
+        t_corr_norm = F.normalize(t_corr.view(batch_size, -1), p=2, dim=1).view_as(t_corr)
         
-        # 結構相關性損失
-        structure_loss = F.mse_loss(s_corr, t_corr)
+        # 通道相關性損失
+        channel_corr_loss = F.mse_loss(s_corr_norm, t_corr_norm)
         
-        # 5. 改進的統計匹配損失 - 使用匹配的通道
-        # 計算匹配通道的統計量
-        t_matched_mean = t_matched.mean(dim=[2, 3])  # [B, 256]
-        t_matched_var = t_matched.var(dim=[2, 3])  # [B, 256]
-        
+        # 4.3 姿勢關鍵點相關統計損失
+        # 計算匹配特徵的統計量
         s_mean = student_feature.mean(dim=[2, 3])  # [B, 256]
+        t_mean = t_selected.mean(dim=[2, 3])  # [B, 256]
         s_var = student_feature.var(dim=[2, 3])  # [B, 256]
+        t_var = t_selected.var(dim=[2, 3])  # [B, 256]
         
-        # 標準化均值進行比較
+        # 標準化均值和方差
         s_mean_norm = F.normalize(s_mean, p=2, dim=1)
-        t_mean_norm = F.normalize(t_matched_mean, p=2, dim=1)
+        t_mean_norm = F.normalize(t_mean, p=2, dim=1)
         
-        # 對方差進行Log變換，處理小值
-        s_var_log = torch.log(s_var + 1e-8)
-        t_var_log = torch.log(t_matched_var + 1e-8)
+        # 處理方差
+        eps = 1e-10
+        s_var_log = torch.log(s_var + eps)
+        t_var_log = torch.log(t_var + eps)
         
-        # 標準化log變換後的方差
-        s_var_norm = (s_var_log - s_var_log.mean(dim=1, keepdim=True)) / (s_var_log.std(dim=1, keepdim=True) + 1e-8)
-        t_var_norm = (t_var_log - t_var_log.mean(dim=1, keepdim=True)) / (t_var_log.std(dim=1, keepdim=True) + 1e-8)
-        
-        # 統計匹配損失
+        # 統計量損失
         mean_loss = F.mse_loss(s_mean_norm, t_mean_norm)
-        var_loss = F.mse_loss(s_var_norm, t_var_norm)
+        var_loss = F.mse_loss(s_var_log, t_var_log)
         stats_loss = 0.5 * mean_loss + 0.5 * var_loss
         
-        # 調整後的權重配置
-        cwd_weight = 0.30        # 通道匹配權重
-        spatial_weight = 0.20    # 空間注意力權重
-        keypoint_weight = 0.20   # 關鍵點位置權重
-        structure_weight = 0.15  # 結構相關性權重
-        stats_weight = 0.15      # 統計匹配權重
+        # ======== 5. 關鍵點檢測特化損失 ========
+        # 5.1 關鍵點位置感知
+        # 使用Heatmap聚合獲取可能的關鍵點位置
+        t_heatmap = t_selected.pow(2).sum(dim=1)  # [B, H, W]
+        s_heatmap = student_feature.pow(2).sum(dim=1)  # [B, H, W]
         
-        # 組合損失
-        total_loss = (cwd_weight * cwd_loss + 
-                    spatial_weight * spatial_loss + 
-                    keypoint_weight * keypoint_loss + 
-                    structure_weight * structure_loss + 
-                    stats_weight * stats_loss)
+        # 標準化熱圖
+        t_heatmap = F.normalize(t_heatmap.view(batch_size, -1), p=2, dim=1).view_as(t_heatmap)
+        s_heatmap = F.normalize(s_heatmap.view(batch_size, -1), p=2, dim=1).view_as(s_heatmap)
         
-        # 記錄詳細損失
-        LOGGER.info(f"P5層蒸餾損失詳情 (改進CWD):")
-        LOGGER.info(f"  CWD通道匹配損失: {cwd_loss.item():.6f} (權重: {cwd_weight})")
-        LOGGER.info(f"  空間注意力損失: {spatial_loss.item():.6f} (權重: {spatial_weight})")
-        LOGGER.info(f"  關鍵點位置損失: {keypoint_loss.item():.6f} (權重: {keypoint_weight})")
-        LOGGER.info(f"  結構相關性損失: {structure_loss.item():.6f} (權重: {structure_weight})")
-        LOGGER.info(f"  統計匹配損失: {stats_loss.item():.6f} (權重: {stats_weight})")
+        # 熱圖損失
+        heatmap_loss = F.mse_loss(s_heatmap, t_heatmap)
+        
+        # 5.2 骨架結構理解
+        # 計算COCO人體骨架結構
+        # 這裡我們只需獲取空間上最活躍的點
+        k = 17  # COCO關鍵點數量
+        
+        # 找出熱圖上最活躍的k個點
+        t_flat_heatmap = t_heatmap.reshape(batch_size, -1)  # [B, H*W]
+        _, t_topk_indices = torch.topk(t_flat_heatmap, k, dim=1)  # [B, 17]
+        
+        s_flat_heatmap = s_heatmap.reshape(batch_size, -1)  # [B, H*W]
+        _, s_topk_indices = torch.topk(s_flat_heatmap, k, dim=1)  # [B, 17]
+        
+        # 將索引轉換為2D坐標
+        h, w = spatial_size
+        t_y = (t_topk_indices // w).float() / h  # 標準化為[0,1]
+        t_x = (t_topk_indices % w).float() / w
+        s_y = (s_topk_indices // w).float() / h
+        s_x = (s_topk_indices % w).float() / w
+        
+        # 計算坐標差異
+        t_coords = torch.stack([t_x, t_y], dim=2)  # [B, 17, 2]
+        s_coords = torch.stack([s_x, s_y], dim=2)  # [B, 17, 2]
+        
+        # 坐標排序以減少排列不同的影響
+        t_sorted_coords, _ = torch.sort(t_coords.view(batch_size, -1), dim=1)
+        s_sorted_coords, _ = torch.sort(s_coords.view(batch_size, -1), dim=1) 
+        
+        # 關鍵點分布損失
+        keypoint_loss = F.mse_loss(s_sorted_coords, t_sorted_coords)
+        
+        # ======== 6. 總損失計算 ========
+        # 權重配置
+        spatial_weight = 0.30     # 空間特徵損失權重
+        channel_weight = 0.20     # 通道相關性損失權重
+        stats_weight = 0.15       # 統計量損失權重
+        heatmap_weight = 0.20     # 熱圖損失權重
+        keypoint_weight = 0.15    # 關鍵點分布損失權重
+        
+        # 總損失
+        total_loss = (spatial_weight * masked_spatial_loss +
+                    channel_weight * channel_corr_loss +
+                    stats_weight * stats_loss +
+                    heatmap_weight * heatmap_loss +
+                    keypoint_weight * keypoint_loss)
+        
+        # 日誌記錄
+        LOGGER.info(f"P5層蒸餾損失詳情 (PCA基礎方法):")
+        LOGGER.info(f"  空間特徵損失: {masked_spatial_loss.item():.6f} (權重: {spatial_weight})")
+        LOGGER.info(f"  通道相關性損失: {channel_corr_loss.item():.6f} (權重: {channel_weight})")
+        LOGGER.info(f"  統計量損失: {stats_loss.item():.6f} (權重: {stats_weight})")
+        LOGGER.info(f"  熱圖損失: {heatmap_loss.item():.6f} (權重: {heatmap_weight})")
+        LOGGER.info(f"  關鍵點分布損失: {keypoint_loss.item():.6f} (權重: {keypoint_weight})")
         LOGGER.info(f"  總P5損失: {total_loss.item():.6f}")
+        LOGGER.info(f"  空間掩碼覆蓋率: {spatial_mask.mean().item()*100:.2f}%")
         
         return total_loss
 
