@@ -3,7 +3,7 @@ from ultralytics import YOLO
 from ultralytics.utils import LOGGER
 
 # 加載模型
-student_model = YOLO("yolo11n-pose.pt")  # 學生模型
+student_model = YOLO("yolo11s-pose.pt")  # 學生模型
 teacher_model = YOLO("yolo11s-pose.pt")  # 教師模型
 
 LOGGER.info("初始化蒸餾訓練策略...")
