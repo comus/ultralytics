@@ -786,15 +786,21 @@ class DistillationLoss:
         self.student_outputs = []
         self.original_performance = original_performance
         
+        # 初始化这些属性，这是缺失的部分
+        self.student_module_pairs = []
+        self.teacher_module_pairs = []
+        self.channels_s = []
+        self.channels_t = []
+        
+        # 更明确地记录找到的层
+        self.found_student_layers = []
+        self.found_teacher_layers = []
+        
         # 检查是否启用混合精度训练
         self.using_amp = False
         if hasattr(models, 'args') and hasattr(models.args, 'amp'):
             self.using_amp = models.args.amp
             LOGGER.info(f"检测到混合精度训练设置: {self.using_amp}")
-        
-        # 更明确地记录找到的层
-        self.found_student_layers = []
-        self.found_teacher_layers = []
         
         # 寻找要蒸馏的层
         self._find_layers()
@@ -808,6 +814,46 @@ class DistillationLoss:
         LOGGER.info(f"教师层: {self.found_teacher_layers}")
         LOGGER.info(f"学生通道: {self.channels_s}")
         LOGGER.info(f"教师通道: {self.channels_t}")
+        
+        # 创建蒸馏损失实例
+        self._init_distill_loss()
+        
+    def _init_distill_loss(self):
+        """初始化蒸馏损失函数"""
+        # 获取模型的设备
+        device = next(self.models.parameters()).device
+        
+        # 根据蒸馏方法选择对应的损失函数
+        if self.distiller == "cwd":
+            LOGGER.info("使用Channel-wise Knowledge Distillation(CWD)进行蒸馏")
+            self.distill_loss_fn = CWDLoss(
+                channels_s=self.channels_s,
+                channels_t=self.channels_t,
+                tau=1.0
+            ).to(device)
+        elif self.distiller == "reviewkd":
+            LOGGER.info("使用Review KD进行蒸馏")
+            self.distill_loss_fn = ReviewKDLoss(
+                student_channels=self.channels_s,
+                teacher_channels=self.channels_t,
+                temperature=1.0
+            ).to(device)
+        elif self.distiller == "enhancedfgd":
+            LOGGER.info("使用Enhanced FGD进行蒸馏 - 姿态优化版")
+            self.distill_loss_fn = EnhancedFGDLoss(
+                student_channels=self.channels_s,
+                teacher_channels=self.channels_t,
+                spatial_weight=3.5,
+                channel_weight=0.4
+            ).to(device)
+        else:  # 默认使用FGD
+            LOGGER.info("使用Feature Guided Distillation(FGD)进行蒸馏")
+            self.distill_loss_fn = FGDLoss(
+                student_channels=self.channels_s,
+                teacher_channels=self.channels_t,
+                spatial_weight=2.0,
+                channel_weight=0.6
+            ).to(device)
         
     def _find_layers(self):
         """寻找要蒸馏的层，增强错误处理和日志记录"""
