@@ -249,14 +249,37 @@ class PoseTrainer(yolo.detect.DetectionTrainer):
         teacher_params = {name: param.clone() for name, param in self.teacher.named_parameters()}
         student_params = {name: param.clone() for name, param in self.model.named_parameters()}
         
-        param_diffs = []
-        for name in teacher_params:
-            if name in student_params:
-                diff = (teacher_params[name] - student_params[name]).abs().max().item()
-                param_diffs.append((name, diff))
+        # 找出共同的參數名稱
+        common_params = set(teacher_params.keys()).intersection(set(student_params.keys()))
         
-        max_param_diff = max(param_diffs, key=lambda x: x[1]) if param_diffs else (None, 0)
-        LOGGER.info(f"參數最大差異: {max_param_diff[1]:.10f} (在層 {max_param_diff[0]})")
+        # 記錄參數總數和可比較數量
+        total_t_params = len(teacher_params)
+        total_s_params = len(student_params)
+        common_param_count = len(common_params)
+        
+        LOGGER.info(f"參數統計: 教師({total_t_params}), 學生({total_s_params}), 共同參數({common_param_count})")
+        
+        # 只比較大小相同的參數
+        comparable_params = []
+        for name in common_params:
+            t_param = teacher_params[name]
+            s_param = student_params[name]
+            
+            if t_param.size() == s_param.size():
+                comparable_params.append(name)
+        
+        LOGGER.info(f"可比較的參數數量: {len(comparable_params)}/{common_param_count}")
+        
+        param_diffs = []
+        for name in comparable_params:
+            diff = (teacher_params[name] - student_params[name]).abs().max().item()
+            param_diffs.append((name, diff))
+        
+        if param_diffs:
+            max_param_diff = max(param_diffs, key=lambda x: x[1])
+            LOGGER.info(f"參數最大差異: {max_param_diff[1]:.10f} (在層 {max_param_diff[0]})")
+        else:
+            LOGGER.info("沒有可比較的參數")
         
         # 2. 比較模型前向傳播 (使用相同輸入)
         # 準備固定的測試輸入
@@ -280,38 +303,82 @@ class PoseTrainer(yolo.detect.DetectionTrainer):
         def hook_fn(features_list):
             return lambda module, input, output: features_list.append(output.detach())
         
-        # 為特定層註冊hooks
-        for name, module in self.teacher.named_modules():
-            if "22.cv2" in name:  # 使用相同的蒸餾層
-                teacher_hooks.append(module.register_forward_hook(hook_fn(teacher_features)))
+        # 嘗試為特定層註冊hooks
+        teacher_hook_layers = []
+        student_hook_layers = []
+        hook_layer_patterns = ["22.cv2"]  # 使用模式匹配
         
+        # 嘗試查找教師模型中的對應層
+        for name, module in self.teacher.named_modules():
+            for pattern in hook_layer_patterns:
+                if pattern in name:
+                    teacher_hook_layers.append((name, module))
+                    LOGGER.info(f"為教師模型註冊hook: {name}, 輸出形狀: {getattr(module, 'out_channels', 'unknown')}")
+                    teacher_hooks.append(module.register_forward_hook(hook_fn(teacher_features)))
+        
+        # 嘗試查找學生模型中的對應層
         for name, module in self.model.named_modules():
-            if "22.cv2" in name:  # 使用相同的蒸餾層
-                student_hooks.append(module.register_forward_hook(hook_fn(student_features)))
+            for pattern in hook_layer_patterns:
+                if pattern in name:
+                    student_hook_layers.append((name, module))
+                    LOGGER.info(f"為學生模型註冊hook: {name}, 輸出形狀: {getattr(module, 'out_channels', 'unknown')}")
+                    student_hooks.append(module.register_forward_hook(hook_fn(student_features)))
+        
+        # 如果找不到特定層，記錄所有可用層以供參考
+        if not teacher_hook_layers or not student_hook_layers:
+            LOGGER.warning(f"未找到匹配的層: {hook_layer_patterns}")
+            LOGGER.info("教師模型可用層:")
+            for name, _ in self.teacher.named_modules():
+                if any(name.endswith(f".cv{i}") for i in range(1, 4)):
+                    LOGGER.info(f"  - {name}")
+            
+            LOGGER.info("學生模型可用層:")
+            for name, _ in self.model.named_modules():
+                if any(name.endswith(f".cv{i}") for i in range(1, 4)):
+                    LOGGER.info(f"  - {name}")
         
         # 執行前向傳播
         with torch.no_grad():
-            teacher_output = self.teacher(test_input)
-            student_output = self.model(test_input)
+            try:
+                teacher_output = self.teacher(test_input)
+                student_output = self.model(test_input)
+                forward_success = True
+            except Exception as e:
+                LOGGER.error(f"前向傳播失敗: {str(e)}")
+                forward_success = False
         
         # 移除hooks
         for hook in teacher_hooks + student_hooks:
             hook.remove()
         
-        # 比較最終輸出
-        if isinstance(teacher_output, torch.Tensor) and isinstance(student_output, torch.Tensor):
-            output_diff = (teacher_output - student_output).abs().max().item()
-            LOGGER.info(f"最終輸出最大差異: {output_diff:.10f}")
-        
-        # 比較中間特徵
-        for i, (t_feat, s_feat) in enumerate(zip(teacher_features, student_features)):
-            if isinstance(t_feat, torch.Tensor) and isinstance(s_feat, torch.Tensor):
+        if forward_success:
+            # 比較最終輸出 (只在輸出是Tensor或具有相同結構時比較)
+            if (isinstance(teacher_output, torch.Tensor) and isinstance(student_output, torch.Tensor) and 
+                teacher_output.size() == student_output.size()):
+                output_diff = (teacher_output - student_output).abs().max().item()
+                LOGGER.info(f"最終輸出最大差異: {output_diff:.10f}")
+            else:
+                LOGGER.info("無法比較最終輸出 (不同的輸出類型或形狀)")
+                if isinstance(teacher_output, torch.Tensor):
+                    LOGGER.info(f"教師輸出形狀: {teacher_output.shape}")
+                if isinstance(student_output, torch.Tensor):
+                    LOGGER.info(f"學生輸出形狀: {student_output.shape}")
+            
+            # 比較中間特徵 (只比較大小相同的特徵)
+            comparable_features = []
+            for i, (t_feat, s_feat) in enumerate(zip(teacher_features, student_features)):
+                if isinstance(t_feat, torch.Tensor) and isinstance(s_feat, torch.Tensor) and t_feat.size() == s_feat.size():
+                    comparable_features.append((i, t_feat, s_feat))
+            
+            LOGGER.info(f"可比較的特徵數量: {len(comparable_features)}/{len(teacher_features)}")
+            
+            for i, t_feat, s_feat in comparable_features:
                 feat_diff = (t_feat - s_feat).abs()
                 max_diff = feat_diff.max().item()
                 mean_diff = feat_diff.mean().item()
                 std_diff = feat_diff.std().item()
                 
-                LOGGER.info(f"層 {i} 特徵差異統計:")
+                LOGGER.info(f"層 {i} 特徵差異統計 (形狀: {t_feat.shape}):")
                 LOGGER.info(f"  最大差異: {max_diff:.10f}, 平均差異: {mean_diff:.10f}, 標準差: {std_diff:.10f}")
         
         # 恢復原始模式
@@ -326,17 +393,30 @@ class PoseTrainer(yolo.detect.DetectionTrainer):
         teacher_buffers = {name: buf.clone() for name, buf in self.teacher.named_buffers()}
         student_buffers = {name: buf.clone() for name, buf in self.model.named_buffers()}
         
-        buffer_diffs = []
-        for name in teacher_buffers:
-            if name in student_buffers:
-                diff = (teacher_buffers[name] - student_buffers[name]).abs().max().item()
-                buffer_diffs.append((name, diff))
+        # 找出共同的緩衝區名稱
+        common_buffers = set(teacher_buffers.keys()).intersection(set(student_buffers.keys()))
         
-        max_buffer_diff = max(buffer_diffs, key=lambda x: x[1]) if buffer_diffs else (None, 0)
-        LOGGER.info(f"Buffer最大差異: {max_buffer_diff[1]:.10f} (在 {max_buffer_diff[0]})")
+        # 只比較大小相同的緩衝區
+        comparable_buffers = []
+        for name in common_buffers:
+            if teacher_buffers[name].size() == student_buffers[name].size():
+                comparable_buffers.append(name)
+        
+        LOGGER.info(f"可比較的buffers數量: {len(comparable_buffers)}/{len(common_buffers)}")
+        
+        buffer_diffs = []
+        for name in comparable_buffers:
+            diff = (teacher_buffers[name] - student_buffers[name]).abs().max().item()
+            buffer_diffs.append((name, diff))
+        
+        if buffer_diffs:
+            max_buffer_diff = max(buffer_diffs, key=lambda x: x[1])
+            LOGGER.info(f"Buffer最大差異: {max_buffer_diff[1]:.10f} (在 {max_buffer_diff[0]})")
+        else:
+            LOGGER.info("沒有可比較的buffer")
         
         LOGGER.info("=" * 50)
-    
+
     def freeze_bn_statistics(self, model):
         """凍結模型中所有BN層的統計量更新"""
         for m in model.modules():
