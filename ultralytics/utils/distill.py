@@ -3,6 +3,75 @@ import torch.nn as nn
 import torch.nn.functional as F
 from ultralytics.utils import LOGGER
 
+class SpatialPoseDistillation(nn.Module):
+    """空间感知的姿态特化蒸馏方法"""
+    
+    def __init__(self, channels_s, channels_t):
+        super().__init__()
+        
+        # 特征对齐模块 - 1x1卷积处理通道差异
+        self.align = nn.ModuleList()
+        for s_chan, t_chan in zip(channels_s, channels_t):
+            self.align.append(
+                nn.Sequential(
+                    nn.Conv2d(s_chan, t_chan, kernel_size=1, bias=False),
+                    nn.BatchNorm2d(t_chan)
+                )
+            )
+        
+        # 人体部位感知模块 - 增强空间重要性
+        self.pose_attention = nn.ModuleList()
+        for _ in range(len(channels_t)):
+            self.pose_attention.append(
+                nn.Sequential(
+                    nn.AdaptiveAvgPool2d(1),
+                    nn.Conv2d(1, 1, kernel_size=3, padding=1),
+                    nn.Sigmoid()
+                )
+            )
+            
+    def forward(self, y_s, y_t):
+        losses = []
+        
+        for i, (s, t) in enumerate(zip(y_s, y_t)):
+            if not isinstance(s, torch.Tensor) or not isinstance(t, torch.Tensor):
+                continue
+                
+            # 通道对齐
+            s_aligned = self.align[i](s)
+            
+            # 空间对齐
+            if s_aligned.size(2) != t.size(2) or s_aligned.size(3) != t.size(3):
+                t = F.interpolate(t, size=(s_aligned.size(2), s_aligned.size(3)),
+                                 mode='bilinear', align_corners=True)
+            
+            # 1. 一般特征图损失 - MSE
+            general_loss = F.mse_loss(s_aligned, t)
+            
+            # 2. 高激活区域损失 - 可能是关键点区域
+            # 提取可能包含关键点的高激活区域
+            t_abs = torch.mean(torch.abs(t), dim=1, keepdim=True)
+            t_mask = (t_abs > torch.mean(t_abs) * 1.5).float()
+            
+            # 对这些区域使用加权损失
+            keypoint_region_loss = F.mse_loss(s_aligned * t_mask, t * t_mask) * 2.0
+            
+            # 3. 空间梯度损失 - 保持边缘和结构
+            # 水平和垂直梯度
+            s_dx = s_aligned[:, :, :, 1:] - s_aligned[:, :, :, :-1]
+            t_dx = t[:, :, :, 1:] - t[:, :, :, :-1]
+            s_dy = s_aligned[:, :, 1:, :] - s_aligned[:, :, :-1, :]
+            t_dy = t[:, :, 1:, :] - t[:, :, :-1, :]
+            
+            # 梯度一致性损失
+            gradient_loss = (F.mse_loss(s_dx, t_dx) + F.mse_loss(s_dy, t_dy)) * 0.5
+            
+            # 总损失
+            total_loss = general_loss + keypoint_region_loss + gradient_loss
+            losses.append(total_loss)
+            
+        return sum(losses)
+
 class AdaptiveDistillationLoss(nn.Module):
     """自适应蒸馏损失，保护基本任务能力"""
     
@@ -605,20 +674,7 @@ class FeatureLoss(nn.Module):
             
         # 選擇蒸餾損失函數
         # 创建蒸馏损失实例 - 新增对AdaptiveDistillationLoss的支持
-        if self.distiller == "adaptive":
-            LOGGER.info("使用自适应蒸馏方法 - 性能保护机制")
-            self.distill_loss_fn = AdaptiveDistillationLoss(
-                channels_s=self.channels_s, 
-                channels_t=self.channels_t,
-                original_performance=self.original_performance or 0.5
-            )
-        elif self.distiller == "enhanced":
-            LOGGER.info("使用Enhanced蒸馏方法 - 专为姿态估计优化")
-            self.distill_loss_fn = EnhancedDistillationLoss(
-                channels_s=self.channels_s, 
-                channels_t=self.channels_t
-            )
-        elif self.distiller == 'mgd':
+        if self.distiller == 'mgd':
             self.feature_loss = MGDLoss(channels_s, channels_t)
         elif self.distiller == 'cwd':
             self.feature_loss = CWDLoss(channels_s, channels_t)
@@ -747,11 +803,31 @@ class DistillationLoss:
         LOGGER.info(f"教師通道: {self.channels_t}")
         
         # 創建蒸餾損失實例
-        self.distill_loss_fn = FeatureLoss(
-            channels_s=self.channels_s, 
-            channels_t=self.channels_t, 
-            distiller=self.distiller
-        )
+        if self.distiller == "adaptive":
+            LOGGER.info("使用自适应蒸馏方法 - 性能保护机制")
+            self.distill_loss_fn = AdaptiveDistillationLoss(
+                channels_s=self.channels_s, 
+                channels_t=self.channels_t,
+                original_performance=self.original_performance or 0.5
+            )
+        elif self.distiller == "enhanced":
+            LOGGER.info("使用Enhanced蒸馏方法 - 专为姿态估计优化")
+            self.distill_loss_fn = EnhancedDistillationLoss(
+                channels_s=self.channels_s, 
+                channels_t=self.channels_t
+            )
+        elif self.distiller == "spatial_pose":
+            LOGGER.info("使用空间感知姿态蒸馏 - 针对关键点定位优化")
+            self.distill_loss_fn = SpatialPoseDistillation(
+                channels_s=self.channels_s, 
+                channels_t=self.channels_t
+            )
+        else:
+            self.distill_loss_fn = FeatureLoss(
+                channels_s=self.channels_s, 
+                channels_t=self.channels_t, 
+                distiller=self.distiller
+            )
         
         LOGGER.info(f"使用 {self.distiller} 方法進行蒸餾")
 

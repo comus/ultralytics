@@ -123,7 +123,7 @@ class PoseTrainer(yolo.detect.DetectionTrainer):
             self.model.args.distill = 0.1 # 轻微蒸馏
             
             # 使用单层温和蒸馏
-            distillation_loss = "cwd"
+            distillation_loss = "spatial_pose"
             distillation_layers = ["22"]
             
             # 初始化蒸馏损失实例
@@ -153,7 +153,7 @@ class PoseTrainer(yolo.detect.DetectionTrainer):
             self.model.args.distill = 0.3  # 增加蒸馏权重
             
             # 多层蒸馏
-            distillation_loss = "cwd"  # 继续使用温和蒸馏
+            distillation_loss = "spatial_pose"  # 继续使用温和蒸馏
             distillation_layers = ["19", "22"]
             
             self.distill_loss_instance.remove_handle_()
@@ -183,7 +183,7 @@ class PoseTrainer(yolo.detect.DetectionTrainer):
             self.model.args.distill = 0.5  # 进一步增加蒸馏权重
             
             # 使用增强蒸馏
-            distillation_loss = "enhancedfgd"
+            distillation_loss = "spatial_pose"
             distillation_layers = ["19", "22"]
             
             self.distill_loss_instance.remove_handle_()
