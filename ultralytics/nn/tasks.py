@@ -296,6 +296,10 @@ class BaseModel(torch.nn.Module):
             self.criterion = self.init_criterion()
 
         preds = self.forward(batch["img"]) if preds is None else preds
+
+        # print batch keys
+        print("print batch keys",batch.keys())
+
         return self.criterion(preds, batch)
 
     def init_criterion(self):
