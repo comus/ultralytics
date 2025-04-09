@@ -295,6 +295,10 @@ class BaseModel(torch.nn.Module):
         if getattr(self, "criterion", None) is None:
             self.criterion = self.init_criterion()
 
+        was_training = self.training
+
+        self.eval()
+
         if "distill_instance" in batch and batch["distill_instance"] is not None:
             distill_instance = batch["distill_instance"]
             # 設置教師模型為評估模式
@@ -305,6 +309,8 @@ class BaseModel(torch.nn.Module):
                 _ = distill_instance.modelt(batch["img"])
 
         preds = self.forward(batch["img"]) if preds is None else preds
+
+        self.train(was_training)
 
         return self.criterion(preds, batch)
 

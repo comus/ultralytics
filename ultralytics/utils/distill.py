@@ -655,11 +655,6 @@ class DistillationLoss:
 
     def get_loss(self):
         """計算教師和學生模型之間的蒸餾損失"""        
-        was_training = self.models.training
-
-        # 暫時將學生模型設為評估模式
-        self.models.eval()
-
         if not self.teacher_outputs or not self.student_outputs:
             return torch.tensor(0.0, requires_grad=True, device=next(self.models.parameters()).device)
         
@@ -723,9 +718,6 @@ class DistillationLoss:
         # 清空教師和學生的輸出列表，避免二次使用
         self.teacher_outputs.clear()
         self.student_outputs.clear()
-
-        if was_training:
-            self.models.train()
         
         return loss
 
