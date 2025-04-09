@@ -394,7 +394,7 @@ class BaseTrainer:
                     )
 
                 # Backward
-                self.scaler.scale(self.loss).backward()
+                # self.scaler.scale(self.loss).backward()
 
                 # Optimize - https://pytorch.org/docs/master/notes/amp_examples.html
                 if ni - last_opt_step >= self.accumulate:
