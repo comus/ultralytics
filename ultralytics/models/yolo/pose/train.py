@@ -131,8 +131,8 @@ class PoseTrainer(yolo.detect.DetectionTrainer):
             #     LOGGER.info(f"模型層名: {name}")
             
             # 預設凍結所有層
-            for name, param in self.model.named_parameters():
-                param.requires_grad = False
+            # for name, param in self.model.named_parameters():
+            #     param.requires_grad = False
 
             # 凍結所有BN層並記錄
             # bn_layer_names = []
@@ -144,166 +144,166 @@ class PoseTrainer(yolo.detect.DetectionTrainer):
             
             # LOGGER.info(f"已凍結 {len(bn_layer_names)} 個 BN 層，這些層不會更新統計量")
 
-        if self.epoch == 1:
-            LOGGER.info("階段2: 解凍蒸餾層及相關BN層")
+        # if self.epoch == 1:
+        #     LOGGER.info("階段2: 解凍蒸餾層及相關BN層")
 
-            distillation_loss = "enhancedfgd"
-            distillation_layers = ["22"]
-            self.model.args.distill = 0.0  # 從較小權重開始
+        #     distillation_loss = "enhancedfgd"
+        #     distillation_layers = ["22"]
+        #     self.model.args.distill = 0.0  # 從較小權重開始
 
-            self.distill_loss_instance.remove_handle_()
-            self.distill_loss_instance = DistillationLoss(
-                models=self.model,
-                modelt=self.teacher,
-                distiller=distillation_loss,
-                layers=distillation_layers,
-            )
+        #     self.distill_loss_instance.remove_handle_()
+        #     self.distill_loss_instance = DistillationLoss(
+        #         models=self.model,
+        #         modelt=self.teacher,
+        #         distiller=distillation_loss,
+        #         layers=distillation_layers,
+        #     )
 
-            # 預設凍結所有層
-            for name, param in self.model.named_parameters():
-                param.requires_grad = False
+        #     # 預設凍結所有層
+        #     for name, param in self.model.named_parameters():
+        #         param.requires_grad = False
 
-            # 跟踪已解凍的模塊
-            unfrozen_modules = []
-            bn_modules = []
+        #     # 跟踪已解凍的模塊
+        #     unfrozen_modules = []
+        #     bn_modules = []
             
-            # 1. 首先找到所有需要解凍的卷積模塊
-            for name, module in self.model.named_modules():
-                if name is not None:
-                    name_parts = name.split(".")
+        #     # 1. 首先找到所有需要解凍的卷積模塊
+        #     for name, module in self.model.named_modules():
+        #         if name is not None:
+        #             name_parts = name.split(".")
                     
-                    if name_parts[0] != "model":
-                        continue
-                    if len(name_parts) >= 3:
-                        if name_parts[1] in distillation_layers:
-                            if "cv2" in name_parts[2]:
-                                unfrozen_modules.append(name)
+        #             if name_parts[0] != "model":
+        #                 continue
+        #             if len(name_parts) >= 3:
+        #                 if name_parts[1] in distillation_layers:
+        #                     if "cv2" in name_parts[2]:
+        #                         unfrozen_modules.append(name)
                                 
-                                # 解凍該模塊的所有參數
-                                for param_name, param in module.named_parameters():
-                                    param.requires_grad = True
+        #                         # 解凍該模塊的所有參數
+        #                         for param_name, param in module.named_parameters():
+        #                             param.requires_grad = True
                                 
-                                # 設置為訓練模式
-                                module.train()
-                                LOGGER.info(f"解凍卷積模塊: {name}")
+        #                         # 設置為訓練模式
+        #                         module.train()
+        #                         LOGGER.info(f"解凍卷積模塊: {name}")
             
-            # 2. 識別並解凍相關的BN層
-            # 遍歷所有BN層
-            for name, module in self.model.named_modules():
-                if isinstance(module, nn.BatchNorm2d):
-                    # 檢查此BN層是否與解凍的卷積層相關聯
-                    is_related = False
-                    for unfrozen in unfrozen_modules:
-                        # 例：如果卷積層是"model.22.cv2"，相關的BN層可能是"model.22.bn2"
-                        prefix = unfrozen.rsplit(".", 1)[0]  # 獲取最後一個'.'之前的部分
-                        if name.startswith(prefix):
-                            is_related = True
-                            break
+        #     # 2. 識別並解凍相關的BN層
+        #     # 遍歷所有BN層
+        #     for name, module in self.model.named_modules():
+        #         if isinstance(module, nn.BatchNorm2d):
+        #             # 檢查此BN層是否與解凍的卷積層相關聯
+        #             is_related = False
+        #             for unfrozen in unfrozen_modules:
+        #                 # 例：如果卷積層是"model.22.cv2"，相關的BN層可能是"model.22.bn2"
+        #                 prefix = unfrozen.rsplit(".", 1)[0]  # 獲取最後一個'.'之前的部分
+        #                 if name.startswith(prefix):
+        #                     is_related = True
+        #                     break
                     
-                    # 對於block結構，可能需要檢查更複雜的關係
-                    # 例：如果cv2在C3模塊中，則需要解凍其後的BN層
-                    # 這需要根據具體模型結構調整
-                    for layer_num in distillation_layers:
-                        if f"model.{layer_num}." in name:
-                            # 檢查是否為cv2後的BN層或相關層
-                            if ".cv2.bn" in name or ".bn2" in name:
-                                is_related = True
-                                break
+        #             # 對於block結構，可能需要檢查更複雜的關係
+        #             # 例：如果cv2在C3模塊中，則需要解凍其後的BN層
+        #             # 這需要根據具體模型結構調整
+        #             for layer_num in distillation_layers:
+        #                 if f"model.{layer_num}." in name:
+        #                     # 檢查是否為cv2後的BN層或相關層
+        #                     if ".cv2.bn" in name or ".bn2" in name:
+        #                         is_related = True
+        #                         break
                     
-                    if is_related:
-                        # 解凍BN層
-                        bn_modules.append(name)
+        #             if is_related:
+        #                 # 解凍BN層
+        #                 bn_modules.append(name)
                         
-                        # 設置BN層為訓練模式
-                        module.train()
+        #                 # 設置BN層為訓練模式
+        #                 module.train()
                         
-                        # 解凍BN層的所有參數
-                        for param_name, param in module.named_parameters():
-                            param.requires_grad = True
+        #                 # 解凍BN層的所有參數
+        #                 for param_name, param in module.named_parameters():
+        #                     param.requires_grad = True
                         
-                        # 確保運行統計數據會被更新
-                        module.track_running_stats = True
+        #                 # 確保運行統計數據會被更新
+        #                 module.track_running_stats = True
                         
-                        LOGGER.info(f"解凍BN層: {name}")
+        #                 LOGGER.info(f"解凍BN層: {name}")
             
-            # 3. 確保BN層在評估時使用訓練期間收集的統計數據
-            def set_bn_train(m):
-                if isinstance(m, nn.BatchNorm2d):
-                    if m.training:
-                        # 僅對訓練模式的BN層執行
-                        # 設置動量值較小可以更快地適應新統計數據
-                        m.momentum = 0.01  # 降低動量使統計量更穩定
+        #     # 3. 確保BN層在評估時使用訓練期間收集的統計數據
+        #     def set_bn_train(m):
+        #         if isinstance(m, nn.BatchNorm2d):
+        #             if m.training:
+        #                 # 僅對訓練模式的BN層執行
+        #                 # 設置動量值較小可以更快地適應新統計數據
+        #                 m.momentum = 0.01  # 降低動量使統計量更穩定
             
-            # 應用到整個模型
-            self.model.apply(set_bn_train)
+        #     # 應用到整個模型
+        #     self.model.apply(set_bn_train)
             
-            LOGGER.info(f"總共解凍 {len(unfrozen_modules)} 個卷積模塊和 {len(bn_modules)} 個BN層")
+        #     LOGGER.info(f"總共解凍 {len(unfrozen_modules)} 個卷積模塊和 {len(bn_modules)} 個BN層")
             
-            # 4. 降低學習率以穩定訓練
-            for param_group in self.optimizer.param_groups:
-                original_lr = param_group['lr']
-                param_group['lr'] = original_lr * 0.2  # 降低到原來的20%
-                LOGGER.info(f"學習率從 {original_lr:.6f} 降低到 {param_group['lr']:.6f}")
+        #     # 4. 降低學習率以穩定訓練
+        #     for param_group in self.optimizer.param_groups:
+        #         original_lr = param_group['lr']
+        #         param_group['lr'] = original_lr * 0.2  # 降低到原來的20%
+        #         LOGGER.info(f"學習率從 {original_lr:.6f} 降低到 {param_group['lr']:.6f}")
 
-            # for name, param in self.model.named_parameters():
-            #     if "model." in name and any(f".{layer}." in name for layer in distillation_layers):
-            #         # 記錄下蒸餾層的前綴，例如 "model.1" 或 "model.2"
-            #         for layer in distillation_layers:
-            #             if f".{layer}." in name:
-            #                 layer_prefix = name.split(f".{layer}.")[0] + f".{layer}"
-            #                 if layer_prefix not in distill_layer_prefixes:
-            #                     distill_layer_prefixes.append(layer_prefix)
+        #     # for name, param in self.model.named_parameters():
+        #     #     if "model." in name and any(f".{layer}." in name for layer in distillation_layers):
+        #     #         # 記錄下蒸餾層的前綴，例如 "model.1" 或 "model.2"
+        #     #         for layer in distillation_layers:
+        #     #             if f".{layer}." in name:
+        #     #                 layer_prefix = name.split(f".{layer}.")[0] + f".{layer}"
+        #     #                 if layer_prefix not in distill_layer_prefixes:
+        #     #                     distill_layer_prefixes.append(layer_prefix)
                             
-            #         if ".cv2.conv" in name:  # 精確匹配cv2的卷積層參數
-            #             param.requires_grad = True
-            #             unfrozen_count += 1
-            #             unfrozen_names.append(name)
+        #     #         if ".cv2.conv" in name:  # 精確匹配cv2的卷積層參數
+        #     #             param.requires_grad = True
+        #     #             unfrozen_count += 1
+        #     #             unfrozen_names.append(name)
 
-            # # 處理BN層：蒸餾層的BN保持訓練模式，其他BN設為評估模式
-            # frozen_bn_count = 0
-            # active_bn_count = 0
-            # for name, m in self.model.named_modules():
-            #     if isinstance(m, torch.nn.BatchNorm2d):
-            #         # 檢查此BN層是否屬於蒸餾層
-            #         is_in_distill_layer = any(prefix in name for prefix in distill_layer_prefixes)
+        #     # # 處理BN層：蒸餾層的BN保持訓練模式，其他BN設為評估模式
+        #     # frozen_bn_count = 0
+        #     # active_bn_count = 0
+        #     # for name, m in self.model.named_modules():
+        #     #     if isinstance(m, torch.nn.BatchNorm2d):
+        #     #         # 檢查此BN層是否屬於蒸餾層
+        #     #         is_in_distill_layer = any(prefix in name for prefix in distill_layer_prefixes)
                     
-            #         if is_in_distill_layer:
-            #             # 蒸餾層的BN保持訓練模式
-            #             m.train()
-            #             m.track_running_stats = True
-            #             active_bn_count += 1
-            #         else:
-            #             # 非蒸餾層的BN設為評估模式
-            #             m.eval()
-            #             m.track_running_stats = False
-            #             frozen_bn_count += 1
+        #     #         if is_in_distill_layer:
+        #     #             # 蒸餾層的BN保持訓練模式
+        #     #             m.train()
+        #     #             m.track_running_stats = True
+        #     #             active_bn_count += 1
+        #     #         else:
+        #     #             # 非蒸餾層的BN設為評估模式
+        #     #             m.eval()
+        #     #             m.track_running_stats = False
+        #     #             frozen_bn_count += 1
 
-            # # 凍結所有BN層並記錄
-            # bn_layer_names = []
-            # for name, m in self.model.named_modules():
-            #     if isinstance(m, torch.nn.BatchNorm2d):
-            #         m.eval()  # 設置為評估模式
-            #         m.track_running_stats = False  # 停止更新統計量
-            #         bn_layer_names.append(name)
+        #     # # 凍結所有BN層並記錄
+        #     # bn_layer_names = []
+        #     # for name, m in self.model.named_modules():
+        #     #     if isinstance(m, torch.nn.BatchNorm2d):
+        #     #         m.eval()  # 設置為評估模式
+        #     #         m.track_running_stats = False  # 停止更新統計量
+        #     #         bn_layer_names.append(name)
             
-            # LOGGER.info(f"已凍結 {len(bn_layer_names)} 個 BN 層，這些層不會更新統計量")
+        #     # LOGGER.info(f"已凍結 {len(bn_layer_names)} 個 BN 層，這些層不會更新統計量")
 
-            # # 計算可訓練參數比例
-            # total_params = sum(p.numel() for p in self.model.parameters())
-            # trainable_params = sum(p.numel() for p in self.model.parameters() if p.requires_grad)
+        #     # # 計算可訓練參數比例
+        #     # total_params = sum(p.numel() for p in self.model.parameters())
+        #     # trainable_params = sum(p.numel() for p in self.model.parameters() if p.requires_grad)
 
-            # LOGGER.info(f"純蒸餾模式：只優化層 {distillation_layers} 中的 cv2.conv 參數")
-            # LOGGER.info(f"解凍了 {unfrozen_count} 個參數組，可訓練參數比例: {trainable_params/total_params:.2%}")
-            # # LOGGER.info(f"保持 {active_bn_count} 個蒸餾層的BN處於訓練模式，凍結了 {frozen_bn_count} 個非蒸餾層的BN")
+        #     # LOGGER.info(f"純蒸餾模式：只優化層 {distillation_layers} 中的 cv2.conv 參數")
+        #     # LOGGER.info(f"解凍了 {unfrozen_count} 個參數組，可訓練參數比例: {trainable_params/total_params:.2%}")
+        #     # # LOGGER.info(f"保持 {active_bn_count} 個蒸餾層的BN處於訓練模式，凍結了 {frozen_bn_count} 個非蒸餾層的BN")
 
-            # # 記錄凍結狀態的更詳細資訊
-            # LOGGER.info("--------- 參數凍結狀態總結 ---------")
-            # LOGGER.info("以下參數將被訓練 (requires_grad=True):")
-            # for name in unfrozen_names:
-            #     LOGGER.info(f"  - {name}")
-            # LOGGER.info("以下層的BN保持訓練模式:")
-            # for prefix in distill_layer_prefixes:
-            #     LOGGER.info(f"  - {prefix}")
+        #     # # 記錄凍結狀態的更詳細資訊
+        #     # LOGGER.info("--------- 參數凍結狀態總結 ---------")
+        #     # LOGGER.info("以下參數將被訓練 (requires_grad=True):")
+        #     # for name in unfrozen_names:
+        #     #     LOGGER.info(f"  - {name}")
+        #     # LOGGER.info("以下層的BN保持訓練模式:")
+        #     # for prefix in distill_layer_prefixes:
+        #     #     LOGGER.info(f"  - {prefix}")
 
 
         # 註冊鉤子
