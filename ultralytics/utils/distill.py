@@ -719,7 +719,7 @@ class FeatureLoss(nn.Module):
 class DistillationLoss:
     """知識蒸餾損失實現，集成多種蒸餾方法，針對YOLO模型優化"""
     
-    def __init__(self, models, modelt, distiller="cwd", layers=None):
+    def __init__(self, models, modelt, distiller="cwd", layers=None, original_performance=None):
         self.models = models
         self.modelt = modelt
         self.distiller = distiller.lower()
