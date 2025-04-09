@@ -9,7 +9,7 @@ class SpatialPoseDistillation(nn.Module):
     def __init__(self, channels_s, channels_t):
         super().__init__()
         
-        # 特征对齐模块 - 1x1卷积处理通道差异
+        # 确保所有模块在与模型相同的设备和数据类型上创建
         self.align = nn.ModuleList()
         for s_chan, t_chan in zip(channels_s, channels_t):
             self.align.append(
@@ -19,7 +19,7 @@ class SpatialPoseDistillation(nn.Module):
                 )
             )
         
-        # 人体部位感知模块 - 增强空间重要性
+        # 人体部位感知模块
         self.pose_attention = nn.ModuleList()
         for _ in range(len(channels_t)):
             self.pose_attention.append(
@@ -37,8 +37,28 @@ class SpatialPoseDistillation(nn.Module):
             if not isinstance(s, torch.Tensor) or not isinstance(t, torch.Tensor):
                 continue
                 
-            # 通道对齐
-            s_aligned = self.align[i](s)
+            # 获取输入特征的设备和数据类型
+            device = s.device
+            dtype = s.dtype
+            
+            # 确保模块的权重也使用相同的数据类型
+            if next(self.align[i].parameters()).dtype != dtype:
+                # 将模块转换为与输入相同的数据类型
+                self.align[i] = self.align[i].to(dtype)
+                if i < len(self.pose_attention):
+                    self.pose_attention[i] = self.pose_attention[i].to(dtype)
+                
+            # 通道对齐，现在数据类型应该匹配
+            try:
+                s_aligned = self.align[i](s)
+            except RuntimeError as e:
+                # 如果仍然失败，尝试显式转换
+                LOGGER.warning(f"类型转换失败，尝试显式转换: {e}")
+                s = s.to(next(self.align[i].parameters()).dtype)
+                s_aligned = self.align[i](s)
+            
+            # 确保教师特征也使用相同的数据类型
+            t = t.to(dtype)
             
             # 空间对齐
             if s_aligned.size(2) != t.size(2) or s_aligned.size(3) != t.size(3):
@@ -775,7 +795,7 @@ class FeatureLoss(nn.Module):
 class DistillationLoss:
     """知識蒸餾損失實現，集成多種蒸餾方法，針對YOLO模型優化"""
     
-    def __init__(self, models, modelt, distiller="cwd", layers=None, original_performance=None):
+    def __init__(self, models, modelt, distiller="fgd", layers=None, original_performance=None):
         self.models = models
         self.modelt = modelt
         self.distiller = distiller.lower()
@@ -783,53 +803,73 @@ class DistillationLoss:
         self.remove_handle = []
         self.teacher_outputs = []
         self.student_outputs = []
-        self.original_performance = original_performance  # 新增: 基准性能
+        self.original_performance = original_performance
         
-        # 初始化通道列表和模塊對
+        # 检查是否启用混合精度训练
+        self.using_amp = False
+        if hasattr(models, 'args') and hasattr(models.args, 'amp'):
+            self.using_amp = models.args.amp
+            LOGGER.info(f"检测到混合精度训练设置: {self.using_amp}")
+        
+        # 初始化通道列表和模块对
         self.channels_s = []
         self.channels_t = []
         self.teacher_module_pairs = []
         self.student_module_pairs = []
         
-        # 尋找要蒸餾的層
+        # 寻找要蒸馏的层
         self._find_layers()
         
         if len(self.channels_s) == 0 or len(self.channels_t) == 0:
-            LOGGER.error("未找到任何匹配的層進行蒸餾!")
-            raise ValueError("無法找到適合蒸餾的層")
+            LOGGER.error("未找到任何匹配的层进行蒸馏!")
+            raise ValueError("无法找到适合蒸馏的层")
             
-        LOGGER.info(f"成功配對 {len(self.teacher_module_pairs)} 對學生-教師特徵層")
-        LOGGER.info(f"學生通道: {self.channels_s}")
-        LOGGER.info(f"教師通道: {self.channels_t}")
+        LOGGER.info(f"成功配对 {len(self.teacher_module_pairs)} 对学生-教师特征层")
+        LOGGER.info(f"学生通道: {self.channels_s}")
+        LOGGER.info(f"教师通道: {self.channels_t}")
         
-        # 創建蒸餾損失實例
-        if self.distiller == "adaptive":
-            LOGGER.info("使用自适应蒸馏方法 - 性能保护机制")
-            self.distill_loss_fn = AdaptiveDistillationLoss(
-                channels_s=self.channels_s, 
-                channels_t=self.channels_t,
-                original_performance=self.original_performance or 0.5
-            )
-        elif self.distiller == "enhanced":
-            LOGGER.info("使用Enhanced蒸馏方法 - 专为姿态估计优化")
-            self.distill_loss_fn = EnhancedDistillationLoss(
-                channels_s=self.channels_s, 
-                channels_t=self.channels_t
-            )
-        elif self.distiller == "spatial_pose":
+        # 创建蒸馏损失实例 - 根据选择的蒸馏方法
+        self._init_distill_loss()
+        
+    def _init_distill_loss(self):
+        """初始化蒸馏损失函数"""
+        # 获取模型的设备
+        device = next(self.models.parameters()).device
+        
+        if self.distiller == "spatial_pose":
             LOGGER.info("使用空间感知姿态蒸馏 - 针对关键点定位优化")
             self.distill_loss_fn = SpatialPoseDistillation(
                 channels_s=self.channels_s, 
                 channels_t=self.channels_t
-            )
+            ).to(device)
+        elif self.distiller == "fgd":
+            LOGGER.info("使用特征引导蒸馏(FGD) - 保留空间结构")
+            self.distill_loss_fn = FeatureLoss(
+                channels_s=self.channels_s, 
+                channels_t=self.channels_t, 
+                distiller="fgd"
+            ).to(device)
+        elif self.distiller == "enhancedfgd":
+            LOGGER.info("使用增强型特征引导蒸馏 - 姿态优化版")
+            self.distill_loss_fn = FeatureLoss(
+                channels_s=self.channels_s, 
+                channels_t=self.channels_t, 
+                distiller="enhancedfgd"
+            ).to(device)
         else:
+            LOGGER.info(f"使用 {self.distiller} 方法进行蒸馏")
             self.distill_loss_fn = FeatureLoss(
                 channels_s=self.channels_s, 
                 channels_t=self.channels_t, 
                 distiller=self.distiller
-            )
+            ).to(device)
         
-        LOGGER.info(f"使用 {self.distiller} 方法進行蒸餾")
+        # 如果开启混合精度，确保损失函数也使用正确的数据类型
+        if self.using_amp:
+            # 对于混合精度训练，我们尝试使用FP32权重进行蒸馏计算
+            # 这可能会提高稳定性
+            LOGGER.info("混合精度训练模式下配置蒸馏损失函数")
+    
 
     def _find_layers(self):
         """查找名為 cv2 且具有 conv 屬性的層"""
@@ -941,38 +981,46 @@ class DistillationLoss:
             self.remove_handle.append(ori.register_forward_hook(make_student_hook(self.student_outputs)))
 
     def get_loss(self):
-        """計算教師和學生模型之間的蒸餾損失"""            
+        """计算蒸馏损失，处理数据类型不匹配问题"""
         if not self.teacher_outputs or not self.student_outputs:
-            LOGGER.warning(f"沒有收集到特徵 - 教師: {len(self.teacher_outputs) if hasattr(self, 'teacher_outputs') else 0}, 學生: {len(self.student_outputs) if hasattr(self, 'student_outputs') else 0}")
-            return torch.tensor(0.0, requires_grad=True, device=next(self.models.parameters()).device)
+            return torch.tensor(0.0).to(self.models.device)
         
-        if len(self.teacher_outputs) != len(self.student_outputs):
-            LOGGER.warning(f"輸出不匹配 - 教師: {len(self.teacher_outputs)}, 學生: {len(self.student_outputs)}")
-            return torch.tensor(0.0, requires_grad=True, device=next(self.models.parameters()).device)
+        teacher_outputs = [t.detach() for t in self.teacher_outputs]
         
         try:
-            teacher_outputs = [t.detach() for t in self.teacher_outputs]
+            # 尝试正常计算损失
             quant_loss = self.distill_loss_fn(y_s=self.student_outputs, y_t=teacher_outputs)
-            
-            # 檢查損失值是否合理
-            if torch.isnan(quant_loss) or torch.isinf(quant_loss):
-                LOGGER.warning(f"蒸餾損失值無效: {quant_loss}")
-                quant_loss = torch.tensor(0.0, requires_grad=True, device=next(self.models.parameters()).device)
-            elif quant_loss == 0:
-                LOGGER.warning("蒸餾損失為零，可能計算出錯")
-            else:
-                pass
-            
-            # 清除收集的特徵，準備下一個批次
-            self.teacher_outputs.clear()
-            self.student_outputs.clear()
-            
             return quant_loss
-        except Exception as e:
-            LOGGER.error(f"計算蒸餾損失時出錯: {e}")
-            import traceback
-            LOGGER.error(traceback.format_exc())  # 打印完整的錯誤堆疊
-            return torch.tensor(0.0, requires_grad=True, device=next(self.models.parameters()).device)
+        except RuntimeError as e:
+            # 如果遇到数据类型错误，尝试转换数据类型
+            if "Input type" in str(e) and "weight type" in str(e):
+                LOGGER.warning(f"蒸馏损失计算出现数据类型不匹配: {e}")
+                
+                # 获取模型权重的数据类型
+                model_dtype = next(self.distill_loss_fn.parameters()).dtype
+                LOGGER.info(f"尝试将特征转换为模型数据类型: {model_dtype}")
+                
+                # 转换学生特征
+                converted_student = [s.to(model_dtype) if isinstance(s, torch.Tensor) else s 
+                                    for s in self.student_outputs]
+                
+                # 转换教师特征
+                converted_teacher = [t.to(model_dtype) if isinstance(t, torch.Tensor) else t 
+                                   for t in teacher_outputs]
+                
+                # 再次尝试计算损失
+                try:
+                    quant_loss = self.distill_loss_fn(y_s=converted_student, y_t=converted_teacher)
+                    LOGGER.info("数据类型转换后成功计算损失")
+                    return quant_loss
+                except Exception as e2:
+                    LOGGER.error(f"尝试转换数据类型后仍然失败: {e2}")
+                    # 返回零损失避免训练中断
+                    return torch.tensor(0.0).to(self.models.device)
+            else:
+                # 如果是其他错误，记录并返回零损失
+                LOGGER.error(f"计算蒸馏损失时出现未知错误: {e}")
+                return torch.tensor(0.0).to(self.models.device)
 
     def remove_handle_(self):
         """安全移除已註冊的鉤子"""

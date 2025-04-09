@@ -54,6 +54,8 @@ results = student.train(
     
     # 关闭Mosaic增强
     close_mosaic=0,
+
+    amp=False
 )
 
 LOGGER.info("平衡蒸馏训练完成！")
