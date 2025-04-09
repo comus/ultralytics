@@ -18,7 +18,7 @@ student_model.train(
     # pure_distill=True,
     
     # 硬體優化設置
-    batch=64,                           # 充分利用24GB顯存，同時保持精度
+    batch=16,                           # 充分利用24GB顯存，同時保持精度
     workers=8,                          # 適合Xeon 16核處理器
     # device=0,                           # 使用第一張GPU
     amp=False,                          # 關閉混合精度，提高精度（顯存足夠）
