@@ -4,7 +4,7 @@ from copy import copy
 
 from ultralytics.models import yolo
 from ultralytics.nn.tasks import PoseModel
-from ultralytics.utils import DEFAULT_CFG, LOGGER
+from ultralytics.utils import DEFAULT_CFG, LOGGER, callbacks
 from ultralytics.utils.plotting import plot_images, plot_results
 
 
@@ -60,6 +60,29 @@ class PoseTrainer(yolo.detect.DetectionTrainer):
         if overrides is None:
             overrides = {}
         overrides["task"] = "pose"
+
+        self.teacher = overrides.get("teacher", None)
+
+        if self.teacher is not None:
+            # 凍結教師模型參數
+            for k, v in self.teacher.named_parameters():
+                v.requires_grad = False
+            self.teacher = self.teacher.to(self.device)
+            self.teacher.eval()
+            LOGGER.info(f"初始化教師模型已完成，設為評估模式")
+
+            if _callbacks is None:
+                _callbacks = callbacks.get_default_callbacks()
+
+            _callbacks["on_train_start"].append(self.on_train_start)
+            _callbacks["on_train_epoch_start"].append(self.on_epoch_start)
+            _callbacks["on_train_epoch_end"].append(self.on_epoch_end)
+            _callbacks["on_val_start"].append(self.on_val_start)
+            _callbacks["on_val_end"].append(self.on_val_end)
+            _callbacks["on_train_end"].append(self.on_train_end)
+            _callbacks["teardown"].append(self.teardown)
+            _callbacks["on_batch_end"].append(self.on_batch_end)
+
         super().__init__(cfg, overrides, _callbacks)
 
         if isinstance(self.args.device, str) and self.args.device.lower() == "mps":
@@ -67,6 +90,39 @@ class PoseTrainer(yolo.detect.DetectionTrainer):
                 "WARNING ⚠️ Apple MPS known Pose bug. Recommend 'device=cpu' for Pose models. "
                 "See https://github.com/ultralytics/ultralytics/issues/4031."
             )
+
+    def preprocess_batch(self, batch):
+        batch = super().preprocess_batch(batch)
+
+        # add teacher
+        if self.teacher is not None:
+            batch["teacher"] = self.teacher
+
+        return batch
+
+    def on_train_start(self, trainer):
+        pass
+
+    def on_epoch_start(self, trainer):
+        pass
+
+    def on_epoch_end(self, trainer):
+        pass
+
+    def on_val_start(self, trainer):
+        pass
+
+    def on_val_end(self, trainer):
+        pass
+    
+    def on_train_end(self, trainer):
+        pass
+
+    def teardown(self, trainer):
+        pass
+    
+    def on_batch_end(self, trainer):
+        pass
 
     def get_model(self, cfg=None, weights=None, verbose=True):
         """
@@ -93,7 +149,7 @@ class PoseTrainer(yolo.detect.DetectionTrainer):
 
     def get_validator(self):
         """Returns an instance of the PoseValidator class for validation."""
-        self.loss_names = "box_loss", "pose_loss", "kobj_loss", "cls_loss", "dfl_loss"
+        self.loss_names = "box_loss", "pose_loss", "kobj_loss", "cls_loss", "dfl_loss", "d_loss"
         return yolo.pose.PoseValidator(
             self.test_loader, save_dir=self.save_dir, args=copy(self.args), _callbacks=self.callbacks
         )

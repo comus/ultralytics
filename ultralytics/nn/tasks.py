@@ -295,6 +295,13 @@ class BaseModel(torch.nn.Module):
         if getattr(self, "criterion", None) is None:
             self.criterion = self.init_criterion()
 
+        if "teacher" in batch and batch["teacher"] is not None:
+            teacher = batch["teacher"]
+            teacher.eval()
+            with torch.no_grad():
+                teacher_preds = teacher(batch["img"])
+            batch["teacher_pred"] = teacher_preds
+
         preds = self.forward(batch["img"]) if preds is None else preds
         return self.criterion(preds, batch)
 
