@@ -527,16 +527,7 @@ class v8PoseLoss(v8DetectionLoss):
         """計算實際的蒸餾損失，返回可用於優化的損失值"""
         if "distill_instance" in batch and batch["distill_instance"] is not None:
             distill_instance = batch["distill_instance"]
-            try:
-                input_images = batch["img"].to(next(distill_instance.modelt.parameters()).device)
-
-                # 設置教師模型為評估模式
-                distill_instance.modelt.eval()
-                
-                # 教師模型前向傳播
-                with torch.no_grad():
-                    _ = distill_instance.modelt(input_images)
-                
+            try: 
                 # 獲取蒸餾損失，保留梯度以便優化
                 distill_loss = distill_instance.get_loss()
                 
