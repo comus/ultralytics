@@ -63,6 +63,8 @@ class PoseTrainer(yolo.detect.DetectionTrainer):
 
         self.teacher = overrides.get("teacher", None)
 
+        super().__init__(cfg, overrides, _callbacks)
+
         if self.teacher is not None:
             # 凍結教師模型參數
             for k, v in self.teacher.named_parameters():
@@ -82,8 +84,6 @@ class PoseTrainer(yolo.detect.DetectionTrainer):
             _callbacks["on_train_end"].append(self.on_train_end)
             _callbacks["teardown"].append(self.teardown)
             _callbacks["on_batch_end"].append(self.on_batch_end)
-
-        super().__init__(cfg, overrides, _callbacks)
 
         if isinstance(self.args.device, str) and self.args.device.lower() == "mps":
             LOGGER.warning(
