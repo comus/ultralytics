@@ -54,7 +54,7 @@ student_model.train(
 
 
 
-    warmup_epochs=6,
+    warmup_epochs=3,
     warmup_momentum=0.85,
     warmup_bias_lr=0.08,
 )
