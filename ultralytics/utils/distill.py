@@ -4,378 +4,418 @@ import torch.nn.functional as F
 from ultralytics.utils import LOGGER
 
 class CWDLoss(nn.Module):
-    """Channel-wise Knowledge Distillation for Dense Prediction.
-    https://arxiv.org/abs/2011.13256
+    """Channel-wise Distillation for YOLO Pose with different channel dimensions.
+    
+    適用於教師和學生模型通道數不同的情況，專為姿勢識別特徵金字塔蒸餾優化。
     """
-    def __init__(self, channels_s, channels_t, tau=1.0):
+    def __init__(self, student_channels, teacher_channels, tau=4.0, 
+                 channel_wise_adapt=True, normalize=True):
         super().__init__()
         self.tau = tau
+        self.normalize = normalize
+        self.channel_wise_adapt = channel_wise_adapt
         
-    def forward(self, y_s, y_t):
-        """計算CWD損失
-        
-        Args:
-            y_s (list): 學生模型的預測，形狀為 (N, C, H, W) 的張量列表
-            y_t (list): 教師模型的預測，形狀為 (N, C, H, W) 的張量列表
+        # 如果需要通道自適應，為不同層創建投影層
+        if channel_wise_adapt and len(student_channels) > 0:
+            self.adapters = nn.ModuleList()
+            for s_ch, t_ch in zip(student_channels, teacher_channels):
+                self.adapters.append(nn.Conv2d(s_ch, t_ch, kernel_size=1, bias=False))
+        else:
+            self.adapters = None
             
-        Returns:
-            torch.Tensor: 所有階段的計算損失總和
+    def forward(self, student_features, teacher_features):
         """
-        assert len(y_s) == len(y_t)
-        losses = []
-        for idx, (s, t) in enumerate(zip(y_s, y_t)):
-            if s.size(2) != t.size(2) or s.size(3) != t.size(3):
-                t = F.interpolate(t, size=(s.size(2), s.size(3)), mode='bilinear', align_corners=False)
-                
-            N, C, H, W = s.shape
-            # 在通道維度上歸一化
-            softmax_pred_T = F.softmax(t.view(-1, W * H) / self.tau, dim=1)
-            logsoftmax = torch.nn.LogSoftmax(dim=1)
-            cost = torch.sum(
-                softmax_pred_T * logsoftmax(t.view(-1, W * H) / self.tau) -
-                softmax_pred_T * logsoftmax(s.view(-1, W * H) / self.tau)) * (self.tau ** 2)
-            losses.append(cost / (C * N))
-        loss = sum(losses)
-        return loss
-
-class MGDLoss(nn.Module):
-    """Masked Generative Distillation"""
-    def __init__(self, student_channels, teacher_channels, alpha_mgd=0.00002, lambda_mgd=0.65):
-        super(MGDLoss, self).__init__()
-        self.alpha_mgd = alpha_mgd
-        self.lambda_mgd = lambda_mgd
-        device = 'cuda' if torch.cuda.is_available() else 'cpu'
-        self.generation = nn.ModuleList([
-            nn.Sequential(
-                nn.Conv2d(s_chan, t_chan, kernel_size=3, padding=1),
-                nn.ReLU(inplace=True),
-                nn.Conv2d(t_chan, t_chan, kernel_size=3, padding=1)
-            ).to(device) for s_chan, t_chan in zip(student_channels, teacher_channels)
-        ])
-        
-    def forward(self, y_s, y_t, layer=None):
-        """計算MGD損失
-        
         Args:
-            y_s (list): 學生模型的預測，形狀為 (N, C, H, W) 的張量列表
-            y_t (list): 教師模型的預測，形狀為 (N, C, H, W) 的張量列表
-            layer (str, optional): 指定要蒸餾的層，如果是 "outlayer" 則使用最後一層
-            
-        Returns:
-            torch.Tensor: 所有階段的計算損失總和
+            student_features: 學生模型的特徵列表 [P3, P4, P5]
+            teacher_features: 教師模型的特徵列表 [P3, P4, P5]
         """
-        losses = []
-        for idx, (s, t) in enumerate(zip(y_s, y_t)):
-            if s.size(2) != t.size(2) or s.size(3) != t.size(3):
-                t = F.interpolate(t, size=(s.size(2), s.size(3)), mode='bilinear', align_corners=False)
-                
-            if layer == "outlayer":
-                idx = -1
-            losses.append(self.get_dis_loss(s, t, idx) * self.alpha_mgd)
-        loss = sum(losses)
-        return loss
+        total_loss = 0.0
+        assert len(student_features) == len(teacher_features), "特徵金字塔層數不匹配"
+        
+        for i, (s_feat, t_feat) in enumerate(zip(student_features, teacher_features)):
+            # 可選：通道數自適應
+            if self.adapters is not None:
+                s_feat = self.adapters[i](s_feat)
+            
+            # 確保空間尺寸一致
+            if s_feat.shape[2:] != t_feat.shape[2:]:
+                t_feat = F.interpolate(t_feat, size=s_feat.shape[2:], 
+                                      mode='bilinear', align_corners=False)
+            
+            # 應用歸一化，提高穩定性
+            if self.normalize:
+                s_feat = F.normalize(s_feat, p=2, dim=1)
+                t_feat = F.normalize(t_feat, p=2, dim=1)
+            
+            # 實現論文中的CWD方法
+            loss = self._compute_cwd(s_feat, t_feat.detach())
+            
+            # 可以針對不同層設置不同權重
+            layer_weight = 1.0  # 可以調整
+            total_loss += loss * layer_weight
+            
+        return total_loss / len(student_features)
     
-    def get_dis_loss(self, preds_S, preds_T, idx):
-        """計算單層的MGD損失
+    def _compute_cwd(self, s_feat, t_feat):
+        """計算單層的CWD損失"""
+        N, C, H, W = s_feat.shape
         
-        Args:
-            preds_S: 學生模型的預測
-            preds_T: 教師模型的預測
-            idx: 層索引
-            
-        Returns:
-            torch.Tensor: 計算的損失值
-        """
-        loss_mse = nn.MSELoss(reduction='sum')
-        N, C, H, W = preds_T.shape
-        device = preds_S.device
-        mat = torch.rand((N, 1, H, W)).to(device)
-        mat = torch.where(mat > 1 - self.lambda_mgd, 0, 1).to(device)
-        masked_fea = torch.mul(preds_S, mat)
-        new_fea = self.generation[idx](masked_fea)
-        dis_loss = loss_mse(new_fea, preds_T) / N
-        return dis_loss
+        # 重塑為 [N, C, H*W]
+        s_feat = s_feat.view(N, C, -1)
+        t_feat = t_feat.view(N, C, -1)
+        
+        # 每個通道進行softmax，使其成為概率分布
+        s_feat = F.softmax(s_feat / self.tau, dim=2)
+        t_feat = F.softmax(t_feat / self.tau, dim=2)
+        
+        # KL散度計算
+        loss = F.kl_div(
+            torch.log(s_feat + 1e-7),
+            t_feat,
+            reduction='none'
+        ).sum(2) * (self.tau ** 2)
+        
+        # 在批次和通道維度上求平均
+        return loss.mean()
 
-class ReviewKDLoss(nn.Module):
-    """Review-KD: https://arxiv.org/abs/2104.09044"""
-    def __init__(self, student_channels, teacher_channels, temperature=1.0):
-        super(ReviewKDLoss, self).__init__()
-        self.temperature = temperature
+# class MGDLoss(nn.Module):
+#     """Masked Generative Distillation"""
+#     def __init__(self, student_channels, teacher_channels, alpha_mgd=0.00002, lambda_mgd=0.65):
+#         super(MGDLoss, self).__init__()
+#         self.alpha_mgd = alpha_mgd
+#         self.lambda_mgd = lambda_mgd
+#         device = 'cuda' if torch.cuda.is_available() else 'cpu'
+#         self.generation = nn.ModuleList([
+#             nn.Sequential(
+#                 nn.Conv2d(s_chan, t_chan, kernel_size=3, padding=1),
+#                 nn.ReLU(inplace=True),
+#                 nn.Conv2d(t_chan, t_chan, kernel_size=3, padding=1)
+#             ).to(device) for s_chan, t_chan in zip(student_channels, teacher_channels)
+#         ])
         
-    def forward(self, y_s, y_t):
-        """計算Review-KD損失
+#     def forward(self, y_s, y_t, layer=None):
+#         """計算MGD損失
         
-        Args:
-            y_s (list): 學生模型的預測，形狀為 (N, C, H, W) 的張量列表
-            y_t (list): 教師模型的預測，形狀為 (N, C, H, W) 的張量列表
+#         Args:
+#             y_s (list): 學生模型的預測，形狀為 (N, C, H, W) 的張量列表
+#             y_t (list): 教師模型的預測，形狀為 (N, C, H, W) 的張量列表
+#             layer (str, optional): 指定要蒸餾的層，如果是 "outlayer" 則使用最後一層
             
-        Returns:
-            torch.Tensor: 所有階段的計算損失總和
-        """
-        assert len(y_s) == len(y_t)
-        losses = []
-        for idx, (s, t) in enumerate(zip(y_s, y_t)):
-            if s.size(2) != t.size(2) or s.size(3) != t.size(3):
-                t = F.interpolate(t, size=(s.size(2), s.size(3)), mode='bilinear', align_corners=False)
+#         Returns:
+#             torch.Tensor: 所有階段的計算損失總和
+#         """
+#         losses = []
+#         for idx, (s, t) in enumerate(zip(y_s, y_t)):
+#             if s.size(2) != t.size(2) or s.size(3) != t.size(3):
+#                 t = F.interpolate(t, size=(s.size(2), s.size(3)), mode='bilinear', align_corners=False)
                 
-            b, c, h, w = s.shape
-            s = s.view(b, c, -1)
-            t = t.view(b, c, -1)
+#             if layer == "outlayer":
+#                 idx = -1
+#             losses.append(self.get_dis_loss(s, t, idx) * self.alpha_mgd)
+#         loss = sum(losses)
+#         return loss
+    
+#     def get_dis_loss(self, preds_S, preds_T, idx):
+#         """計算單層的MGD損失
+        
+#         Args:
+#             preds_S: 學生模型的預測
+#             preds_T: 教師模型的預測
+#             idx: 層索引
             
-            # 使用softmax和KL散度
-            s = F.log_softmax(s / self.temperature, dim=2)
-            t = F.softmax(t / self.temperature, dim=2)
-            loss = F.kl_div(s, t, reduction='batchmean') * (self.temperature ** 2)
-            losses.append(loss)
-        loss = sum(losses)
-        return loss
+#         Returns:
+#             torch.Tensor: 計算的損失值
+#         """
+#         loss_mse = nn.MSELoss(reduction='sum')
+#         N, C, H, W = preds_T.shape
+#         device = preds_S.device
+#         mat = torch.rand((N, 1, H, W)).to(device)
+#         mat = torch.where(mat > 1 - self.lambda_mgd, 0, 1).to(device)
+#         masked_fea = torch.mul(preds_S, mat)
+#         new_fea = self.generation[idx](masked_fea)
+#         dis_loss = loss_mse(new_fea, preds_T) / N
+#         return dis_loss
 
-class FGDLoss(nn.Module):
-    """增強版特徵引導蒸餾 - 專為姿態估計優化"""
-    def __init__(self, student_channels, teacher_channels, spatial_weight=2.0, channel_weight=0.6):
-        super(FGDLoss, self).__init__()
-        self.spatial_weight = spatial_weight    # 更強的空間權重
-        self.channel_weight = channel_weight    # 降低通道權重
-        # 增加邊緣感知機制
-        self.edge_filter = nn.Conv2d(1, 1, kernel_size=3, padding=1, bias=False).to(
-            'cuda' if torch.cuda.is_available() else 'cpu')
-        self.edge_filter.weight.data.copy_(torch.tensor([
-            [-1, -1, -1],
-            [-1,  8, -1],
-            [-1, -1, -1]
-        ]).view(1, 1, 3, 3) / 8.0)
-        self.edge_filter.requires_grad_(False)  # 凍結參數
+# class ReviewKDLoss(nn.Module):
+#     """Review-KD: https://arxiv.org/abs/2104.09044"""
+#     def __init__(self, student_channels, teacher_channels, temperature=1.0):
+#         super(ReviewKDLoss, self).__init__()
+#         self.temperature = temperature
         
-    def forward(self, y_s, y_t):
-        """計算增強版FGD損失，特別優化姿態估計的空間特徵保留
+#     def forward(self, y_s, y_t):
+#         """計算Review-KD損失
         
-        Args:
-            y_s (list): 學生模型的預測，形狀為 (N, C, H, W) 的張量列表
-            y_t (list): 教師模型的預測，形狀為 (N, C, H, W) 的張量列表
+#         Args:
+#             y_s (list): 學生模型的預測，形狀為 (N, C, H, W) 的張量列表
+#             y_t (list): 教師模型的預測，形狀為 (N, C, H, W) 的張量列表
             
-        Returns:
-            torch.Tensor: 所有階段的計算損失總和
-        """
-        assert len(y_s) == len(y_t)
-        losses = []
-        for idx, (s, t) in enumerate(zip(y_s, y_t)):
-            if s.size(2) != t.size(2) or s.size(3) != t.size(3):
-                t = F.interpolate(t, size=(s.size(2), s.size(3)), mode='bilinear', align_corners=False)
+#         Returns:
+#             torch.Tensor: 所有階段的計算損失總和
+#         """
+#         assert len(y_s) == len(y_t)
+#         losses = []
+#         for idx, (s, t) in enumerate(zip(y_s, y_t)):
+#             if s.size(2) != t.size(2) or s.size(3) != t.size(3):
+#                 t = F.interpolate(t, size=(s.size(2), s.size(3)), mode='bilinear', align_corners=False)
                 
-            b, c, h, w = s.shape
+#             b, c, h, w = s.shape
+#             s = s.view(b, c, -1)
+#             t = t.view(b, c, -1)
             
-            # 1. 基本特徵匹配 - 使用Huber損失減少異常值影響
-            l2_loss = F.smooth_l1_loss(s, t)
-            
-            # 2. 增強版空間注意力損失
-            s_spatial = torch.mean(s, dim=1, keepdim=True)  # [b, 1, h, w]
-            t_spatial = torch.mean(t, dim=1, keepdim=True)  # [b, 1, h, w]
-            
-            # 提取空間特徵的邊緣信息
-            s_edge = self.edge_filter(s_spatial)
-            t_edge = self.edge_filter(t_spatial)
-            
-            # 空間注意力+邊緣感知的組合損失
-            spatial_loss = (F.mse_loss(s_spatial, t_spatial) + 
-                           F.mse_loss(s_edge, t_edge)) * self.spatial_weight
-            
-            # 3. 通道關係損失 - 專注於重要通道
-            s_flat = s.view(b, c, -1)  # [b, c, h*w]
-            t_flat = t.view(b, c, -1)  # [b, c, h*w]
-            
-            # 通道歸一化
-            s_flat_norm = F.normalize(s_flat, dim=2)
-            t_flat_norm = F.normalize(t_flat, dim=2)
-            
-            # 計算通道相關矩陣
-            s_corr = torch.bmm(s_flat_norm, s_flat_norm.transpose(1, 2)) / (h*w)  # [b, c, c]
-            t_corr = torch.bmm(t_flat_norm, t_flat_norm.transpose(1, 2)) / (h*w)  # [b, c, c]
-            
-            # 通道相關性損失
-            channel_loss = F.mse_loss(s_corr, t_corr) * self.channel_weight
-            
-            # 4. 組合損失
-            total_loss = l2_loss + spatial_loss + channel_loss
-            losses.append(total_loss)
-            
-        loss = sum(losses)
-        return loss
+#             # 使用softmax和KL散度
+#             s = F.log_softmax(s / self.temperature, dim=2)
+#             t = F.softmax(t / self.temperature, dim=2)
+#             loss = F.kl_div(s, t, reduction='batchmean') * (self.temperature ** 2)
+#             losses.append(loss)
+#         loss = sum(losses)
+#         return loss
 
-class PKDLoss(nn.Module):
-    """Probabilistic Knowledge Distillation"""
-    def __init__(self, student_channels, teacher_channels):
-        super(PKDLoss, self).__init__()
+# class FGDLoss(nn.Module):
+#     """增強版特徵引導蒸餾 - 專為姿態估計優化"""
+#     def __init__(self, student_channels, teacher_channels, spatial_weight=2.0, channel_weight=0.6):
+#         super(FGDLoss, self).__init__()
+#         self.spatial_weight = spatial_weight    # 更強的空間權重
+#         self.channel_weight = channel_weight    # 降低通道權重
+#         # 增加邊緣感知機制
+#         self.edge_filter = nn.Conv2d(1, 1, kernel_size=3, padding=1, bias=False).to(
+#             'cuda' if torch.cuda.is_available() else 'cpu')
+#         self.edge_filter.weight.data.copy_(torch.tensor([
+#             [-1, -1, -1],
+#             [-1,  8, -1],
+#             [-1, -1, -1]
+#         ]).view(1, 1, 3, 3) / 8.0)
+#         self.edge_filter.requires_grad_(False)  # 凍結參數
         
-    def forward(self, y_s, y_t):
-        """計算PKD損失
+#     def forward(self, y_s, y_t):
+#         """計算增強版FGD損失，特別優化姿態估計的空間特徵保留
         
-        Args:
-            y_s (list): 學生模型的預測，形狀為 (N, C, H, W) 的張量列表
-            y_t (list): 教師模型的預測，形狀為 (N, C, H, W) 的張量列表
+#         Args:
+#             y_s (list): 學生模型的預測，形狀為 (N, C, H, W) 的張量列表
+#             y_t (list): 教師模型的預測，形狀為 (N, C, H, W) 的張量列表
             
-        Returns:
-            torch.Tensor: 所有階段的計算損失總和
-        """
-        assert len(y_s) == len(y_t)
-        losses = []
-        for idx, (s, t) in enumerate(zip(y_s, y_t)):
-            if s.size(2) != t.size(2) or s.size(3) != t.size(3):
-                t = F.interpolate(t, size=(s.size(2), s.size(3)), mode='bilinear', align_corners=False)
+#         Returns:
+#             torch.Tensor: 所有階段的計算損失總和
+#         """
+#         assert len(y_s) == len(y_t)
+#         losses = []
+#         for idx, (s, t) in enumerate(zip(y_s, y_t)):
+#             if s.size(2) != t.size(2) or s.size(3) != t.size(3):
+#                 t = F.interpolate(t, size=(s.size(2), s.size(3)), mode='bilinear', align_corners=False)
                 
-            # 計算通道間相關性
-            b, c, h, w = s.shape
-            s_flat = s.view(b, c, -1)
-            t_flat = t.view(b, c, -1)
+#             b, c, h, w = s.shape
             
-            s_mean = s_flat.mean(dim=2, keepdim=True)
-            t_mean = t_flat.mean(dim=2, keepdim=True)
+#             # 1. 基本特徵匹配 - 使用Huber損失減少異常值影響
+#             l2_loss = F.smooth_l1_loss(s, t)
             
-            s_centered = s_flat - s_mean
-            t_centered = t_flat - t_mean
+#             # 2. 增強版空間注意力損失
+#             s_spatial = torch.mean(s, dim=1, keepdim=True)  # [b, 1, h, w]
+#             t_spatial = torch.mean(t, dim=1, keepdim=True)  # [b, 1, h, w]
             
-            s_var = torch.mean(s_centered**2, dim=2) + 1e-6
-            t_var = torch.mean(t_centered**2, dim=2) + 1e-6
+#             # 提取空間特徵的邊緣信息
+#             s_edge = self.edge_filter(s_spatial)
+#             t_edge = self.edge_filter(t_spatial)
             
-            s_std = torch.sqrt(s_var).unsqueeze(2)
-            t_std = torch.sqrt(t_var).unsqueeze(2)
+#             # 空間注意力+邊緣感知的組合損失
+#             spatial_loss = (F.mse_loss(s_spatial, t_spatial) + 
+#                            F.mse_loss(s_edge, t_edge)) * self.spatial_weight
             
-            s_normalized = s_centered / s_std
-            t_normalized = t_centered / t_std
+#             # 3. 通道關係損失 - 專注於重要通道
+#             s_flat = s.view(b, c, -1)  # [b, c, h*w]
+#             t_flat = t.view(b, c, -1)  # [b, c, h*w]
             
-            # 計算相關矩陣
-            corr_s = torch.matmul(s_normalized, s_normalized.transpose(1, 2)) / h / w
-            corr_t = torch.matmul(t_normalized, t_normalized.transpose(1, 2)) / h / w
+#             # 通道歸一化
+#             s_flat_norm = F.normalize(s_flat, dim=2)
+#             t_flat_norm = F.normalize(t_flat, dim=2)
             
-            # PKD損失
-            loss = F.mse_loss(corr_s, corr_t)
-            losses.append(loss)
-        loss = sum(losses)
-        return loss
+#             # 計算通道相關矩陣
+#             s_corr = torch.bmm(s_flat_norm, s_flat_norm.transpose(1, 2)) / (h*w)  # [b, c, c]
+#             t_corr = torch.bmm(t_flat_norm, t_flat_norm.transpose(1, 2)) / (h*w)  # [b, c, c]
+            
+#             # 通道相關性損失
+#             channel_loss = F.mse_loss(s_corr, t_corr) * self.channel_weight
+            
+#             # 4. 組合損失
+#             total_loss = l2_loss + spatial_loss + channel_loss
+#             losses.append(total_loss)
+            
+#         loss = sum(losses)
+#         return loss
 
-class EnhancedFGDLoss(nn.Module):
-    """增強版特徵引導蒸餾 - 專為姿態估計優化，提供更好的關鍵點定位能力"""
-    def __init__(self, student_channels, teacher_channels, spatial_weight=3.5, channel_weight=0.4):
-        super(EnhancedFGDLoss, self).__init__()
-        self.spatial_weight = spatial_weight    # 更強的空間權重
-        self.channel_weight = channel_weight    # 降低通道權重
+# class PKDLoss(nn.Module):
+#     """Probabilistic Knowledge Distillation"""
+#     def __init__(self, student_channels, teacher_channels):
+#         super(PKDLoss, self).__init__()
         
-        # 增強版邊緣感知機制
-        self.edge_filter = nn.Conv2d(1, 1, kernel_size=3, padding=1, bias=False).to(
-            'cuda' if torch.cuda.is_available() else 'cpu')
-        self.edge_filter.weight.data.copy_(torch.tensor([
-            [-1, -1, -1],
-            [-1,  8, -1],
-            [-1, -1, -1]
-        ]).view(1, 1, 3, 3) / 8.0)
-        self.edge_filter.requires_grad_(False)  # 凍結參數
+#     def forward(self, y_s, y_t):
+#         """計算PKD損失
         
-        # 關鍵點注意力機制
-        self.keypoint_attention = nn.Sequential(
-            nn.Conv2d(1, 8, kernel_size=3, padding=1),
-            nn.ReLU(inplace=True),
-            nn.Conv2d(8, 1, kernel_size=3, padding=1),
-            nn.Sigmoid()
-        ).to('cuda' if torch.cuda.is_available() else 'cpu')
+#         Args:
+#             y_s (list): 學生模型的預測，形狀為 (N, C, H, W) 的張量列表
+#             y_t (list): 教師模型的預測，形狀為 (N, C, H, W) 的張量列表
+            
+#         Returns:
+#             torch.Tensor: 所有階段的計算損失總和
+#         """
+#         assert len(y_s) == len(y_t)
+#         losses = []
+#         for idx, (s, t) in enumerate(zip(y_s, y_t)):
+#             if s.size(2) != t.size(2) or s.size(3) != t.size(3):
+#                 t = F.interpolate(t, size=(s.size(2), s.size(3)), mode='bilinear', align_corners=False)
+                
+#             # 計算通道間相關性
+#             b, c, h, w = s.shape
+#             s_flat = s.view(b, c, -1)
+#             t_flat = t.view(b, c, -1)
+            
+#             s_mean = s_flat.mean(dim=2, keepdim=True)
+#             t_mean = t_flat.mean(dim=2, keepdim=True)
+            
+#             s_centered = s_flat - s_mean
+#             t_centered = t_flat - t_mean
+            
+#             s_var = torch.mean(s_centered**2, dim=2) + 1e-6
+#             t_var = torch.mean(t_centered**2, dim=2) + 1e-6
+            
+#             s_std = torch.sqrt(s_var).unsqueeze(2)
+#             t_std = torch.sqrt(t_var).unsqueeze(2)
+            
+#             s_normalized = s_centered / s_std
+#             t_normalized = t_centered / t_std
+            
+#             # 計算相關矩陣
+#             corr_s = torch.matmul(s_normalized, s_normalized.transpose(1, 2)) / h / w
+#             corr_t = torch.matmul(t_normalized, t_normalized.transpose(1, 2)) / h / w
+            
+#             # PKD損失
+#             loss = F.mse_loss(corr_s, corr_t)
+#             losses.append(loss)
+#         loss = sum(losses)
+#         return loss
+
+# class EnhancedFGDLoss(nn.Module):
+#     """增強版特徵引導蒸餾 - 專為姿態估計優化，提供更好的關鍵點定位能力"""
+#     def __init__(self, student_channels, teacher_channels, spatial_weight=3.5, channel_weight=0.4):
+#         super(EnhancedFGDLoss, self).__init__()
+#         self.spatial_weight = spatial_weight    # 更強的空間權重
+#         self.channel_weight = channel_weight    # 降低通道權重
         
-        # 用於通道調整的投影層
-        self.align_layers = nn.ModuleList()
-        for s_chan, t_chan in zip(student_channels, teacher_channels):
-            if s_chan != t_chan:
-                self.align_layers.append(nn.Conv2d(s_chan, t_chan, kernel_size=1, bias=False).to(
-                    'cuda' if torch.cuda.is_available() else 'cpu'))
-            else:
-                self.align_layers.append(nn.Identity())
-                
-        LOGGER.info(f"初始化增強版FGD損失: 空間權重={spatial_weight}, 通道權重={channel_weight}")
+#         # 增強版邊緣感知機制
+#         self.edge_filter = nn.Conv2d(1, 1, kernel_size=3, padding=1, bias=False).to(
+#             'cuda' if torch.cuda.is_available() else 'cpu')
+#         self.edge_filter.weight.data.copy_(torch.tensor([
+#             [-1, -1, -1],
+#             [-1,  8, -1],
+#             [-1, -1, -1]
+#         ]).view(1, 1, 3, 3) / 8.0)
+#         self.edge_filter.requires_grad_(False)  # 凍結參數
         
-    def forward(self, y_s, y_t):
-        """計算增強版FGD損失，特別優化姿態估計的空間特徵保留"""
-        assert len(y_s) == len(y_t)
-        losses = []
+#         # 關鍵點注意力機制
+#         self.keypoint_attention = nn.Sequential(
+#             nn.Conv2d(1, 8, kernel_size=3, padding=1),
+#             nn.ReLU(inplace=True),
+#             nn.Conv2d(8, 1, kernel_size=3, padding=1),
+#             nn.Sigmoid()
+#         ).to('cuda' if torch.cuda.is_available() else 'cpu')
         
-        for idx, (s, t) in enumerate(zip(y_s, y_t)):
-            # 確保索引在有效範圍內
-            if idx >= len(self.align_layers):
-                continue
+#         # 用於通道調整的投影層
+#         self.align_layers = nn.ModuleList()
+#         for s_chan, t_chan in zip(student_channels, teacher_channels):
+#             if s_chan != t_chan:
+#                 self.align_layers.append(nn.Conv2d(s_chan, t_chan, kernel_size=1, bias=False).to(
+#                     'cuda' if torch.cuda.is_available() else 'cpu'))
+#             else:
+#                 self.align_layers.append(nn.Identity())
                 
-            # 處理空層或None值
-            if s is None or t is None:
-                continue
+#         LOGGER.info(f"初始化增強版FGD損失: 空間權重={spatial_weight}, 通道權重={channel_weight}")
+        
+#     def forward(self, y_s, y_t):
+#         """計算增強版FGD損失，特別優化姿態估計的空間特徵保留"""
+#         assert len(y_s) == len(y_t)
+#         losses = []
+        
+#         for idx, (s, t) in enumerate(zip(y_s, y_t)):
+#             # 確保索引在有效範圍內
+#             if idx >= len(self.align_layers):
+#                 continue
+                
+#             # 處理空層或None值
+#             if s is None or t is None:
+#                 continue
             
-            # 通道對齊
-            try:
-                if s.shape[1] != t.shape[1]:
-                    # 如果通道不一致，使用投影層調整
-                    s = self.align_layers[idx](s)
-                    LOGGER.debug(f"調整特徵通道: {s.shape} -> {t.shape}")
-            except Exception as e:
-                LOGGER.warning(f"通道調整出錯，跳過此層: {e}")
-                continue
+#             # 通道對齊
+#             try:
+#                 if s.shape[1] != t.shape[1]:
+#                     # 如果通道不一致，使用投影層調整
+#                     s = self.align_layers[idx](s)
+#                     LOGGER.debug(f"調整特徵通道: {s.shape} -> {t.shape}")
+#             except Exception as e:
+#                 LOGGER.warning(f"通道調整出錯，跳過此層: {e}")
+#                 continue
                 
-            # 尺寸對齊    
-            if s.size(2) != t.size(2) or s.size(3) != t.size(3):
-                t = torch.nn.functional.interpolate(t, size=(s.size(2), s.size(3)), mode='bilinear', align_corners=False)
+#             # 尺寸對齊    
+#             if s.size(2) != t.size(2) or s.size(3) != t.size(3):
+#                 t = torch.nn.functional.interpolate(t, size=(s.size(2), s.size(3)), mode='bilinear', align_corners=False)
                 
-            b, c, h, w = s.shape
+#             b, c, h, w = s.shape
             
-            # 1. 自適應特徵匹配 - 安全處理
-            try:
-                # 對重要特徵賦予更高權重
-                feature_importance = torch.sigmoid(torch.mean(t, dim=1, keepdim=True))
-                l1_loss = torch.nn.functional.smooth_l1_loss(s, t)  # 直接計算損失，避免乘法導致的尺寸問題
-            except Exception as e:
-                LOGGER.warning(f"計算L1損失時出錯: {e}")
-                l1_loss = torch.tensor(0.0, device=s.device)
+#             # 1. 自適應特徵匹配 - 安全處理
+#             try:
+#                 # 對重要特徵賦予更高權重
+#                 feature_importance = torch.sigmoid(torch.mean(t, dim=1, keepdim=True))
+#                 l1_loss = torch.nn.functional.smooth_l1_loss(s, t)  # 直接計算損失，避免乘法導致的尺寸問題
+#             except Exception as e:
+#                 LOGGER.warning(f"計算L1損失時出錯: {e}")
+#                 l1_loss = torch.tensor(0.0, device=s.device)
             
-            # 2. 空間注意力損失 - 安全處理
-            try:
-                s_spatial = torch.mean(s, dim=1, keepdim=True)  # [b, 1, h, w]
-                t_spatial = torch.mean(t, dim=1, keepdim=True)  # [b, 1, h, w]
+#             # 2. 空間注意力損失 - 安全處理
+#             try:
+#                 s_spatial = torch.mean(s, dim=1, keepdim=True)  # [b, 1, h, w]
+#                 t_spatial = torch.mean(t, dim=1, keepdim=True)  # [b, 1, h, w]
                 
-                # 提取空間特徵的邊緣信息
-                s_edge = self.edge_filter(s_spatial)
-                t_edge = self.edge_filter(t_spatial)
+#                 # 提取空間特徵的邊緣信息
+#                 s_edge = self.edge_filter(s_spatial)
+#                 t_edge = self.edge_filter(t_spatial)
                 
-                # 關鍵點注意力增強
-                keypoint_attn = self.keypoint_attention(t_spatial)
+#                 # 關鍵點注意力增強
+#                 keypoint_attn = self.keypoint_attention(t_spatial)
                 
-                # 空間注意力+邊緣感知+關鍵點注意力的組合損失
-                spatial_loss = (torch.nn.functional.mse_loss(s_spatial, t_spatial) * 1.5 + 
-                            torch.nn.functional.mse_loss(s_edge, t_edge) * 1.0 +
-                            torch.nn.functional.mse_loss(s_spatial * keypoint_attn, t_spatial * keypoint_attn) * 1.5) * self.spatial_weight
-            except Exception as e:
-                LOGGER.warning(f"計算空間損失時出錯: {e}")
-                spatial_loss = torch.tensor(0.0, device=s.device)
+#                 # 空間注意力+邊緣感知+關鍵點注意力的組合損失
+#                 spatial_loss = (torch.nn.functional.mse_loss(s_spatial, t_spatial) * 1.5 + 
+#                             torch.nn.functional.mse_loss(s_edge, t_edge) * 1.0 +
+#                             torch.nn.functional.mse_loss(s_spatial * keypoint_attn, t_spatial * keypoint_attn) * 1.5) * self.spatial_weight
+#             except Exception as e:
+#                 LOGGER.warning(f"計算空間損失時出錯: {e}")
+#                 spatial_loss = torch.tensor(0.0, device=s.device)
             
-            # 3. 通道關係損失 - 安全處理
-            try:
-                s_flat = s.view(b, c, -1)  # [b, c, h*w]
-                t_flat = t.view(b, c, -1)  # [b, c, h*w]
+#             # 3. 通道關係損失 - 安全處理
+#             try:
+#                 s_flat = s.view(b, c, -1)  # [b, c, h*w]
+#                 t_flat = t.view(b, c, -1)  # [b, c, h*w]
                 
-                # 通道歸一化
-                s_flat_norm = torch.nn.functional.normalize(s_flat, dim=2)
-                t_flat_norm = torch.nn.functional.normalize(t_flat, dim=2)
+#                 # 通道歸一化
+#                 s_flat_norm = torch.nn.functional.normalize(s_flat, dim=2)
+#                 t_flat_norm = torch.nn.functional.normalize(t_flat, dim=2)
                 
-                # 計算通道相關矩陣
-                s_corr = torch.bmm(s_flat_norm, s_flat_norm.transpose(1, 2)) / (h*w)  # [b, c, c]
-                t_corr = torch.bmm(t_flat_norm, t_flat_norm.transpose(1, 2)) / (h*w)  # [b, c, c]
+#                 # 計算通道相關矩陣
+#                 s_corr = torch.bmm(s_flat_norm, s_flat_norm.transpose(1, 2)) / (h*w)  # [b, c, c]
+#                 t_corr = torch.bmm(t_flat_norm, t_flat_norm.transpose(1, 2)) / (h*w)  # [b, c, c]
                 
-                # 通道相關性損失
-                channel_loss = torch.nn.functional.mse_loss(s_corr, t_corr) * self.channel_weight
-            except Exception as e:
-                LOGGER.warning(f"計算通道損失時出錯: {e}")
-                channel_loss = torch.tensor(0.0, device=s.device)
+#                 # 通道相關性損失
+#                 channel_loss = torch.nn.functional.mse_loss(s_corr, t_corr) * self.channel_weight
+#             except Exception as e:
+#                 LOGGER.warning(f"計算通道損失時出錯: {e}")
+#                 channel_loss = torch.tensor(0.0, device=s.device)
             
-            # 4. 組合損失 - 確保所有損失都在相同設備上
-            total_loss = l1_loss + spatial_loss + channel_loss
-            losses.append(total_loss)
+#             # 4. 組合損失 - 確保所有損失都在相同設備上
+#             total_loss = l1_loss + spatial_loss + channel_loss
+#             losses.append(total_loss)
             
-        if not losses:
-            # 返回一個零張量，確保有梯度
-            return torch.tensor(0.0, requires_grad=True, device=y_s[0].device if y_s and len(y_s) > 0 else 'cpu')
+#         if not losses:
+#             # 返回一個零張量，確保有梯度
+#             return torch.tensor(0.0, requires_grad=True, device=y_s[0].device if y_s and len(y_s) > 0 else 'cpu')
             
-        loss = sum(losses)
-        return loss
+#         loss = sum(losses)
+#         return loss
 
 class FeatureLoss(nn.Module):
     """特徵層蒸餾損失，支持多種蒸餾方法，包括特徵對齊"""
@@ -535,12 +575,12 @@ class DistillationLoss:
         LOGGER.info(f"學生通道: {self.channels_s}")
         LOGGER.info(f"教師通道: {self.channels_t}")
         
-        # 創建蒸餾損失實例
-        self.distill_loss_fn = FeatureLoss(
-            channels_s=self.channels_s, 
-            channels_t=self.channels_t, 
-            distiller=self.distiller
-        )
+        # # 創建蒸餾損失實例
+        # self.distill_loss_fn = FeatureLoss(
+        #     channels_s=self.channels_s, 
+        #     channels_t=self.channels_t, 
+        #     distiller=self.distiller
+        # )
         
         LOGGER.info(f"使用 {self.distiller} 方法進行蒸餾")
 
@@ -653,63 +693,133 @@ class DistillationLoss:
             self.remove_handle.append(ml.register_forward_hook(make_teacher_hook(self.teacher_outputs)))
             self.remove_handle.append(ori.register_forward_hook(make_student_hook(self.student_outputs)))
 
+    # def get_loss(self):
+    #     """計算教師和學生模型之間的蒸餾損失"""        
+    #     if not self.teacher_outputs or not self.student_outputs:
+    #         return torch.tensor(0.0, requires_grad=True, device=next(self.models.parameters()).device)
+        
+    #     # 特徵差異分析
+    #     for i, (t, s) in enumerate(zip(self.teacher_outputs, self.student_outputs)):
+    #         if isinstance(t, torch.Tensor) and isinstance(s, torch.Tensor):
+    #             t_detached = t.detach()
+    #             diff = (s - t_detached).abs()
+                
+    #             # 基本統計
+    #             max_diff = diff.max().item()
+    #             mean_diff = diff.mean().item()
+    #             std_diff = diff.std().item()
+                
+    #             # 稀疏性分析
+    #             zero_elements = (diff < 1e-6).sum().item() / diff.numel()
+                
+    #             # 分位數分析
+    #             percentiles = [50, 75, 90, 95, 99]
+    #             percentile_values = [torch.quantile(diff.float(), q/100).item() for q in percentiles]
+                
+    #             LOGGER.info(f"層 {i} 特徵差異統計:")
+    #             LOGGER.info(f"  形狀: 教師{t.shape}, 學生{s.shape}")
+    #             LOGGER.info(f"  最大差異: {max_diff:.8f}, 平均差異: {mean_diff:.8f}, 標準差: {std_diff:.8f}")
+    #             LOGGER.info(f"  接近零的元素比例: {zero_elements:.2%}")
+    #             LOGGER.info(f"  分位數分析: {', '.join([f'{p}%: {v:.8f}' for p, v in zip(percentiles, percentile_values)])}")
+                
+    #             # 檢查是否有NaN或Inf
+    #             if torch.isnan(s).any() or torch.isinf(s).any() or torch.isnan(t).any() or torch.isinf(t).any():
+    #                 LOGGER.warning(f"警告: 層 {i} 中發現NaN或Inf值!")
+        
+    #     # 確保教師輸出已經分離
+    #     teacher_outputs_detached = []
+    #     for t in self.teacher_outputs:
+    #         if isinstance(t, torch.Tensor):
+    #             teacher_outputs_detached.append(t.detach())  # 確保分離教師輸出
+    #         else:
+    #             teacher_outputs_detached.append([o.detach() if isinstance(o, torch.Tensor) else o for o in t])
+        
+    #     # 累加損失
+    #     losses = []
+    #     try:
+    #         for i, (t, s) in enumerate(zip(teacher_outputs_detached, self.student_outputs)):
+    #             if isinstance(t, torch.Tensor) and isinstance(s, torch.Tensor):
+    #                 # 使用detach的教師輸出，保持學生輸出的梯度
+    #                 losses.append(F.mse_loss(s, t))
+            
+    #         # 如果有任何有效損失，則將它們相加
+    #         if losses:
+    #             loss = torch.sum(torch.stack(losses))
+    #         else:
+    #             # 如果沒有有效損失，創建一個零損失但帶梯度
+    #             loss = torch.zeros(1, device=next(self.models.parameters()).device, requires_grad=True)
+    #     except Exception as e:
+    #         LOGGER.error(f"計算蒸餾損失時出錯: {e}")
+    #         import traceback
+    #         LOGGER.error(traceback.format_exc())
+    #         # 返回零損失但帶梯度
+    #         loss = torch.zeros(1, device=next(self.models.parameters()).device, requires_grad=True)
+        
+    #     # 清空教師和學生的輸出列表，避免二次使用
+    #     self.teacher_outputs.clear()
+    #     self.student_outputs.clear()
+        
+    #     return loss
+
     def get_loss(self):
-        """計算教師和學生模型之間的蒸餾損失"""        
+        """計算教師和學生模型之間的蒸餾損失，直接使用CWD方法"""        
         if not self.teacher_outputs or not self.student_outputs:
             return torch.tensor(0.0, requires_grad=True, device=next(self.models.parameters()).device)
         
-        # 特徵差異分析
+        # 準備有效的特徵張量列表
+        valid_teacher_features = []
+        valid_student_features = []
+        
         for i, (t, s) in enumerate(zip(self.teacher_outputs, self.student_outputs)):
             if isinstance(t, torch.Tensor) and isinstance(s, torch.Tensor):
-                t_detached = t.detach()
-                diff = (s - t_detached).abs()
-                
-                # 基本統計
-                max_diff = diff.max().item()
-                mean_diff = diff.mean().item()
-                std_diff = diff.std().item()
-                
-                # 稀疏性分析
-                zero_elements = (diff < 1e-6).sum().item() / diff.numel()
-                
-                # 分位數分析
-                percentiles = [50, 75, 90, 95, 99]
-                percentile_values = [torch.quantile(diff.float(), q/100).item() for q in percentiles]
-                
-                LOGGER.info(f"層 {i} 特徵差異統計:")
-                LOGGER.info(f"  形狀: 教師{t.shape}, 學生{s.shape}")
-                LOGGER.info(f"  最大差異: {max_diff:.8f}, 平均差異: {mean_diff:.8f}, 標準差: {std_diff:.8f}")
-                LOGGER.info(f"  接近零的元素比例: {zero_elements:.2%}")
-                LOGGER.info(f"  分位數分析: {', '.join([f'{p}%: {v:.8f}' for p, v in zip(percentiles, percentile_values)])}")
-                
-                # 檢查是否有NaN或Inf
+                # 基本檢查，確保特徵是有效的
                 if torch.isnan(s).any() or torch.isinf(s).any() or torch.isnan(t).any() or torch.isinf(t).any():
                     LOGGER.warning(f"警告: 層 {i} 中發現NaN或Inf值!")
+                    continue
+                    
+                # 將有效特徵添加到列表中
+                valid_teacher_features.append(t.detach())  # 確保分離教師輸出
+                valid_student_features.append(s)  # 保持學生特徵的梯度
         
-        # 確保教師輸出已經分離
-        teacher_outputs_detached = []
-        for t in self.teacher_outputs:
-            if isinstance(t, torch.Tensor):
-                teacher_outputs_detached.append(t.detach())  # 確保分離教師輸出
-            else:
-                teacher_outputs_detached.append([o.detach() if isinstance(o, torch.Tensor) else o for o in t])
+        # 如果沒有有效特徵對，返回零損失
+        if not valid_teacher_features or not valid_student_features:
+            LOGGER.warning("沒有找到有效的特徵對進行蒸餾")
+            return torch.zeros(1, device=next(self.models.parameters()).device, requires_grad=True)
         
-        # 累加損失
-        losses = []
         try:
-            for i, (t, s) in enumerate(zip(teacher_outputs_detached, self.student_outputs)):
-                if isinstance(t, torch.Tensor) and isinstance(s, torch.Tensor):
-                    # 使用detach的教師輸出，保持學生輸出的梯度
-                    losses.append(F.mse_loss(s, t))
+            # 取得特徵通道數
+            student_channels = [f.shape[1] for f in valid_student_features]
+            teacher_channels = [f.shape[1] for f in valid_teacher_features]
             
-            # 如果有任何有效損失，則將它們相加
-            if losses:
-                loss = torch.sum(torch.stack(losses))
-            else:
-                # 如果沒有有效損失，創建一個零損失但帶梯度
-                loss = torch.zeros(1, device=next(self.models.parameters()).device, requires_grad=True)
+            # 檢查是否需要初始化或更新CWD損失函數
+            if not hasattr(self, 'cwd_loss') or self.cwd_loss is None:
+                # 首次初始化CWD損失
+                self.cwd_loss = CWDLoss(
+                    student_channels=student_channels,
+                    teacher_channels=teacher_channels,
+                    tau=4.0,
+                    normalize=True
+                ).to(next(self.models.parameters()).device)
+                LOGGER.info(f"已初始化CWD損失函數，學生通道: {student_channels}, 教師通道: {teacher_channels}")
+            elif (len(student_channels) != len(self.cwd_loss.adapters) or 
+                any(s.shape[1] != adapter.weight.shape[0] for s, adapter in zip(valid_student_features, self.cwd_loss.adapters))):
+                # 通道數變化，需要重新初始化
+                LOGGER.info(f"特徵通道數已變化，重新初始化CWD損失函數")
+                LOGGER.info(f"新的學生通道: {student_channels}, 教師通道: {teacher_channels}")
+                self.cwd_loss = CWDLoss(
+                    student_channels=student_channels,
+                    teacher_channels=teacher_channels,
+                    tau=4.0,
+                    normalize=True
+                ).to(next(self.models.parameters()).device)
+            
+            # 計算損失
+            loss = self.cwd_loss(valid_student_features, valid_teacher_features)
+            
+            # 記錄損失值
+            LOGGER.debug(f"CWD蒸餾損失: {loss.item():.6f}")
         except Exception as e:
-            LOGGER.error(f"計算蒸餾損失時出錯: {e}")
+            LOGGER.error(f"計算CWD蒸餾損失時出錯: {e}")
             import traceback
             LOGGER.error(traceback.format_exc())
             # 返回零損失但帶梯度
