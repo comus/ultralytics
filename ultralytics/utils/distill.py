@@ -823,14 +823,7 @@ class DistillationLoss:
 
     def p5_feature_distillation(self, student_feature, teacher_feature):
         """
-        針對姿勢估計的簡化FGD方法，專門優化P5層特徵
-        
-        Args:
-            student_feature: 學生模型特徵圖 [B, 256, H, W]
-            teacher_feature: 教師模型特徵圖 [B, 512, H, W]
-        
-        Returns:
-            FGD蒸餾損失
+        為姿勢估計優化的平衡FGD方法，降低高激活區域的權重
         """
         # 基本尺寸信息
         batch_size = student_feature.shape[0]
@@ -847,19 +840,20 @@ class DistillationLoss:
             )
         
         # 1. 通道維度壓縮 - 只使用教師模型前256個通道
-        # 這避免了複雜的通道選擇邏輯
         t_selected = teacher_feature[:, :student_channels]  # [B, 256, H, W]
         
         # 2. 特徵通道注意力
-        # 全局平均池化獲取通道注意力
         s_pool = F.adaptive_avg_pool2d(student_feature, 1).flatten(1)  # [B, 256]
         t_pool = F.adaptive_avg_pool2d(t_selected, 1).flatten(1)  # [B, 256]
         
-        # 通道注意力損失
-        channel_loss = F.mse_loss(s_pool, t_pool) * 5.0  # 放大係數
+        # 標準化通道注意力
+        s_pool_norm = F.normalize(s_pool, p=2, dim=1)
+        t_pool_norm = F.normalize(t_pool, p=2, dim=1)
         
-        # 3. 空間注意力 - 專注於姿勢關鍵區域
-        # 計算空間注意力圖 (每個位置的特徵激活強度)
+        # 通道注意力損失 - 使用余弦相似度而不是MSE
+        channel_loss = (1 - torch.mean(torch.sum(s_pool_norm * t_pool_norm, dim=1))) * 2.0
+        
+        # 3. 空間注意力
         s_spatial = torch.norm(student_feature, p=2, dim=1)  # [B, H, W]
         t_spatial = torch.norm(t_selected, p=2, dim=1)  # [B, H, W]
         
@@ -872,11 +866,10 @@ class DistillationLoss:
                         (t_spatial.max(dim=1, keepdim=True)[0].max(dim=2, keepdim=True)[0] - 
                         t_spatial.min(dim=1, keepdim=True)[0].min(dim=2, keepdim=True)[0] + 1e-10)
         
-        # 空間注意力損失 - 姿勢估計中極其重要
-        spatial_loss = F.mse_loss(s_spatial_norm, t_spatial_norm) * 10.0  # 更大的放大係數
+        # 空間注意力損失 - 使用L1損失而不是MSE，減少對異常值的敏感性
+        spatial_loss = F.l1_loss(s_spatial_norm, t_spatial_norm) * 5.0
         
-        # 4. 高激活區域特徵匹配 - 針對可能的關鍵點區域
-        # 識別高激活區域
+        # 4. 高激活區域特徵匹配 - 但降低其強度
         threshold = 0.5
         mask = (t_spatial_norm > threshold).float()
         
@@ -889,51 +882,50 @@ class DistillationLoss:
                 values, _ = torch.topk(t_spatial_norm[b].reshape(-1), k)
                 mask[b] = (t_spatial_norm[b] > values[-1]).float()
         
-        # 在高激活區域進行特徵匹配
+        # 在高激活區域進行溫和的特徵匹配
         mask_expanded = mask.unsqueeze(1)  # [B, 1, H, W]
-        masked_loss = F.mse_loss(
+        
+        # 使用L1損失並降低強度
+        masked_loss = F.l1_loss(
             student_feature * mask_expanded,
             t_selected * mask_expanded
-        ) / (mask.mean() + 1e-10) * 8.0  # 歸一化並放大
+        ) / (mask.mean() + 1e-10) * 2.0  # 大幅降低放大係數
         
-        # 5. 全局特徵匹配 - 但賦予較低權重
-        global_loss = F.mse_loss(student_feature, t_selected) * 1.0
+        # 5. 溫和的全局特徵匹配
+        global_loss = F.l1_loss(student_feature, t_selected) * 0.5
         
-        # 6. 統計量匹配 - 確保整體分布一致
+        # 6. 統計量匹配
         s_mean = student_feature.mean(dim=[2, 3])  # [B, 256]
         t_mean = t_selected.mean(dim=[2, 3])  # [B, 256]
         s_std = torch.sqrt(student_feature.var(dim=[2, 3]) + 1e-6)  # [B, 256]
         t_std = torch.sqrt(t_selected.var(dim=[2, 3]) + 1e-6)  # [B, 256]
         
-        # 統計量損失
-        mean_loss = F.mse_loss(s_mean, t_mean)
-        std_loss = F.mse_loss(s_std, t_std)
-        stats_loss = (mean_loss + std_loss) * 2.0
+        # 使用L1損失
+        mean_loss = F.l1_loss(s_mean, t_mean)
+        std_loss = F.l1_loss(s_std, t_std)
+        stats_loss = (mean_loss + std_loss) * 1.0
         
-        # 總損失計算 - 注重空間注意力和高激活區域
+        # 總損失計算 - 更平衡的權重分配
         total_loss = (
-            0.15 * channel_loss +    # 通道注意力
-            0.35 * spatial_loss +    # 空間注意力 (最重要)
-            0.30 * masked_loss +     # 高激活區域匹配
-            0.10 * global_loss +     # 全局特徵匹配
-            0.10 * stats_loss        # 統計量匹配
+            0.20 * channel_loss +    # 通道注意力
+            0.30 * spatial_loss +    # 空間注意力
+            0.20 * masked_loss +     # 高激活區域匹配（降低權重）
+            0.15 * global_loss +     # 全局特徵匹配
+            0.15 * stats_loss        # 統計量匹配
         )
         
-        # 損失放大 - 為純蒸餾提供更強信號
-        # 但不像之前的方法那樣激進
-        amplification = 2.0
-        amplified_loss = total_loss * amplification
+        # 不再額外放大損失
+        # 如果pose_loss在增加，可能是我們的蒸餾太強了
+        amplified_loss = total_loss
         
         # 日誌記錄
-        LOGGER.info(f"P5層FGD蒸餾損失詳情:")
-        LOGGER.info(f"  通道注意力損失: {channel_loss.item():.6f} (權重: 0.15)")
-        LOGGER.info(f"  空間注意力損失: {spatial_loss.item():.6f} (權重: 0.35)")
-        LOGGER.info(f"  高激活區域損失: {masked_loss.item():.6f} (權重: 0.30)")
-        LOGGER.info(f"  全局特徵損失: {global_loss.item():.6f} (權重: 0.10)")
-        LOGGER.info(f"  統計量損失: {stats_loss.item():.6f} (權重: 0.10)")
-        LOGGER.info(f"  總基礎損失: {total_loss.item():.6f}")
-        LOGGER.info(f"  損失放大係數: {amplification:.2f}")
-        LOGGER.info(f"  最終損失: {amplified_loss.item():.6f}")
+        LOGGER.info(f"P5層平衡FGD蒸餾損失詳情:")
+        LOGGER.info(f"  通道注意力損失: {channel_loss.item():.6f} (權重: 0.20)")
+        LOGGER.info(f"  空間注意力損失: {spatial_loss.item():.6f} (權重: 0.30)")
+        LOGGER.info(f"  高激活區域損失: {masked_loss.item():.6f} (權重: 0.20)")
+        LOGGER.info(f"  全局特徵損失: {global_loss.item():.6f} (權重: 0.15)")
+        LOGGER.info(f"  統計量損失: {stats_loss.item():.6f} (權重: 0.15)")
+        LOGGER.info(f"  總損失: {amplified_loss.item():.6f}")
         LOGGER.info(f"  高激活區域覆蓋率: {mask.mean().item()*100:.2f}%")
         
         return amplified_loss
