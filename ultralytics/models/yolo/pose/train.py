@@ -288,19 +288,19 @@ class PoseTrainer(yolo.detect.DetectionTrainer):
             
             # LOGGER.info(f"已凍結 {len(bn_layer_names)} 個 BN 層，這些層不會更新統計量")
 
-            # 計算可訓練參數比例
-            total_params = sum(p.numel() for p in self.model.parameters())
-            trainable_params = sum(p.numel() for p in self.model.parameters() if p.requires_grad)
+            # # 計算可訓練參數比例
+            # total_params = sum(p.numel() for p in self.model.parameters())
+            # trainable_params = sum(p.numel() for p in self.model.parameters() if p.requires_grad)
 
-            LOGGER.info(f"純蒸餾模式：只優化層 {distillation_layers} 中的 cv2.conv 參數")
-            LOGGER.info(f"解凍了 {unfrozen_count} 個參數組，可訓練參數比例: {trainable_params/total_params:.2%}")
-            # LOGGER.info(f"保持 {active_bn_count} 個蒸餾層的BN處於訓練模式，凍結了 {frozen_bn_count} 個非蒸餾層的BN")
+            # LOGGER.info(f"純蒸餾模式：只優化層 {distillation_layers} 中的 cv2.conv 參數")
+            # LOGGER.info(f"解凍了 {unfrozen_count} 個參數組，可訓練參數比例: {trainable_params/total_params:.2%}")
+            # # LOGGER.info(f"保持 {active_bn_count} 個蒸餾層的BN處於訓練模式，凍結了 {frozen_bn_count} 個非蒸餾層的BN")
 
-            # 記錄凍結狀態的更詳細資訊
-            LOGGER.info("--------- 參數凍結狀態總結 ---------")
-            LOGGER.info("以下參數將被訓練 (requires_grad=True):")
-            for name in unfrozen_names:
-                LOGGER.info(f"  - {name}")
+            # # 記錄凍結狀態的更詳細資訊
+            # LOGGER.info("--------- 參數凍結狀態總結 ---------")
+            # LOGGER.info("以下參數將被訓練 (requires_grad=True):")
+            # for name in unfrozen_names:
+            #     LOGGER.info(f"  - {name}")
             # LOGGER.info("以下層的BN保持訓練模式:")
             # for prefix in distill_layer_prefixes:
             #     LOGGER.info(f"  - {prefix}")
