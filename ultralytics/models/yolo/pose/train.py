@@ -147,9 +147,9 @@ class PoseTrainer(yolo.detect.DetectionTrainer):
         if self.epoch == 1:
             LOGGER.info("階段2: 解凍蒸餾層")
 
-            distillation_loss = "cwd"
+            distillation_loss = "enhancedfgd"
             distillation_layers = ["22"]
-            self.model.args.distill = 1.0
+            self.model.args.distill = 1.5
 
             self.distill_loss_instance.remove_handle_()
 
@@ -179,8 +179,12 @@ class PoseTrainer(yolo.detect.DetectionTrainer):
                         if name_parts[1] in distillation_layers:
                             if "cv2" in name_parts[2]:
                                 if hasattr(ml, 'conv'):
-                                    param.requires_grad = True
-                                    unfrozen_count += 1
+                                    # 設置為訓練模式
+                                    ml.train()
+                                    # 遍歷卷積層的參數
+                                    for param_name, param in ml.conv.named_parameters():
+                                        param.requires_grad = True
+                                        unfrozen_count += 1
                                     unfrozen_names.append(name)
                                     LOGGER.info(f"解凍蒸餾層: {name}, 通道數: {ml.conv.out_channels}")
 
