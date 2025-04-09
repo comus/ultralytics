@@ -100,13 +100,6 @@ class PoseTrainer(yolo.detect.DetectionTrainer):
             self.teacher.eval()
             LOGGER.info(f"初始化教師模型已完成，設為評估模式")
 
-        if self.model is not None:
-            for k, v in self.model.named_parameters():
-                v.requires_grad = True
-            self.model = self.model.to(self.device)
-            self.model.eval()
-            LOGGER.info(f"初始化學生模型已完成，設為訓練模式")
-
         if isinstance(self.args.device, str) and self.args.device.lower() == "mps":
             LOGGER.warning(
                 "WARNING ⚠️ Apple MPS known Pose bug. Recommend 'device=cpu' for Pose models. "
