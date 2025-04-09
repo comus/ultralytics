@@ -694,9 +694,16 @@ class DistillationLoss:
             self.remove_handle.append(ori.register_forward_hook(make_student_hook(self.student_outputs)))
 
     def get_loss(self):
-        """計算教師和學生模型之間的蒸餾損失"""        
+        """計算教師和學生模型之間的蒸餾損失，並過濾微小的計算誤差"""        
         if not self.teacher_outputs or not self.student_outputs:
             return torch.tensor(0.0, requires_grad=True, device=next(self.models.parameters()).device)
+        
+        # 設定閾值常數
+        DIFFERENCE_THRESHOLD = 1e-6  # 視為計算誤差的絕對差異閾值
+        MAX_DIFF_THRESHOLD = 1e-5    # 整體最大差異閾值
+        
+        # 追蹤全局最大差異
+        global_max_diff = 0.0
         
         # 特徵差異分析
         for i, (t, s) in enumerate(zip(self.teacher_outputs, self.student_outputs)):
@@ -706,11 +713,12 @@ class DistillationLoss:
                 
                 # 基本統計
                 max_diff = diff.max().item()
+                global_max_diff = max(global_max_diff, max_diff)
                 mean_diff = diff.mean().item()
                 std_diff = diff.std().item()
                 
                 # 稀疏性分析
-                zero_elements = (diff < 1e-6).sum().item() / diff.numel()
+                zero_elements = (diff < DIFFERENCE_THRESHOLD).sum().item() / diff.numel()
                 
                 # 分位數分析
                 percentiles = [50, 75, 90, 95, 99]
@@ -726,6 +734,15 @@ class DistillationLoss:
                 if torch.isnan(s).any() or torch.isinf(s).any() or torch.isnan(t).any() or torch.isinf(t).any():
                     LOGGER.warning(f"警告: 層 {i} 中發現NaN或Inf值!")
         
+        # 檢查是否所有差異都可視為計算誤差
+        if global_max_diff < MAX_DIFF_THRESHOLD:
+            LOGGER.info(f"所有層的最大差異 ({global_max_diff:.8f}) 低於閾值 {MAX_DIFF_THRESHOLD}，將視為計算誤差並返回零損失")
+            # 清空輸出列表
+            self.teacher_outputs.clear()
+            self.student_outputs.clear()
+            # 返回零損失但帶梯度
+            return torch.zeros(1, device=next(self.models.parameters()).device, requires_grad=True)
+        
         # 確保教師輸出已經分離
         teacher_outputs_detached = []
         for t in self.teacher_outputs:
@@ -734,20 +751,31 @@ class DistillationLoss:
             else:
                 teacher_outputs_detached.append([o.detach() if isinstance(o, torch.Tensor) else o for o in t])
         
-        # 累加損失
+        # 累加損失，忽略微小差異
         losses = []
         try:
             for i, (t, s) in enumerate(zip(teacher_outputs_detached, self.student_outputs)):
                 if isinstance(t, torch.Tensor) and isinstance(s, torch.Tensor):
+                    # 計算差異
+                    diff = (s - t).abs()
+                    max_layer_diff = diff.max().item()
+                    
+                    # 如果層的最大差異低於閾值，則忽略該層的損失
+                    if max_layer_diff < DIFFERENCE_THRESHOLD:
+                        LOGGER.info(f"層 {i} 的最大差異 ({max_layer_diff:.8f}) 低於閾值，忽略該層的損失計算")
+                        continue
+                    
                     # 使用detach的教師輸出，保持學生輸出的梯度
                     losses.append(F.mse_loss(s, t))
             
             # 如果有任何有效損失，則將它們相加
             if losses:
                 loss = torch.sum(torch.stack(losses))
+                LOGGER.info(f"計算出的總損失: {loss.item():.8f}")
             else:
                 # 如果沒有有效損失，創建一個零損失但帶梯度
                 loss = torch.zeros(1, device=next(self.models.parameters()).device, requires_grad=True)
+                LOGGER.info("所有層差異均低於閾值，返回零損失")
         except Exception as e:
             LOGGER.error(f"計算蒸餾損失時出錯: {e}")
             import traceback
