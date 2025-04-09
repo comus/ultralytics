@@ -823,12 +823,16 @@ class DistillationLoss:
 
     def p5_feature_distillation(self, student_feature, teacher_feature):
         """
-        知識保留型蒸餾方法，專為預訓練模型設計
+        超保守型純蒸餾方法，專為保護預訓練模型的原有能力設計
         """
         # 基本尺寸信息
         batch_size = student_feature.shape[0]
         student_channels = student_feature.shape[1]  # 256
         spatial_size = student_feature.shape[2:]  # (H, W)
+        
+        # 保存原始學生特徵作為參考
+        with torch.no_grad():
+            original_student = student_feature.clone()
         
         # 確保空間維度相同
         if student_feature.shape[2:] != teacher_feature.shape[2:]:
@@ -839,97 +843,78 @@ class DistillationLoss:
                 align_corners=False
             )
         
-        # 1. 保存原始學生特徵 - 用於知識保留
-        original_student = student_feature.detach()  # 停止梯度流
-        
-        # 2. 獲取教師特徵的前256通道
+        # 1. 通道維度壓縮
         t_selected = teacher_feature[:, :student_channels]  # [B, 256, H, W]
         
-        # 3. 通道注意力匹配
-        s_channel = F.adaptive_avg_pool2d(student_feature, 1).flatten(1)  # [B, 256]
-        t_channel = F.adaptive_avg_pool2d(t_selected, 1).flatten(1)  # [B, 256]
+        # 2. 特徵相似度計算
+        # 計算學生特徵與教師特徵的余弦相似度
+        s_flat = student_feature.reshape(batch_size, student_channels, -1)  # [B, 256, H*W]
+        t_flat = t_selected.reshape(batch_size, student_channels, -1)  # [B, 256, H*W]
+        o_flat = original_student.reshape(batch_size, student_channels, -1)  # [B, 256, H*W]
         
         # 標準化
-        s_channel_norm = F.normalize(s_channel, p=2, dim=1)
-        t_channel_norm = F.normalize(t_channel, p=2, dim=1)
+        s_norm = F.normalize(s_flat, p=2, dim=2)
+        t_norm = F.normalize(t_flat, p=2, dim=2)
+        o_norm = F.normalize(o_flat, p=2, dim=2)
         
-        # 通道注意力損失
-        channel_loss = F.mse_loss(s_channel_norm, t_channel_norm) * 0.5
+        # 3. 關鍵區域識別
+        # 找出學生特徵與教師特徵最不相似的通道
+        # 這些通道可能需要更多注意力
+        channel_sim = torch.bmm(s_norm, t_norm.transpose(1, 2))  # [B, 256, 256]
+        diag_indices = torch.arange(student_channels, device=channel_sim.device)
+        channel_cos_sim = channel_sim[:, diag_indices, diag_indices]  # [B, 256]
         
-        # 4. 空間注意力匹配 - 主要關注高激活區域
-        s_spatial = torch.sum(student_feature**2, dim=1)  # [B, H, W]
-        t_spatial = torch.sum(t_selected**2, dim=1)  # [B, H, W]
+        # 選擇相似度最低的10%通道
+        k = max(1, int(student_channels * 0.1))
+        _, bottom_indices = torch.topk(channel_cos_sim, k, dim=1, largest=False)  # [B, k]
         
-        # 標準化空間注意力
-        s_spatial_norm = (s_spatial - s_spatial.min(dim=1, keepdim=True)[0].min(dim=2, keepdim=True)[0]) / \
-                        (s_spatial.max(dim=1, keepdim=True)[0].max(dim=2, keepdim=True)[0] - 
-                        s_spatial.min(dim=1, keepdim=True)[0].min(dim=2, keepdim=True)[0] + 1e-10)
+        # 4. 超保守蒸餾損失
+        # 僅對最不相似的通道應用極輕度指導
+        selected_loss = torch.zeros(batch_size, device=student_feature.device)
         
-        t_spatial_norm = (t_spatial - t_spatial.min(dim=1, keepdim=True)[0].min(dim=2, keepdim=True)[0]) / \
-                        (t_spatial.max(dim=1, keepdim=True)[0].max(dim=2, keepdim=True)[0] - 
-                        t_spatial.min(dim=1, keepdim=True)[0].min(dim=2, keepdim=True)[0] + 1e-10)
+        for b in range(batch_size):
+            # 獲取當前樣本最需要改進的通道
+            indices = bottom_indices[b]  # [k]
+            
+            # 計算這些通道的特徵差異
+            s_selected = s_flat[b, indices]  # [k, H*W]
+            t_selected = t_flat[b, indices]  # [k, H*W]
+            
+            # 極輕度指導 - 僅將學生特徵向教師特徵方向移動一點點
+            guide_strength = 0.01  # 超低的指導強度
+            target = s_selected + guide_strength * (t_selected - s_selected)
+            
+            # 計算這些通道的損失
+            channel_loss = F.mse_loss(s_selected, target)
+            selected_loss[b] = channel_loss
         
-        # 識別教師模型中的高激活區域
-        threshold = 0.7  # 非常高的閾值，只關注最重要的區域
-        mask = (t_spatial_norm > threshold).float()
+        # 平均損失
+        loss_selective = selected_loss.mean()
         
-        # 確保至少有5%的區域被選中
-        coverage = mask.mean()
-        if coverage < 0.05:
-            # 動態調整閾值
-            k = int(0.05 * mask.shape[1] * mask.shape[2])
-            for b in range(batch_size):
-                values, _ = torch.topk(t_spatial_norm[b].reshape(-1), k)
-                mask[b] = (t_spatial_norm[b] > values[-1]).float()
+        # 5. 安全檢查 - 確保學生模型不會過度偏離原始特徵
+        # 計算當前學生特徵與原始特徵的差異
+        drift = F.mse_loss(s_flat, o_flat)
         
-        # 只在高激活區域計算空間注意力損失
-        spatial_loss = F.mse_loss(
-            s_spatial_norm * mask, 
-            t_spatial_norm * mask
-        ) / (mask.mean() + 1e-10) * 0.8
+        # 設置最大允許偏移閾值 - 非常小以避免破壞模型
+        max_allowed_drift = 0.001
         
-        # 5. 知識保留正則化 - 防止學生特徵過度偏離原始知識
-        # 計算與原始學生特徵的距離
-        retention_loss = F.mse_loss(student_feature, original_student)
+        # 如果偏移太大，減少損失
+        if drift > max_allowed_drift:
+            safety_factor = max_allowed_drift / (drift + 1e-10)
+            final_loss = loss_selective * safety_factor
+            LOGGER.warning(f"安全機制激活! 漂移={drift:.6f}, 安全係數={safety_factor:.6f}")
+        else:
+            final_loss = loss_selective
         
-        # 只允許高度匹配的區域顯著偏離原始特徵
-        # 對於低相似度區域，我們希望保留學生的原始知識
+        # 記錄日誌
+        LOGGER.info(f"P5層超保守蒸餾損失詳情:")
+        LOGGER.info(f"  選擇性通道損失: {loss_selective.item():.6f}")
+        LOGGER.info(f"  特徵漂移: {drift.item():.6f}")
+        LOGGER.info(f"  改進通道數量: {k} (10%的總通道)")
+        LOGGER.info(f"  指導強度: 0.01 (超輕度)")
+        LOGGER.info(f"  總損失: {final_loss.item():.6f}")
         
-        # 計算教師和學生特徵的相似度
-        s_flat = student_feature.reshape(batch_size, student_channels, -1)
-        t_flat = t_selected.reshape(batch_size, student_channels, -1)
-        o_flat = original_student.reshape(batch_size, student_channels, -1)
-        
-        similarity = F.cosine_similarity(s_flat, t_flat, dim=2)  # [B, 256]
-        
-        # 為每個通道計算自適應權重
-        # 如果相似度高，允許更多偏離（低保留權重）
-        # 如果相似度低，強制更多保留（高保留權重）
-        retention_weights = 1.0 - torch.clamp(similarity, 0.0, 0.8) / 0.8  # [B, 256]
-        
-        # 應用加權知識保留損失
-        weighted_retention_loss = (
-            F.mse_loss(s_flat, o_flat, reduction='none')
-            .mean(dim=2)  # 空間平均
-            * retention_weights  # 通道加權
-        ).mean() * 0.7  # 全局平均並加權
-        
-        # 6. 總損失計算 - 平衡特徵匹配和知識保留
-        total_loss = (
-            0.3 * channel_loss +          # 通道注意力匹配 
-            0.3 * spatial_loss +          # 高激活區域空間匹配
-            0.4 * weighted_retention_loss  # 知識保留正則化
-        )
-        
-        # 日誌記錄
-        LOGGER.info(f"P5層知識保留蒸餾損失詳情:")
-        LOGGER.info(f"  通道注意力損失: {channel_loss.item():.6f} (權重: 0.3)")
-        LOGGER.info(f"  空間注意力損失: {spatial_loss.item():.6f} (權重: 0.3)")
-        LOGGER.info(f"  知識保留損失: {weighted_retention_loss.item():.6f} (權重: 0.4)")
-        LOGGER.info(f"  高激活區域覆蓋率: {mask.mean().item()*100:.2f}%")
-        LOGGER.info(f"  總損失: {total_loss.item():.6f}")
-        
-        return total_loss
+        return final_loss
 
     def channel_adaptive_distillation(self, student_feature, teacher_feature):
         """
