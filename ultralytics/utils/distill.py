@@ -36,64 +36,91 @@ class FGDLoss(nn.Module):
     """增强版特征引导蒸馏 - 专为姿态估计优化"""
     def __init__(self, student_channels, teacher_channels, spatial_weight=2.0, channel_weight=0.6):
         super().__init__()
-        self.spatial_weight = spatial_weight    # 更强的空间权重
-        self.channel_weight = channel_weight    # 降低通道权重
+        self.spatial_weight = spatial_weight
+        self.channel_weight = channel_weight
+        
         # 增加边缘感知机制
-        self.edge_filter = nn.Conv2d(1, 1, kernel_size=3, padding=1, bias=False).to(
-            'cuda' if torch.cuda.is_available() else 'cpu')
+        self.edge_filter = nn.Conv2d(1, 1, kernel_size=3, padding=1, bias=False)
         self.edge_filter.weight.data.copy_(torch.tensor([
             [-1, -1, -1],
             [-1,  8, -1],
             [-1, -1, -1]
         ]).view(1, 1, 3, 3) / 8.0)
-        self.edge_filter.requires_grad_(False)  # 冻结参数
+        self.edge_filter.requires_grad_(False)
+        
+        # 添加通道适配层
+        self.align_channels = nn.ModuleList()
+        for s_chan, t_chan in zip(student_channels, teacher_channels):
+            if s_chan != t_chan:
+                self.align_channels.append(
+                    nn.Conv2d(s_chan, t_chan, kernel_size=1, bias=False)
+                )
+            else:
+                self.align_channels.append(nn.Identity())
+                
+        LOGGER.info(f"初始化FGD损失: 空间权重={spatial_weight}, 通道权重={channel_weight}")
+        LOGGER.info(f"创建了 {len(self.align_channels)} 个通道适配层，用于处理通道不匹配")
         
     def forward(self, y_s, y_t):
         """计算增强版FGD损失，特别优化姿态估计的空间特征保留"""
-        assert len(y_s) == len(y_t)
         losses = []
-        for idx, (s, t) in enumerate(zip(y_s, y_t)):
+        min_len = min(len(y_s), len(y_t), len(self.align_channels))
+        
+        for idx in range(min_len):
+            s, t = y_s[idx], y_t[idx]
+            
+            # 跳过非张量特征
+            if not isinstance(s, torch.Tensor) or not isinstance(t, torch.Tensor):
+                continue
+                
+            # 确保align_channels在同一设备上
+            self.align_channels[idx] = self.align_channels[idx].to(s.device)
+            self.edge_filter = self.edge_filter.to(s.device)
+                
+            # 1. 通道对齐
+            s = self.align_channels[idx](s)
+            LOGGER.debug(f"特征形状 - 学生: {s.shape}, 教师: {t.shape}")
+                
+            # 2. 空间尺寸对齐
             if s.size(2) != t.size(2) or s.size(3) != t.size(3):
-                t = F.interpolate(t, size=(s.size(2), s.size(3)), mode='bilinear', align_corners=False)
+                t = F.interpolate(t, size=(s.size(2), s.size(3)), 
+                                 mode='bilinear', align_corners=False)
                 
             b, c, h, w = s.shape
             
-            # 1. 基本特征匹配 - 使用Huber损失减少异常值影响
+            # 3. 基本特征匹配
             l2_loss = F.smooth_l1_loss(s, t)
             
-            # 2. 增强版空间注意力损失
-            s_spatial = torch.mean(s, dim=1, keepdim=True)  # [b, 1, h, w]
-            t_spatial = torch.mean(t, dim=1, keepdim=True)  # [b, 1, h, w]
+            # 4. 空间注意力损失
+            s_spatial = torch.mean(s, dim=1, keepdim=True)
+            t_spatial = torch.mean(t, dim=1, keepdim=True)
             
-            # 提取空间特征的边缘信息
             s_edge = self.edge_filter(s_spatial)
             t_edge = self.edge_filter(t_spatial)
             
-            # 空间注意力+边缘感知的组合损失
             spatial_loss = (F.mse_loss(s_spatial, t_spatial) + 
                            F.mse_loss(s_edge, t_edge)) * self.spatial_weight
             
-            # 3. 通道关系损失 - 专注于重要通道
-            s_flat = s.view(b, c, -1)  # [b, c, h*w]
-            t_flat = t.view(b, c, -1)  # [b, c, h*w]
+            # 5. 通道关系损失
+            s_flat = s.view(b, c, -1)
+            t_flat = t.view(b, c, -1)
             
-            # 通道归一化
             s_flat_norm = F.normalize(s_flat, dim=2)
             t_flat_norm = F.normalize(t_flat, dim=2)
             
-            # 计算通道相关矩阵
-            s_corr = torch.bmm(s_flat_norm, s_flat_norm.transpose(1, 2)) / (h*w)  # [b, c, c]
-            t_corr = torch.bmm(t_flat_norm, t_flat_norm.transpose(1, 2)) / (h*w)  # [b, c, c]
+            s_corr = torch.bmm(s_flat_norm, s_flat_norm.transpose(1, 2)) / (h*w)
+            t_corr = torch.bmm(t_flat_norm, t_flat_norm.transpose(1, 2)) / (h*w)
             
-            # 通道相关性损失
             channel_loss = F.mse_loss(s_corr, t_corr) * self.channel_weight
             
-            # 4. 组合损失
+            # 6. 总损失
             total_loss = l2_loss + spatial_loss + channel_loss
             losses.append(total_loss)
             
-        loss = sum(losses)
-        return loss
+        if not losses:
+            return torch.tensor(0.0, device=y_s[0].device if len(y_s) > 0 and isinstance(y_s[0], torch.Tensor) else 'cpu', requires_grad=True)
+            
+        return sum(losses)
 
 class ReviewKDLoss(nn.Module):
     """Review-KD: https://arxiv.org/abs/2104.09044"""
@@ -125,18 +152,17 @@ class EnhancedFGDLoss(nn.Module):
     """增强版特征引导蒸馏 - 专为姿态估计优化，提供更好的关键点定位能力"""
     def __init__(self, student_channels, teacher_channels, spatial_weight=3.5, channel_weight=0.4):
         super().__init__()
-        self.spatial_weight = spatial_weight    # 更强的空间权重
-        self.channel_weight = channel_weight    # 降低通道权重
+        self.spatial_weight = spatial_weight
+        self.channel_weight = channel_weight
         
         # 增强版边缘感知机制
-        self.edge_filter = nn.Conv2d(1, 1, kernel_size=3, padding=1, bias=False).to(
-            'cuda' if torch.cuda.is_available() else 'cpu')
+        self.edge_filter = nn.Conv2d(1, 1, kernel_size=3, padding=1, bias=False)
         self.edge_filter.weight.data.copy_(torch.tensor([
             [-1, -1, -1],
             [-1,  8, -1],
             [-1, -1, -1]
         ]).view(1, 1, 3, 3) / 8.0)
-        self.edge_filter.requires_grad_(False)  # 冻结参数
+        self.edge_filter.requires_grad_(False)
         
         # 关键点注意力机制
         self.keypoint_attention = nn.Sequential(
@@ -144,107 +170,93 @@ class EnhancedFGDLoss(nn.Module):
             nn.ReLU(inplace=True),
             nn.Conv2d(8, 1, kernel_size=3, padding=1),
             nn.Sigmoid()
-        ).to('cuda' if torch.cuda.is_available() else 'cpu')
+        )
         
         # 用于通道调整的投影层
         self.align_layers = nn.ModuleList()
         for s_chan, t_chan in zip(student_channels, teacher_channels):
-            if s_chan != t_chan:
-                self.align_layers.append(nn.Conv2d(s_chan, t_chan, kernel_size=1, bias=False).to(
-                    'cuda' if torch.cuda.is_available() else 'cpu'))
-            else:
-                self.align_layers.append(nn.Identity())
-                
-        LOGGER.info(f"初始化增强版FGD损失: 空间权重={spatial_weight}, 通道权重={channel_weight}")
+            self.align_layers.append(
+                nn.Conv2d(s_chan, t_chan, kernel_size=1, bias=False)
+            )
+        
+        LOGGER.info(f"初始化增强版FGD损失，学生通道: {student_channels}, 教师通道: {teacher_channels}")
         
     def forward(self, y_s, y_t):
         """计算增强版FGD损失，特别优化姿态估计的空间特征保留"""
-        assert len(y_s) == len(y_t)
         losses = []
         
-        for idx, (s, t) in enumerate(zip(y_s, y_t)):
-            # 确保索引在有效范围内
-            if idx >= len(self.align_layers):
-                continue
-                
+        min_len = min(len(y_s), len(y_t), len(self.align_layers))
+        LOGGER.debug(f"处理 {min_len} 对特征")
+        
+        for idx in range(min_len):
+            s, t = y_s[idx], y_t[idx]
+            
             # 处理空层或None值
-            if s is None or t is None:
+            if not isinstance(s, torch.Tensor) or not isinstance(t, torch.Tensor):
                 continue
             
-            # 通道对齐
-            try:
-                if s.shape[1] != t.shape[1]:
-                    # 如果通道不一致，使用投影层调整
-                    s = self.align_layers[idx](s)
-                    LOGGER.debug(f"调整特征通道: {s.shape} -> {t.shape}")
-            except Exception as e:
-                LOGGER.warning(f"通道调整出错，跳过此层: {e}")
-                continue
+            # 将所有模块移动到当前数据所在的设备
+            device = s.device
+            self.align_layers[idx] = self.align_layers[idx].to(device)
+            self.edge_filter = self.edge_filter.to(device)
+            self.keypoint_attention = self.keypoint_attention.to(device)
+            
+            # 通道对齐 - 强制使用对齐层
+            s_aligned = self.align_layers[idx](s)
+            LOGGER.debug(f"特征通道对齐: {s.shape[1]} -> {s_aligned.shape[1]} (目标: {t.shape[1]})")
                 
             # 尺寸对齐    
-            if s.size(2) != t.size(2) or s.size(3) != t.size(3):
-                t = torch.nn.functional.interpolate(t, size=(s.size(2), s.size(3)), mode='bilinear', align_corners=False)
+            if s_aligned.size(2) != t.size(2) or s_aligned.size(3) != t.size(3):
+                t = F.interpolate(t, size=(s_aligned.size(2), s_aligned.size(3)), 
+                                 mode='bilinear', align_corners=False)
                 
-            b, c, h, w = s.shape
+            b, c, h, w = s_aligned.shape
             
-            # 1. 自适应特征匹配 - 安全处理
             try:
-                # 对重要特征赋予更高权重
-                feature_importance = torch.sigmoid(torch.mean(t, dim=1, keepdim=True))
-                l1_loss = torch.nn.functional.smooth_l1_loss(s, t)  # 直接计算损失，避免乘法导致的尺寸问题
-            except Exception as e:
-                LOGGER.warning(f"计算L1损失时出错: {e}")
-                l1_loss = torch.tensor(0.0, device=s.device)
-            
-            # 2. 空间注意力损失 - 安全处理
-            try:
-                s_spatial = torch.mean(s, dim=1, keepdim=True)  # [b, 1, h, w]
-                t_spatial = torch.mean(t, dim=1, keepdim=True)  # [b, 1, h, w]
+                # 1. L1损失
+                l1_loss = F.smooth_l1_loss(s_aligned, t)
                 
-                # 提取空间特征的边缘信息
+                # 2. 空间注意力损失
+                s_spatial = torch.mean(s_aligned, dim=1, keepdim=True)
+                t_spatial = torch.mean(t, dim=1, keepdim=True)
+                
                 s_edge = self.edge_filter(s_spatial)
                 t_edge = self.edge_filter(t_spatial)
                 
-                # 关键点注意力增强
                 keypoint_attn = self.keypoint_attention(t_spatial)
                 
-                # 空间注意力+边缘感知+关键点注意力的组合损失
-                spatial_loss = (torch.nn.functional.mse_loss(s_spatial, t_spatial) * 1.5 + 
-                            torch.nn.functional.mse_loss(s_edge, t_edge) * 1.0 +
-                            torch.nn.functional.mse_loss(s_spatial * keypoint_attn, t_spatial * keypoint_attn) * 1.5) * self.spatial_weight
+                spatial_loss = (
+                    F.mse_loss(s_spatial, t_spatial) * 1.5 + 
+                    F.mse_loss(s_edge, t_edge) * 1.0 +
+                    F.mse_loss(s_spatial * keypoint_attn, t_spatial * keypoint_attn) * 1.5
+                ) * self.spatial_weight
+                
+                # 3. 通道相关性损失
+                s_flat = s_aligned.view(b, c, -1)
+                t_flat = t.view(b, c, -1)
+                
+                s_flat_norm = F.normalize(s_flat, dim=2)
+                t_flat_norm = F.normalize(t_flat, dim=2)
+                
+                s_corr = torch.bmm(s_flat_norm, s_flat_norm.transpose(1, 2)) / (h*w)
+                t_corr = torch.bmm(t_flat_norm, t_flat_norm.transpose(1, 2)) / (h*w)
+                
+                channel_loss = F.mse_loss(s_corr, t_corr) * self.channel_weight
+                
+                # 4. 组合损失
+                total_loss = l1_loss + spatial_loss + channel_loss
+                losses.append(total_loss)
+                
             except Exception as e:
-                LOGGER.warning(f"计算空间损失时出错: {e}")
-                spatial_loss = torch.tensor(0.0, device=s.device)
-            
-            # 3. 通道关系损失 - 安全处理
-            try:
-                s_flat = s.view(b, c, -1)  # [b, c, h*w]
-                t_flat = t.view(b, c, -1)  # [b, c, h*w]
-                
-                # 通道归一化
-                s_flat_norm = torch.nn.functional.normalize(s_flat, dim=2)
-                t_flat_norm = torch.nn.functional.normalize(t_flat, dim=2)
-                
-                # 计算通道相关矩阵
-                s_corr = torch.bmm(s_flat_norm, s_flat_norm.transpose(1, 2)) / (h*w)  # [b, c, c]
-                t_corr = torch.bmm(t_flat_norm, t_flat_norm.transpose(1, 2)) / (h*w)  # [b, c, c]
-                
-                # 通道相关性损失
-                channel_loss = torch.nn.functional.mse_loss(s_corr, t_corr) * self.channel_weight
-            except Exception as e:
-                LOGGER.warning(f"计算通道损失时出错: {e}")
-                channel_loss = torch.tensor(0.0, device=s.device)
-            
-            # 4. 组合损失 - 确保所有损失都在相同设备上
-            total_loss = l1_loss + spatial_loss + channel_loss
-            losses.append(total_loss)
+                LOGGER.error(f"计算损失时出错: {e}")
+                import traceback
+                LOGGER.error(traceback.format_exc())
+                continue
             
         if not losses:
-            # 返回一个零张量，确保有梯度
-            return torch.tensor(0.0, requires_grad=True, device=y_s[0].device if y_s and len(y_s) > 0 else 'cpu')
+            return torch.tensor(0.0, requires_grad=True, device=y_s[0].device if len(y_s) > 0 and isinstance(y_s[0], torch.Tensor) else 'cuda')
             
-        loss = sum(losses)
-        return loss
+        return sum(losses)
 
 class DistillationLoss:
     """增强版知识蒸馏损失，改进特征收集机制"""
@@ -269,6 +281,12 @@ class DistillationLoss:
         self.found_student_layers = []
         self.found_teacher_layers = []
         
+        # 安全地获取设备
+        try:
+            self.device = next(self.models.parameters()).device
+        except:
+            self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+        
         # 检查是否启用混合精度训练
         self.using_amp = False
         if hasattr(models, 'args') and hasattr(models.args, 'amp'):
@@ -276,7 +294,13 @@ class DistillationLoss:
             LOGGER.info(f"检测到混合精度训练设置: {self.using_amp}")
         
         # 寻找要蒸馏的层
-        self._find_layers()
+        try:
+            self._find_layers()
+        except Exception as e:
+            LOGGER.error(f"查找蒸馏层时出错: {e}")
+            import traceback
+            LOGGER.error(traceback.format_exc())
+            raise
         
         if len(self.channels_s) == 0 or len(self.channels_t) == 0:
             LOGGER.error("未找到任何匹配的层进行蒸馏!")
@@ -290,7 +314,7 @@ class DistillationLoss:
         
         # 创建蒸馏损失实例
         self._init_distill_loss()
-        
+
     def _find_layers(self):
         """寻找要蒸馏的层，增强错误处理和日志记录"""
         if not self.layers:
@@ -471,11 +495,9 @@ class DistillationLoss:
         """计算蒸馏损失，处理数据类型不匹配问题"""
         if not self.teacher_outputs or not self.student_outputs:
             LOGGER.debug("没有收集到特征输出，返回零损失")
-            return torch.tensor(0.0).to(self.models.device)
-        
-        # 检查特征列表长度
-        if len(self.teacher_outputs) != len(self.student_outputs):
-            LOGGER.warning(f"特征输出长度不匹配: 学生={len(self.student_outputs)}, 教师={len(self.teacher_outputs)}")
+            # 使用更安全的方式获取设备
+            device = next(self.models.parameters()).device if hasattr(self.models, 'parameters') else 'cuda'
+            return torch.tensor(0.0).to(device)
         
         # 解除教师特征的梯度
         teacher_outputs = [t.detach() if isinstance(t, torch.Tensor) else t for t in self.teacher_outputs]
@@ -484,33 +506,15 @@ class DistillationLoss:
             # 尝试正常计算损失
             quant_loss = self.distill_loss_fn(y_s=self.student_outputs, y_t=teacher_outputs)
             return quant_loss
-        except RuntimeError as e:
-            # 如果遇到数据类型错误，尝试转换数据类型
-            if "Input type" in str(e) and "weight type" in str(e):
-                LOGGER.warning(f"蒸馏损失计算出现数据类型不匹配: {e}")
-                
-                # 获取模型权重的数据类型
-                model_dtype = next(self.distill_loss_fn.parameters()).dtype
-                LOGGER.info(f"尝试将特征转换为模型数据类型: {model_dtype}")
-                
-                # 转换特征
-                converted_student = [s.to(model_dtype) if isinstance(s, torch.Tensor) else s 
-                                    for s in self.student_outputs]
-                converted_teacher = [t.to(model_dtype) if isinstance(t, torch.Tensor) else t 
-                                   for t in teacher_outputs]
-                
-                # 再次尝试计算损失
-                try:
-                    quant_loss = self.distill_loss_fn(y_s=converted_student, y_t=converted_teacher)
-                    LOGGER.info("数据类型转换后成功计算损失")
-                    return quant_loss
-                except Exception as e2:
-                    LOGGER.error(f"尝试转换数据类型后仍然失败: {e2}")
-                    # 返回零损失避免训练中断
-                    return torch.tensor(0.0).to(self.models.device)
-            else:
-                # 如果是其他错误，记录并返回零损失
-                LOGGER.error(f"计算蒸馏损失时出现未知错误: {e}")
-                import traceback
-                LOGGER.error(traceback.format_exc())
-                return torch.tensor(0.0).to(self.models.device)
+        except Exception as e:
+            LOGGER.error(f"计算蒸馏损失时出现未知错误: {e}")
+            import traceback
+            LOGGER.error(traceback.format_exc())
+            
+            # 使用更安全的方式获取设备
+            device = (self.student_outputs[0].device 
+                    if len(self.student_outputs) > 0 and isinstance(self.student_outputs[0], torch.Tensor)
+                    else next(self.models.parameters()).device if hasattr(self.models, 'parameters')
+                    else 'cuda')
+            
+            return torch.tensor(0.0).to(device)
