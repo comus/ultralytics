@@ -107,10 +107,125 @@ class PoseTrainer(yolo.detect.DetectionTrainer):
             )
 
 
+    def compare_bn_statistics(teacher_model, student_model, sample_layers=10):
+        """比較教師和學生模型的BN層統計數據"""
+        teacher_bns = [m for m in teacher_model.modules() if isinstance(m, nn.BatchNorm2d)]
+        student_bns = [m for m in student_model.modules() if isinstance(m, nn.BatchNorm2d)]
+        
+        # 確保兩個模型的BN層數量相同
+        assert len(teacher_bns) == len(student_bns), f"BN層數量不匹配: 教師({len(teacher_bns)}) vs 學生({len(student_bns)})"
+        
+        # 計算所有BN層統計數據的差異
+        mean_diffs = []
+        var_diffs = []
+        mean_rel_diffs = []  # 相對差異
+        var_rel_diffs = []   # 相對差異
+        
+        for i, (t_bn, s_bn) in enumerate(zip(teacher_bns, student_bns)):
+            # 計算絕對差異
+            mean_diff = (t_bn.running_mean - s_bn.running_mean).abs().mean().item()
+            var_diff = (t_bn.running_var - s_bn.running_var).abs().mean().item()
+            
+            # 計算相對差異 (避免除以零)
+            t_mean_abs = t_bn.running_mean.abs().mean().item()
+            t_var_abs = t_bn.running_var.abs().mean().item()
+            
+            mean_rel_diff = mean_diff / (t_mean_abs + 1e-6)
+            var_rel_diff = var_diff / (t_var_abs + 1e-6)
+            
+            mean_diffs.append(mean_diff)
+            var_diffs.append(var_diff)
+            mean_rel_diffs.append(mean_rel_diff)
+            var_rel_diffs.append(var_rel_diff)
+        
+        # 計算總體統計數據
+        avg_mean_diff = sum(mean_diffs) / len(mean_diffs)
+        avg_var_diff = sum(var_diffs) / len(var_diffs)
+        avg_mean_rel_diff = sum(mean_rel_diffs) / len(mean_rel_diffs)
+        avg_var_rel_diff = sum(var_rel_diffs) / len(var_rel_diffs)
+        
+        max_mean_diff = max(mean_diffs)
+        max_var_diff = max(var_diffs)
+        max_mean_rel_diff = max(mean_rel_diffs)
+        max_var_rel_diff = max(var_rel_diffs)
+        
+        # 打印總體統計數據
+        LOGGER.info("=" * 50)
+        LOGGER.info("BatchNorm層統計數據比較:")
+        LOGGER.info(f"總計比較了 {len(teacher_bns)} 個BN層")
+        LOGGER.info(f"平均絕對差異 - 均值: {avg_mean_diff:.6f}, 方差: {avg_var_diff:.6f}")
+        LOGGER.info(f"平均相對差異 - 均值: {avg_mean_rel_diff:.2%}, 方差: {avg_var_rel_diff:.2%}")
+        LOGGER.info(f"最大絕對差異 - 均值: {max_mean_diff:.6f}, 方差: {max_var_diff:.6f}")
+        LOGGER.info(f"最大相對差異 - 均值: {max_mean_rel_diff:.2%}, 方差: {max_var_rel_diff:.2%}")
+        
+        # 打印部分層的詳細統計數據
+        LOGGER.info("-" * 50)
+        LOGGER.info("部分BN層的詳細統計數據:")
+        
+        # 選擇一些有代表性的層(前幾層、中間幾層、後幾層)
+        sample_indices = []
+        if len(teacher_bns) <= sample_layers:
+            sample_indices = list(range(len(teacher_bns)))
+        else:
+            # 選擇前幾層、中間幾層和後幾層
+            front = sample_layers // 3
+            middle = sample_layers // 3
+            back = sample_layers - front - middle
+            
+            sample_indices = list(range(front))
+            sample_indices += list(range(len(teacher_bns)//2 - middle//2, len(teacher_bns)//2 + middle//2 + middle%2))
+            sample_indices += list(range(len(teacher_bns) - back, len(teacher_bns)))
+        
+        for i in sample_indices:
+            t_bn = teacher_bns[i]
+            s_bn = student_bns[i]
+            
+            # 計算基本統計數據
+            t_mean = t_bn.running_mean.mean().item()
+            t_var = t_bn.running_var.mean().item()
+            s_mean = s_bn.running_mean.mean().item()
+            s_var = s_bn.running_var.mean().item()
+            
+            mean_diff = mean_diffs[i]
+            var_diff = var_diffs[i]
+            mean_rel_diff = mean_rel_diffs[i]
+            var_rel_diff = var_rel_diffs[i]
+            
+            LOGGER.info(f"BN層 {i}:")
+            LOGGER.info(f"  教師 - 均值: {t_mean:.6f}, 方差: {t_var:.6f}")
+            LOGGER.info(f"  學生 - 均值: {s_mean:.6f}, 方差: {s_var:.6f}")
+            LOGGER.info(f"  絕對差異 - 均值: {mean_diff:.6f}, 方差: {var_diff:.6f}")
+            LOGGER.info(f"  相對差異 - 均值: {mean_rel_diff:.2%}, 方差: {var_rel_diff:.2%}")
+        
+        LOGGER.info("=" * 50)
+        
+        # 返回差異指標，可用於進一步分析
+        return {
+            'avg_mean_diff': avg_mean_diff,
+            'avg_var_diff': avg_var_diff,
+            'avg_mean_rel_diff': avg_mean_rel_diff,
+            'avg_var_rel_diff': avg_var_rel_diff,
+            'max_mean_diff': max_mean_diff,
+            'max_var_diff': max_var_diff,
+            'max_mean_rel_diff': max_mean_rel_diff,
+            'max_var_rel_diff': max_var_rel_diff,
+            'mean_diffs': mean_diffs,
+            'var_diffs': var_diffs
+        }
+
+
     def distill_on_train_start(self, trainer):
         pass
 
     def distill_on_epoch_start(self, trainer):
+        # 在比較模型狀態後添加
+        LOGGER.info("比較教師和學生模型的BN層統計數據...")
+        bn_diff_stats = self.compare_bn_statistics(self.teacher, self.model)
+        
+        # 根據差異大小發出警告
+        if bn_diff_stats['avg_mean_rel_diff'] > 0.5 or bn_diff_stats['avg_var_rel_diff'] > 0.5:
+            LOGGER.warning("警告：BN層統計數據差異顯著，可能影響蒸餾效果!")
+
         if self.epoch == 0:
             LOGGER.info("階段1: 純蒸餾")
 
