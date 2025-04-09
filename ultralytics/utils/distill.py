@@ -3,6 +3,202 @@ import torch.nn as nn
 import torch.nn.functional as F
 from ultralytics.utils import LOGGER
 
+class AdaptiveDistillationLoss(nn.Module):
+    """自适应蒸馏损失，保护基本任务能力"""
+    
+    def __init__(self, channels_s, channels_t, original_performance=0.5):
+        super().__init__()
+        self.channels_s = channels_s
+        self.channels_t = channels_t
+        self.original_performance = original_performance
+        self.current_performance = original_performance
+        self.adaptivity = 0.5  # 自适应系数
+        
+        # 特征对齐模块
+        self.align_layers = nn.ModuleList()
+        for s_chan, t_chan in zip(channels_s, channels_t):
+            self.align_layers.append(
+                nn.Sequential(
+                    nn.Conv2d(s_chan, t_chan, kernel_size=1, bias=False),
+                    nn.BatchNorm2d(t_chan)
+                )
+            )
+        
+        LOGGER.info(f"初始化自适应蒸馏损失，基准性能设为 {original_performance:.4f}")
+        
+    def update_performance(self, current_perf):
+        """更新当前性能，用于自适应调整"""
+        self.current_performance = current_perf
+        
+    def forward(self, student_features, teacher_features):
+        losses = []
+        
+        # 计算性能保护因子 - 性能下降严重时降低蒸馏强度
+        if self.current_performance < 0.2 * self.original_performance:
+            # 性能下降超过80%，强保护
+            protection_factor = 0.2
+            LOGGER.debug(f"性能严重下降至 {self.current_performance:.4f}，应用强保护因子 {protection_factor}")
+        elif self.current_performance < 0.5 * self.original_performance:
+            # 性能下降超过50%，中度保护
+            protection_factor = 0.5
+            LOGGER.debug(f"性能中度下降至 {self.current_performance:.4f}，应用中度保护因子 {protection_factor}")
+        else:
+            # 性能良好，正常蒸馏
+            protection_factor = 1.0
+        
+        # 应用特征对齐和损失计算
+        for i, (s, t) in enumerate(zip(student_features, teacher_features)):
+            # 检查特征是否有效
+            if not isinstance(s, torch.Tensor) or not isinstance(t, torch.Tensor):
+                continue
+                
+            try:
+                # 对齐学生特征到教师特征空间
+                s_aligned = self.align_layers[i](s)
+                
+                # 空间大小对齐
+                if s_aligned.size(2) != t.size(2) or s_aligned.size(3) != t.size(3):
+                    t = F.interpolate(t, size=(s_aligned.size(2), s_aligned.size(3)),
+                                     mode='bilinear', align_corners=False)
+                
+                # 计算带保护的蒸馏损失
+                distill_loss = F.mse_loss(s_aligned, t) * protection_factor
+                losses.append(distill_loss)
+            except Exception as e:
+                LOGGER.error(f"处理特征时出错: {e}")
+                continue
+        
+        if not losses:
+            return torch.tensor(0.0, device=next(self.parameters()).device, requires_grad=True)
+            
+        return sum(losses)
+
+class EnhancedDistillationLoss(nn.Module):
+    """增强的蒸馏损失，专为姿态估计任务优化"""
+    
+    def __init__(self, channels_s, channels_t, distiller='enhancedfgd', loss_weight=1.0):
+        super().__init__()
+        self.loss_weight = loss_weight
+        self.distiller = distiller
+        
+        # 将所有模块移动到相同精度
+        device = 'cuda' if torch.cuda.is_available() else 'cpu'
+        
+        # 转换为ModuleList并确保一致的数据类型
+        self.align_module = nn.ModuleList()
+        self.norm = nn.ModuleList()
+        
+        # 创建对齐模块
+        for s_chan, t_chan in zip(channels_s, channels_t):
+            align = nn.Sequential(
+                nn.Conv2d(s_chan, t_chan, kernel_size=1, stride=1, padding=0),
+                nn.BatchNorm2d(t_chan, affine=False)
+            ).to(device)
+            self.align_module.append(align)
+            
+        # 创建归一化层
+        for t_chan in channels_t:
+            self.norm.append(nn.BatchNorm2d(t_chan, affine=False).to(device))
+            
+        # 关键点位置注意力系数
+        self.keypoint_attention = nn.Sequential(
+            nn.Conv2d(in_channels=1, out_channels=8, kernel_size=3, padding=1),
+            nn.ReLU(inplace=True),
+            nn.Conv2d(in_channels=8, out_channels=1, kernel_size=3, padding=1),
+            nn.Sigmoid()
+        ).to(device)
+        
+        LOGGER.info(f"初始化增强蒸馏损失函数: {distiller}")
+            
+    def forward(self, y_s, y_t):
+        """计算特征层蒸馏损失"""
+        min_len = min(len(y_s), len(y_t))
+        y_s = y_s[:min_len]
+        y_t = y_t[:min_len]
+
+        tea_feats = []
+        stu_feats = []
+
+        for idx, (s, t) in enumerate(zip(y_s, y_t)):
+            if idx >= len(self.align_module):
+                break
+            
+            # 处理不同类型的特征
+            if not isinstance(s, torch.Tensor) or not isinstance(t, torch.Tensor):
+                if isinstance(s, list) and len(s) > 0:
+                    s = s[0]
+                if isinstance(t, list) and len(t) > 0:
+                    t = t[0]
+            
+            # 确保特征是张量
+            if not isinstance(s, torch.Tensor) or not isinstance(t, torch.Tensor):
+                continue
+                
+            # 转换数据类型以匹配对齐模块
+            s = s.type(next(self.align_module[idx].parameters()).dtype)
+            t = t.type(next(self.align_module[idx].parameters()).dtype)
+
+            try:
+                # 对齐通道数
+                if s.shape[1] != t.shape[1]:
+                    s = self.align_module[idx](s)
+                
+                # 空间对齐
+                if s.size(2) != t.size(2) or s.size(3) != t.size(3):
+                    t = F.interpolate(t, size=(s.size(2), s.size(3)), mode='bilinear', align_corners=False)
+                
+                stu_feats.append(s)
+                tea_feats.append(t.detach())
+            except Exception as e:
+                LOGGER.error(f"处理特征时出错: {e}")
+                continue
+
+        # 安全检查
+        if len(stu_feats) == 0 or len(tea_feats) == 0:
+            return torch.tensor(0.0, requires_grad=True, device=next(self.parameters()).device)
+        
+        return self._keypoint_aware_distillation(stu_feats, tea_feats)
+    
+    def _keypoint_aware_distillation(self, y_s, y_t):
+        """关键点感知的蒸馏方法"""
+        losses = []
+        
+        for s, t in zip(y_s, y_t):
+            b, c, h, w = s.shape
+            
+            # 1. 生成特征激活图
+            s_act = torch.mean(torch.abs(s), dim=1, keepdim=True)  # B,1,H,W
+            t_act = torch.mean(torch.abs(t), dim=1, keepdim=True)  # B,1,H,W
+            
+            # 2. 识别教师模型中的高激活区域（可能是关键点位置）
+            keypoint_mask = (t_act > t_act.mean() * 1.5).float()
+            
+            # 3. 使用关键点注意力模块增强掩码
+            enhanced_mask = self.keypoint_attention(keypoint_mask)
+            
+            # 4. 加权蒸馏损失
+            # 一般区域损失
+            general_loss = F.mse_loss(s, t)
+            
+            # 关键点区域损失（加权）
+            keypoint_loss = F.mse_loss(s * enhanced_mask, t * enhanced_mask) * 3.0
+            
+            # 空间注意力损失
+            spatial_loss = F.mse_loss(s_act, t_act) * 1.5
+            
+            # 通道相关性损失
+            s_flat = s.view(b, c, -1)
+            t_flat = t.view(b, c, -1)
+            s_corr = torch.bmm(s_flat, s_flat.transpose(1, 2)) / (h*w)
+            t_corr = torch.bmm(t_flat, t_flat.transpose(1, 2)) / (h*w)
+            channel_loss = F.mse_loss(s_corr, t_corr) * 0.5
+            
+            # 整合损失
+            total_loss = general_loss + keypoint_loss + spatial_loss + channel_loss
+            losses.append(total_loss)
+            
+        return sum(losses) * self.loss_weight
+
 class CWDLoss(nn.Module):
     """Channel-wise Knowledge Distillation for Dense Prediction.
     https://arxiv.org/abs/2011.13256
@@ -408,9 +604,23 @@ class FeatureLoss(nn.Module):
             self.norm1.append(nn.BatchNorm2d(s_chan, affine=False).to(device))
             
         # 選擇蒸餾損失函數
-        if distiller == 'mgd':
+        # 创建蒸馏损失实例 - 新增对AdaptiveDistillationLoss的支持
+        if self.distiller == "adaptive":
+            LOGGER.info("使用自适应蒸馏方法 - 性能保护机制")
+            self.distill_loss_fn = AdaptiveDistillationLoss(
+                channels_s=self.channels_s, 
+                channels_t=self.channels_t,
+                original_performance=self.original_performance or 0.5
+            )
+        elif self.distiller == "enhanced":
+            LOGGER.info("使用Enhanced蒸馏方法 - 专为姿态估计优化")
+            self.distill_loss_fn = EnhancedDistillationLoss(
+                channels_s=self.channels_s, 
+                channels_t=self.channels_t
+            )
+        elif self.distiller == 'mgd':
             self.feature_loss = MGDLoss(channels_s, channels_t)
-        elif distiller == 'cwd':
+        elif self.distiller == 'cwd':
             self.feature_loss = CWDLoss(channels_s, channels_t)
         elif distiller == 'rev':
             self.feature_loss = ReviewKDLoss(channels_s, channels_t)
@@ -517,6 +727,7 @@ class DistillationLoss:
         self.remove_handle = []
         self.teacher_outputs = []
         self.student_outputs = []
+        self.original_performance = original_performance  # 新增: 基准性能
         
         # 初始化通道列表和模塊對
         self.channels_s = []

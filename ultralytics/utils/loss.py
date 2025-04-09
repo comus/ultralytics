@@ -471,57 +471,78 @@ class v8PoseLoss(v8DetectionLoss):
         self.hyp_cls = self.model.args.cls
         self.hyp_dfl = self.model.args.dfl
         self.hyp_distill = self.model.args.distill
+
+        # 標準模式：計算並優化所有損失
+        all_losses = self._compute_regular_losses(preds, batch)
+        box_loss, pose_loss, kobj_loss, cls_loss, dfl_loss, loss = all_losses
         
-        # 在純蒸餾模式下，只計算蒸餾損失
+        # 應用權重
+        loss[0] *= self.hyp_box    # box gain
+        loss[1] *= self.hyp_pose   # pose gain
+        loss[2] *= self.hyp_kobj   # kobj gain
+        loss[3] *= self.hyp_cls    # cls gain
+        loss[4] *= self.hyp_dfl    # dfl gain
+
         if "distill_instance" in batch and batch["distill_instance"] is not None:
-            # 創建固定損失張量，用於顯示但不參與反向傳播
-            with torch.no_grad():
-                # 創建臨時損失張量用於顯示
-                display_loss = torch.zeros(6, device=self.device)
-                
-                try:
-                    # 仍然計算姿態損失以進行監控，但不連接計算圖
-                    _, pose_loss_value, _, _, _, _ = self._compute_regular_losses(preds, batch)
-                    display_loss[1] = pose_loss_value
-                except Exception as e:
-                    LOGGER.warning(f"計算顯示損失時出錯: {e}")
-            
-            # 計算可用於優化的蒸餾損失
             distill_loss = self._compute_distillation_loss(preds, batch)
-            
-            # 填充顯示損失
-            display_loss[5] = distill_loss.detach() * self.hyp_distill
-            
-            # 創建只包含蒸餾損失的損失張量
-            total_loss = torch.zeros_like(display_loss)
-            if getattr(self, 'fake', False):
-                total_loss[5] = torch.zeros_like(distill_loss, requires_grad=True)
-            else:
-                total_loss[5] = distill_loss * self.hyp_distill
-            
-            # LOGGER.debug(f"純蒸餾模式: 優化蒸餾損失 ({total_loss[5].item():.4f}), 姿態損失: {display_loss[1].item():.4f} (不優化)")
-            
-            # 返回只用於優化的蒸餾損失和用於顯示的所有損失
-            return total_loss * batch_size, display_loss
+            loss[5] *= distill_loss.detach() * self.hyp_distill
         
-        else:
-            # 標準模式：計算並優化所有損失
-            all_losses = self._compute_regular_losses(preds, batch)
-            box_loss, pose_loss, kobj_loss, cls_loss, dfl_loss, loss = all_losses
+        # 創建顯示損失
+        display_loss = loss.detach().clone()
+        
+        # 標準模式: 返回所有損失之和
+        return loss * batch_size, display_loss
+        
+        # # 在純蒸餾模式下，只計算蒸餾損失
+        # if "distill_instance" in batch and batch["distill_instance"] is not None:
+        #     # 創建固定損失張量，用於顯示但不參與反向傳播
+        #     with torch.no_grad():
+        #         # 創建臨時損失張量用於顯示
+        #         display_loss = torch.zeros(6, device=self.device)
+                
+        #         try:
+        #             # 仍然計算姿態損失以進行監控，但不連接計算圖
+        #             _, pose_loss_value, _, _, _, _ = self._compute_regular_losses(preds, batch)
+        #             display_loss[1] = pose_loss_value
+        #         except Exception as e:
+        #             LOGGER.warning(f"計算顯示損失時出錯: {e}")
             
-            # 應用權重
-            loss[0] *= self.hyp_box    # box gain
-            loss[1] *= self.hyp_pose   # pose gain
-            loss[2] *= self.hyp_kobj   # kobj gain
-            loss[3] *= self.hyp_cls    # cls gain
-            loss[4] *= self.hyp_dfl    # dfl gain
-            # loss[5] *= self.hyp_distill  # distillation gain
+        #     # 計算可用於優化的蒸餾損失
+        #     distill_loss = self._compute_distillation_loss(preds, batch)
             
-            # 創建顯示損失
-            display_loss = loss.detach().clone()
+        #     # 填充顯示損失
+        #     display_loss[5] = distill_loss.detach() * self.hyp_distill
             
-            # 標準模式: 返回所有損失之和
-            return loss * batch_size, display_loss
+        #     # 創建只包含蒸餾損失的損失張量
+        #     total_loss = torch.zeros_like(display_loss)
+        #     if getattr(self, 'fake', False):
+        #         total_loss[5] = torch.zeros_like(distill_loss, requires_grad=True)
+        #     else:
+        #         total_loss[5] = distill_loss * self.hyp_distill
+            
+        #     # LOGGER.debug(f"純蒸餾模式: 優化蒸餾損失 ({total_loss[5].item():.4f}), 姿態損失: {display_loss[1].item():.4f} (不優化)")
+            
+        #     # 返回只用於優化的蒸餾損失和用於顯示的所有損失
+        #     return total_loss * batch_size, display_loss
+        
+        # else:
+        #     # 標準模式：計算並優化所有損失
+        #     all_losses = self._compute_regular_losses(preds, batch)
+        #     box_loss, pose_loss, kobj_loss, cls_loss, dfl_loss, loss = all_losses
+            
+        #     # 應用權重
+        #     loss[0] *= self.hyp_box    # box gain
+        #     loss[1] *= self.hyp_pose   # pose gain
+        #     loss[2] *= self.hyp_kobj   # kobj gain
+        #     loss[3] *= self.hyp_cls    # cls gain
+        #     loss[4] *= self.hyp_dfl    # dfl gain
+        #     loss[5] *= self.hyp_distill  # distillation gain
+            
+        #     # 創建顯示損失
+        #     display_loss = loss.detach().clone()
+            
+        #     # 標準模式: 返回所有損失之和
+        #     return loss * batch_size, display_loss
 
     def _compute_distillation_loss(self, preds, batch):
         """計算實際的蒸餾損失，返回可用於優化的損失值"""

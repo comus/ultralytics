@@ -1,62 +1,59 @@
-# stage_distill.py - 蒸餾訓練策略
+# balanced_distill.py - 平衡任务和蒸馏的训练策略
 from ultralytics import YOLO
 from ultralytics.utils import LOGGER
 
-# 加載模型
-student_model = YOLO("yolo11n-pose.pt")  # 學生模型
-teacher_model = YOLO("yolo11s-pose.pt")  # 教師模型
+# 加载模型
+student = YOLO("yolo11n-pose.pt")
+teacher = YOLO("yolo11s-pose.pt")
 
-LOGGER.info("初始化蒸餾訓練策略...")
-LOGGER.info("硬體: RTX 4090 24GB, Xeon Platinum 8352V, 120GB RAM")
+LOGGER.info("初始化平衡式蒸馏训练...")
 
-# 執行蒸餾訓練
-student_model.train(
+# 执行平衡蒸馏训练
+results = student.train(
     data="coco-pose.yaml",
-    teacher=teacher_model.model,
-    # distillation_loss="enhancedfgd",    # 使用增強版FGD損失
-    # distillation_layers=["22"],  # 關鍵層選擇
-    # pure_distill=True,
+    teacher=teacher.model,
     
-    # 硬體優化設置
-    batch=64,                           # 充分利用24GB顯存，同時保持精度
-    workers=8,                          # 適合Xeon 16核處理器
-    # device=0,                           # 使用第一張GPU
-    amp=False,                          # 關閉混合精度，提高精度（顯存足夠）
+    # 硬件优化设置
+    batch=48,  # 减小批次大小，提高稳定性
+    workers=8,
+    device=0,
     
-    # 訓練超參數
-    epochs=18,                          # 階段總輪數: 3+4+11
-    optimizer="AdamW",                  # 使用AdamW優化器
-    weight_decay=0.0005,                 # 較高的權重衰減防止過擬合
-    # cos_lr=False,                       # 禁用余弦退火，使用自定義學習率
+    # 训练超参数
+    epochs=25,  # 延长训练时间
+    optimizer="AdamW",
+    weight_decay=0.0002,
     
-    # # 初始參數 (會被回調動態調整)
-    lr0=0.0005,                        # 初始學習率
-    lrf=0.15,                       # 最終學習率比例
-    # distill=0.0,                       # 蒸餾權重
-    # pose=0.0,                           # 姿態權重
+    # 初始参数
+    lr0=0.0002,  # 非常小的初始学习率
+    lrf=0.05,    # 更低的最终学习率
     
-    # 數據處理
-    imgsz=640,                          # 標準輸入大小，平衡速度和精度
-    cache="disk",                       # 使用磁盤緩存，考慮到120GB大內存
+    # 初始任务损失权重
+    box=0.5,     # 保持边界框损失
+    pose=0.7,    # 强调姿态损失
+    kobj=0.5,    # 保持关键点置信度损失
+    cls=0.5,     # 保持分类损失
+    dfl=0.5,     # 保持分布焦点损失
+    distill=0.1, # 轻微蒸馏
     
-    # 輸出設置
-    project="stage_distillation",       # 項目名稱
-    name="yolo11n_pose_enhanced",       # 運行名稱
+    # 数据处理
+    imgsz=640,
+    cache="disk",
     
-    # 訓練設置
-    val=True,                           # 每個epoch驗證
-    save_period=1,                      # 每個epoch保存一次
-    patience=18,                        # 禁用早停，完成全部輪數
-    fraction=0.25,                      # 訓練集比例
-
-
-
-
-
-
-    warmup_epochs=3,
-    warmup_momentum=0.85,
-    warmup_bias_lr=0.08,
+    # 输出设置
+    project="balanced_distillation",
+    name="yolo11n_pose_balanced",
+    
+    # 训练设置
+    val=True,
+    save_period=1,
+    patience=25,
+    
+    # 预热设置
+    warmup_epochs=2,
+    warmup_momentum=0.8,
+    
+    # 关闭Mosaic增强
+    close_mosaic=0,
 )
 
-LOGGER.info("蒸餾訓練完成！")
+LOGGER.info("平衡蒸馏训练完成！")
