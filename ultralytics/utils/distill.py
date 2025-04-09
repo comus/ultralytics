@@ -823,7 +823,7 @@ class DistillationLoss:
 
     def p5_feature_distillation(self, student_feature, teacher_feature):
         """
-        適度保守型蒸餾方法，旨在輕微提升性能同時保護模型原有能力
+        適度保守型蒸餾方法，修正維度處理
         """
         # 基本尺寸信息
         batch_size = student_feature.shape[0]
@@ -929,48 +929,74 @@ class DistillationLoss:
             
             LOGGER.info(f"應用特徵保留懲罰, 權重: {preservation_weight:.2f}, 已相似通道比例: {high_sim_mask.mean().item()*100:.2f}%")
         
-        # 7. 增加空間注意力指導
-        # 針對高激活區域進行輕微指導
-        s_spatial = torch.sum(student_feature**2, dim=1)  # [B, H, W]
-        t_spatial = torch.sum(t_selected**2, dim=1)  # [B, H, W]
-        
-        # 標準化空間注意力
-        s_spatial_norm = (s_spatial - s_spatial.min(dim=1, keepdim=True)[0].min(dim=2, keepdim=True)[0]) / \
-                        (s_spatial.max(dim=1, keepdim=True)[0].max(dim=2, keepdim=True)[0] - 
-                        s_spatial.min(dim=1, keepdim=True)[0].min(dim=2, keepdim=True)[0] + 1e-10)
-        
-        t_spatial_norm = (t_spatial - t_spatial.min(dim=1, keepdim=True)[0].min(dim=2, keepdim=True)[0]) / \
-                        (t_spatial.max(dim=1, keepdim=True)[0].max(dim=2, keepdim=True)[0] - 
-                        t_spatial.min(dim=1, keepdim=True)[0].min(dim=2, keepdim=True)[0] + 1e-10)
-        
-        # 識別教師模型中的高激活區域
-        activation_threshold = 0.7  
-        mask = (t_spatial_norm > activation_threshold).float()
-        
-        # 確保至少有5%的區域被選中
-        coverage = mask.mean()
-        if coverage < 0.05:
-            k = int(0.05 * mask.shape[1] * mask.shape[2])
-            for b in range(batch_size):
-                values, _ = torch.topk(t_spatial_norm[b].reshape(-1), k)
-                mask[b] = (t_spatial_norm[b] > values[-1]).float()
-        
-        # 輕微空間注意力指導
-        if mask.mean() > 0:
-            spatial_guide_strength = 0.05
-            spatial_target = s_spatial_norm + spatial_guide_strength * (t_spatial_norm - s_spatial_norm)
-            
-            # 只在高激活區域應用指導
-            masked_spatial_loss = F.mse_loss(
-                s_spatial_norm * mask, 
-                spatial_target * mask
-            ) / (mask.mean() + 1e-10)
-            
-            # 添加到總損失，使用非常小的權重
-            spatial_weight = 0.05
-            final_loss = (1 - spatial_weight) * final_loss + spatial_weight * masked_spatial_loss
-            LOGGER.info(f"  高激活空間指導: {masked_spatial_loss.item():.6f} (權重: {spatial_weight:.2f})")
-            LOGGER.info(f"  高激活區域覆蓋率: {mask.mean().item()*100:.2f}%")
+        # 7. 安全地添加空間注意力指導
+        try:
+            # 首先檢查特徵是否有足夠的空間維度
+            if len(student_feature.shape) >= 4 and student_feature.shape[2] > 1 and student_feature.shape[3] > 1:
+                # 計算空間注意力 (平方和)
+                s_spatial = torch.sum(student_feature**2, dim=1)  # [B, H, W]
+                t_spatial = torch.sum(t_selected**2, dim=1)  # [B, H, W]
+                
+                # 檢查形狀
+                LOGGER.debug(f"空間注意力形狀: 學生 {s_spatial.shape}, 教師 {t_spatial.shape}")
+                
+                # 標準化空間注意力 (每個批次樣本單獨處理)
+                s_spatial_norm = torch.zeros_like(s_spatial)
+                t_spatial_norm = torch.zeros_like(t_spatial)
+                
+                for b in range(batch_size):
+                    # 學生空間注意力標準化
+                    s_min = s_spatial[b].min()
+                    s_max = s_spatial[b].max()
+                    if s_max > s_min:  # 避免除以零
+                        s_spatial_norm[b] = (s_spatial[b] - s_min) / (s_max - s_min + 1e-10)
+                    
+                    # 教師空間注意力標準化
+                    t_min = t_spatial[b].min()
+                    t_max = t_spatial[b].max()
+                    if t_max > t_min:  # 避免除以零
+                        t_spatial_norm[b] = (t_spatial[b] - t_min) / (t_max - t_min + 1e-10)
+                
+                # 識別教師模型中的高激活區域
+                activation_threshold = 0.7  
+                mask = (t_spatial_norm > activation_threshold).float()
+                
+                # 確保至少有5%的區域被選中
+                coverage = mask.mean()
+                if coverage < 0.05:
+                    # 對每個樣本單獨處理
+                    for b in range(batch_size):
+                        flat_attention = t_spatial_norm[b].reshape(-1)
+                        if flat_attention.numel() > 0:  # 確保張量非空
+                            k = max(1, int(0.05 * flat_attention.numel()))
+                            values, _ = torch.topk(flat_attention, k)
+                            if values.numel() > 0:  # 確保有足夠的值
+                                threshold = values[-1]
+                                mask[b] = (t_spatial_norm[b] > threshold).float()
+                
+                # 輕微空間注意力指導
+                if mask.sum() > 0:
+                    spatial_guide_strength = 0.05
+                    spatial_target = s_spatial_norm + spatial_guide_strength * (t_spatial_norm - s_spatial_norm)
+                    
+                    # 只在高激活區域應用指導
+                    masked_spatial_loss = F.mse_loss(
+                        s_spatial_norm * mask, 
+                        spatial_target * mask
+                    ) / (mask.mean() + 1e-10)
+                    
+                    # 添加到總損失，使用非常小的權重
+                    spatial_weight = 0.05
+                    final_loss = (1 - spatial_weight) * final_loss + spatial_weight * masked_spatial_loss
+                    LOGGER.info(f"  高激活空間指導: {masked_spatial_loss.item():.6f} (權重: {spatial_weight:.2f})")
+                    LOGGER.info(f"  高激活區域覆蓋率: {mask.mean().item()*100:.2f}%")
+                else:
+                    LOGGER.info("  未檢測到高激活區域，跳過空間注意力指導")
+            else:
+                LOGGER.info("  特徵的空間維度不足，跳過空間注意力指導")
+        except Exception as e:
+            LOGGER.warning(f"計算空間注意力時出錯: {str(e)}")
+            LOGGER.warning(f"跳過空間注意力指導")
         
         # 記錄日誌
         LOGGER.info(f"P5層適度保守蒸餾損失詳情:")
