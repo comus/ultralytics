@@ -145,15 +145,13 @@ class PoseTrainer(yolo.detect.DetectionTrainer):
             # LOGGER.info(f"已凍結 {len(bn_layer_names)} 個 BN 層，這些層不會更新統計量")
 
         if self.epoch == 1:
-            LOGGER.info("階段2: 解凍蒸餾層")
+            LOGGER.info("階段2: 解凍蒸餾層及相關BN層")
 
             distillation_loss = "enhancedfgd"
             distillation_layers = ["22"]
-            self.model.args.distill = 1.5
+            self.model.args.distill = 0.5  # 從較小權重開始
 
             self.distill_loss_instance.remove_handle_()
-
-            # 初始化蒸餾損失實例
             self.distill_loss_instance = DistillationLoss(
                 models=self.model,
                 modelt=self.teacher,
@@ -165,11 +163,12 @@ class PoseTrainer(yolo.detect.DetectionTrainer):
             for name, param in self.model.named_parameters():
                 param.requires_grad = False
 
-            # 只解凍目標層的cv2.conv參數
-            unfrozen_count = 0
-            unfrozen_names = []
-
-            for name, ml in self.model.named_modules():
+            # 跟踪已解凍的模塊
+            unfrozen_modules = []
+            bn_modules = []
+            
+            # 1. 首先找到所有需要解凍的卷積模塊
+            for name, module in self.model.named_modules():
                 if name is not None:
                     name_parts = name.split(".")
                     
@@ -178,15 +177,73 @@ class PoseTrainer(yolo.detect.DetectionTrainer):
                     if len(name_parts) >= 3:
                         if name_parts[1] in distillation_layers:
                             if "cv2" in name_parts[2]:
-                                if hasattr(ml, 'conv'):
-                                    # 設置為訓練模式
-                                    ml.train()
-                                    # 遍歷卷積層的參數
-                                    for param_name, param in ml.conv.named_parameters():
-                                        param.requires_grad = True
-                                        unfrozen_count += 1
-                                    unfrozen_names.append(name)
-                                    LOGGER.info(f"解凍蒸餾層: {name}, 通道數: {ml.conv.out_channels}")
+                                unfrozen_modules.append(name)
+                                
+                                # 解凍該模塊的所有參數
+                                for param_name, param in module.named_parameters():
+                                    param.requires_grad = True
+                                
+                                # 設置為訓練模式
+                                module.train()
+                                LOGGER.info(f"解凍卷積模塊: {name}")
+            
+            # 2. 識別並解凍相關的BN層
+            # 遍歷所有BN層
+            for name, module in self.model.named_modules():
+                if isinstance(module, nn.BatchNorm2d):
+                    # 檢查此BN層是否與解凍的卷積層相關聯
+                    is_related = False
+                    for unfrozen in unfrozen_modules:
+                        # 例：如果卷積層是"model.22.cv2"，相關的BN層可能是"model.22.bn2"
+                        prefix = unfrozen.rsplit(".", 1)[0]  # 獲取最後一個'.'之前的部分
+                        if name.startswith(prefix):
+                            is_related = True
+                            break
+                    
+                    # 對於block結構，可能需要檢查更複雜的關係
+                    # 例：如果cv2在C3模塊中，則需要解凍其後的BN層
+                    # 這需要根據具體模型結構調整
+                    for layer_num in distillation_layers:
+                        if f"model.{layer_num}." in name:
+                            # 檢查是否為cv2後的BN層或相關層
+                            if ".cv2.bn" in name or ".bn2" in name:
+                                is_related = True
+                                break
+                    
+                    if is_related:
+                        # 解凍BN層
+                        bn_modules.append(name)
+                        
+                        # 設置BN層為訓練模式
+                        module.train()
+                        
+                        # 解凍BN層的所有參數
+                        for param_name, param in module.named_parameters():
+                            param.requires_grad = True
+                        
+                        # 確保運行統計數據會被更新
+                        module.track_running_stats = True
+                        
+                        LOGGER.info(f"解凍BN層: {name}")
+            
+            # 3. 確保BN層在評估時使用訓練期間收集的統計數據
+            def set_bn_train(m):
+                if isinstance(m, nn.BatchNorm2d):
+                    if m.training:
+                        # 僅對訓練模式的BN層執行
+                        # 設置動量值較小可以更快地適應新統計數據
+                        m.momentum = 0.01  # 降低動量使統計量更穩定
+            
+            # 應用到整個模型
+            self.model.apply(set_bn_train)
+            
+            LOGGER.info(f"總共解凍 {len(unfrozen_modules)} 個卷積模塊和 {len(bn_modules)} 個BN層")
+            
+            # 4. 降低學習率以穩定訓練
+            for param_group in self.optimizer.param_groups:
+                original_lr = param_group['lr']
+                param_group['lr'] = original_lr * 0.2  # 降低到原來的20%
+                LOGGER.info(f"學習率從 {original_lr:.6f} 降低到 {param_group['lr']:.6f}")
 
             # for name, param in self.model.named_parameters():
             #     if "model." in name and any(f".{layer}." in name for layer in distillation_layers):
