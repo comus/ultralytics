@@ -116,7 +116,7 @@ class PoseTrainer(yolo.detect.DetectionTrainer):
 
             distillation_loss = "cwd"
             distillation_layers = ["22"]
-            self.model.args.distill = 0.0
+            self.model.args.distill = 1.0
 
             # 初始化蒸餾損失實例
             self.distill_loss_instance = DistillationLoss(
