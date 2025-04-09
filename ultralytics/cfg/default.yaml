@@ -93,6 +93,7 @@ teacher: None
 distillation_loss: None
 distillation_layers: None
 pure_distill: False
+distill_layers: None
 
 # Hyperparameters ------------------------------------------------------------------------------------------------------
 lr0: 0.01 # (float) initial learning rate (i.e. SGD=1E-2, Adam=1E-3)
