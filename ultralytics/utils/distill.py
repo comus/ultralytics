@@ -823,14 +823,14 @@ class DistillationLoss:
 
     def p5_feature_distillation(self, student_feature, teacher_feature):
         """
-        優化的P5層蒸餾方法，專注於姿勢估計任務，提高空間掩碼覆蓋率
+        純蒸餾框架下的P5層蒸餾方法，專注於姿勢估計關鍵特徵
         
         Args:
             student_feature: 學生模型特徵圖 [B, 256, H, W]
             teacher_feature: 教師模型特徵圖 [B, 512, H, W]
         
         Returns:
-            姿勢估計專用蒸餾損失
+            增強的姿勢蒸餾損失
         """
         # 基本尺寸信息
         batch_size = student_feature.shape[0]
@@ -847,247 +847,136 @@ class DistillationLoss:
                 align_corners=False
             )
         
-        # ======== 1. 改進的通道選擇 ========
-        # 使用SVD而不是PCA，更適合在GPU上計算
+        # ======== 1. 教師特徵分析 ========
+        # 分析教師特徵以識別對姿勢估計最重要的通道
         t_flat = teacher_feature.reshape(batch_size, teacher_channels, -1)  # [B, 512, H*W]
         s_flat = student_feature.reshape(batch_size, student_channels, -1)  # [B, 256, H*W]
         
-        # 計算通道激活強度和空間分布方差作為重要性指標
-        t_energy = torch.norm(t_flat, p=2, dim=2)  # [B, 512] - 各通道的能量
-        t_spatial_var = torch.var(t_flat, dim=2)  # [B, 512] - 各通道的空間分布方差
+        # 計算教師特徵的空間方差 - 高方差通道往往包含更多姿勢信息
+        t_spatial_var = torch.var(t_flat, dim=2)  # [B, 512]
         
-        # 結合能量和方差作為重要性度量
-        t_importance = t_energy * torch.sqrt(t_spatial_var)  # 高能量且高變化率的通道更重要
+        # 計算教師特徵的L2範數 - 高範數通道往往有更強的激活
+        t_norm = torch.norm(t_flat, p=2, dim=2)  # [B, 512]
+        
+        # 結合方差和範數作為重要性指標
+        t_importance = t_spatial_var * t_norm  # [B, 512]
         
         # 選擇最重要的通道
         _, top_indices = torch.topk(t_importance, student_channels, dim=1)  # [B, 256]
         
-        # 為每個批次樣本選擇重要通道
+        # 收集重要通道
         t_selected = []
         for b in range(batch_size):
-            t_sample = teacher_feature[b]  # [512, H, W]
-            indices = top_indices[b]  # [256]
-            t_selected.append(t_sample[indices])  # [256, H, W]
+            t_selected.append(teacher_feature[b, top_indices[b]])  # [256, H, W]
         
         t_selected = torch.stack(t_selected)  # [B, 256, H, W]
         
-        # ======== 2. 改進的空間掩碼生成 ========
-        # 計算高激活區域作為基本掩碼
-        t_activation = torch.norm(t_selected, p=2, dim=1)  # [B, H, W]
-        s_activation = torch.norm(student_feature, p=2, dim=1)  # [B, H, W]
+        # ======== 2. 增強蒸餾損失 ========
+        # 2.1 特徵匹配損失 - 使用MSE但有一個較大的係數
+        feature_loss = F.mse_loss(student_feature, t_selected) * 10.0
         
-        # 標準化激活圖
-        t_activation = (t_activation - t_activation.min(dim=1, keepdim=True)[0].min(dim=2, keepdim=True)[0]) / \
-                    (t_activation.max(dim=1, keepdim=True)[0].max(dim=2, keepdim=True)[0] - 
-                    t_activation.min(dim=1, keepdim=True)[0].min(dim=2, keepdim=True)[0] + 1e-10)
+        # 2.2 空間注意力損失 - 確保空間激活模式匹配
+        s_spatial = torch.sum(student_feature**2, dim=1)  # [B, H, W]
+        t_spatial = torch.sum(t_selected**2, dim=1)  # [B, H, W]
         
-        # 降低閾值，增加覆蓋率
-        threshold = 0.3  # 從0.6降低到0.3
-        spatial_mask = (t_activation > threshold).float()
+        # 標準化空間注意力
+        s_spatial = s_spatial / (torch.sum(s_spatial.view(batch_size, -1), dim=1, keepdim=True).view(batch_size, 1, 1) + 1e-10)
+        t_spatial = t_spatial / (torch.sum(t_spatial.view(batch_size, -1), dim=1, keepdim=True).view(batch_size, 1, 1) + 1e-10)
         
-        # 使用高斯濾波平滑掩碼
-        kernel_size = 5  # 增加核大小，提供更大的平滑區域
-        padding = kernel_size // 2
-        spatial_mask = F.avg_pool2d(
-            spatial_mask.unsqueeze(1),
-            kernel_size=kernel_size, 
-            stride=1, 
-            padding=padding
-        ).squeeze(1)
+        # 空間注意力損失
+        spatial_loss = F.mse_loss(s_spatial, t_spatial) * 50.0  # 大幅增加權重
         
-        # 確保至少15%的區域被覆蓋
-        min_coverage = 0.15
-        for b in range(batch_size):
-            current_coverage = spatial_mask[b].mean()
-            if current_coverage < min_coverage:
-                # 如果覆蓋率太低，動態調整閾值
-                k = int(min_coverage * spatial_size[0] * spatial_size[1])
-                values, _ = torch.topk(t_activation[b].reshape(-1), k)
-                new_threshold = values[-1]
-                spatial_mask[b] = (t_activation[b] > new_threshold).float()
-                # 再次平滑
-                spatial_mask[b] = F.avg_pool2d(
-                    spatial_mask[b].unsqueeze(0).unsqueeze(0),
-                    kernel_size=kernel_size,
-                    stride=1,
-                    padding=padding
-                ).squeeze(0).squeeze(0)
+        # 2.3 通道注意力損失 - 確保通道激活模式匹配
+        s_channel = torch.sum(student_feature**2, dim=(2, 3))  # [B, 256]
+        t_channel = torch.sum(t_selected**2, dim=(2, 3))  # [B, 256]
         
-        # ======== 3. 多尺度特徵匹配 ========
-        # 在原始分辨率和縮減的分辨率上匹配特徵
-        scales = [1.0, 0.5]  # 原始分辨率和一半分辨率
-        multi_scale_loss = 0.0
+        # 標準化通道注意力
+        s_channel = s_channel / (torch.sum(s_channel, dim=1, keepdim=True) + 1e-10)
+        t_channel = t_channel / (torch.sum(t_channel, dim=1, keepdim=True) + 1e-10)
         
-        for scale in scales:
-            if scale < 1.0:
-                # 縮減分辨率
-                current_size = (int(spatial_size[0] * scale), int(spatial_size[1] * scale))
-                s_scaled = F.interpolate(student_feature, size=current_size, mode='bilinear', align_corners=False)
-                t_scaled = F.interpolate(t_selected, size=current_size, mode='bilinear', align_corners=False)
-                mask_scaled = F.interpolate(spatial_mask.unsqueeze(1), size=current_size, mode='bilinear', align_corners=False).squeeze(1)
-            else:
-                s_scaled = student_feature
-                t_scaled = t_selected
-                mask_scaled = spatial_mask
-            
-            # 在當前尺度上計算掩碼損失
-            mask_scaled_expanded = mask_scaled.unsqueeze(1)
-            scale_loss = F.mse_loss(
-                s_scaled * mask_scaled_expanded,
-                t_scaled * mask_scaled_expanded
-            ) / (mask_scaled.mean() + 1e-10)
-            
-            multi_scale_loss += scale_loss / len(scales)
+        # 通道注意力損失
+        channel_loss = F.mse_loss(s_channel, t_channel) * 25.0  # 增加權重
         
-        # ======== 4. 改進的通道相關性損失 ========
-        # 使用余弦相似度替代MSE
-        s_flat_norm = F.normalize(s_flat, p=2, dim=2)  # [B, 256, H*W]
-        t_flat_norm = F.normalize(t_flat[:, :student_channels], p=2, dim=2)  # [B, 256, H*W]
-        
-        # 計算通道相關性矩陣
-        s_corr = torch.bmm(s_flat_norm, s_flat_norm.transpose(1, 2))  # [B, 256, 256]
-        t_corr = torch.bmm(t_flat_norm, t_flat_norm.transpose(1, 2))  # [B, 256, 256]
-        
-        # 使用對比損失(基於余弦相似度)
-        eye_like = torch.eye(student_channels, device=s_corr.device).unsqueeze(0).expand(batch_size, -1, -1)
-        pos_mask = eye_like > 0.5  # 對角線為True，表示相同通道
-        
-        # 提取對角線和非對角線元素
-        pos_s = s_corr[pos_mask].reshape(batch_size, -1)  # 對角線元素(相同通道)
-        neg_s = s_corr[~pos_mask].reshape(batch_size, -1)  # 非對角線元素(不同通道)
-        pos_t = t_corr[pos_mask].reshape(batch_size, -1)
-        neg_t = t_corr[~pos_mask].reshape(batch_size, -1)
-        
-        # 增強對角線和抑制非對角線
-        pos_loss = F.mse_loss(pos_s, pos_t)
-        neg_loss = F.mse_loss(neg_s, neg_t)
-        channel_corr_loss = pos_loss + 0.1 * neg_loss  # 更關注對角線元素
-        
-        # ======== 5. 改進的統計量匹配 ========
-        # 使用Wasserstein距離替代MSE
-        s_mean = student_feature.mean(dim=[2, 3])  # [B, 256]
-        t_mean = t_selected.mean(dim=[2, 3])  # [B, 256]
-        s_std = torch.sqrt(student_feature.var(dim=[2, 3]) + 1e-8)  # [B, 256]
-        t_std = torch.sqrt(t_selected.var(dim=[2, 3]) + 1e-8)  # [B, 256]
-        
-        # Wasserstein距離 W2(p,q) = ||μp-μq||^2 + ||σp-σq||^2
-        w_dist = F.mse_loss(s_mean, t_mean) + F.mse_loss(s_std, t_std)
-        
-        # ======== 6. 改進的姿勢關鍵點損失 ========
-        # 使用多個熱點而不是排序坐標
-        # 計算更精細的熱圖
-        t_heatmap = t_selected.pow(2).sum(dim=1)  # [B, H, W]
-        s_heatmap = student_feature.pow(2).sum(dim=1)  # [B, H, W]
+        # 2.4 熱點匹配損失 - 強制關注可能的關鍵點位置
+        # 找出教師特徵中的高激活區域
+        t_heat = torch.max(t_selected, dim=1)[0]  # [B, H, W]
         
         # 標準化熱圖
-        t_heatmap = F.normalize(t_heatmap.view(batch_size, -1), p=2, dim=1).view_as(t_heatmap)
-        s_heatmap = F.normalize(s_heatmap.view(batch_size, -1), p=2, dim=1).view_as(s_heatmap)
+        t_heat_norm = (t_heat - t_heat.min(dim=1, keepdim=True)[0].min(dim=2, keepdim=True)[0]) / \
+                    (t_heat.max(dim=1, keepdim=True)[0].max(dim=2, keepdim=True)[0] - 
+                    t_heat.min(dim=1, keepdim=True)[0].min(dim=2, keepdim=True)[0] + 1e-10)
         
-        # 計算熱圖損失
-        heatmap_loss = F.l1_loss(s_heatmap, t_heatmap)  # 使用L1損失對噪聲更穩健
+        # 創建熱點掩碼
+        threshold = 0.6  # 高閾值，只關注最重要的點
+        t_hotspots = (t_heat_norm > threshold).float()
         
-        # 多尺度熱點檢測
-        kp_scales = [1.0, 0.5]
-        keypoint_loss = 0.0
+        # 擴大熱點區域 - 使用平均池化模擬高斯平滑
+        kernel_size = 5
+        padding = kernel_size // 2
+        t_hotspots = F.avg_pool2d(
+            t_hotspots.unsqueeze(1),
+            kernel_size=kernel_size,
+            stride=1,
+            padding=padding
+        ).squeeze(1)
+        t_hotspots = (t_hotspots > 0.2).float()  # 二值化擴展的熱點
         
-        for scale in kp_scales:
-            # 當前尺度的熱圖
-            if scale < 1.0:
-                current_size = (int(spatial_size[0] * scale), int(spatial_size[1] * scale))
-                t_heat_scaled = F.interpolate(t_heatmap.unsqueeze(1), size=current_size, 
-                                            mode='bilinear', align_corners=False).squeeze(1)
-                s_heat_scaled = F.interpolate(s_heatmap.unsqueeze(1), size=current_size, 
-                                            mode='bilinear', align_corners=False).squeeze(1)
-            else:
-                t_heat_scaled = t_heatmap
-                s_heat_scaled = s_heatmap
-            
-            # 在當前尺度找出熱點
-            h, w = t_heat_scaled.shape[1], t_heat_scaled.shape[2]
-            num_points = max(10, int(h * w * 0.03))  # 至少10點或3%的像素
-            
-            t_flat_heat = t_heat_scaled.reshape(batch_size, -1)
-            s_flat_heat = s_heat_scaled.reshape(batch_size, -1)
-            
-            _, t_topk_indices = torch.topk(t_flat_heat, num_points, dim=1)
-            _, s_topk_indices = torch.topk(s_flat_heat, num_points, dim=1)
-            
-            # 創建熱點掩碼
-            t_mask = torch.zeros_like(t_flat_heat)
-            s_mask = torch.zeros_like(s_flat_heat)
-            
-            for b in range(batch_size):
-                t_mask[b, t_topk_indices[b]] = 1.0
-                s_mask[b, s_topk_indices[b]] = 1.0
-            
-            t_mask = t_mask.reshape(batch_size, h, w)
-            s_mask = s_mask.reshape(batch_size, h, w)
-            
-            # 熱點掩碼損失
-            scale_kp_loss = F.l1_loss(s_heat_scaled * s_mask, t_heat_scaled * t_mask)
-            keypoint_loss += scale_kp_loss / len(kp_scales)
+        # 在學生特徵中找出相同位置
+        s_heat = torch.max(student_feature, dim=1)[0]  # [B, H, W]
         
-        # ======== 7. 姿勢結構理解損失 ========
-        # 使用關鍵點之間的距離分布
-        # 找出top-k熱點
-        k = 17  # COCO關鍵點數量
-        t_flat_heatmap = t_heatmap.reshape(batch_size, -1)  # [B, H*W]
-        s_flat_heatmap = s_heatmap.reshape(batch_size, -1)  # [B, H*W]
+        # 計算熱點損失 - 在熱點區域強制匹配
+        hotspot_loss = F.mse_loss(
+            s_heat * t_hotspots,
+            t_heat * t_hotspots
+        ) / (t_hotspots.mean() + 1e-10) * 100.0  # 非常高的權重
         
-        _, t_topk_indices = torch.topk(t_flat_heatmap, k, dim=1)  # [B, 17]
-        _, s_topk_indices = torch.topk(s_flat_heatmap, k, dim=1)  # [B, 17]
+        # 2.5 結構相關性損失 - 確保通道間關係被保留
+        # 計算通道相關性矩陣
+        s_norm = F.normalize(s_flat, p=2, dim=2)  # [B, 256, H*W]
+        t_norm = F.normalize(t_flat[:, top_indices], p=2, dim=2)  # [B, 256, H*W]
         
-        # 將索引轉換為2D坐標
-        h, w = spatial_size
-        t_y = (t_topk_indices // w).float() / h  # 標準化為[0,1]
-        t_x = (t_topk_indices % w).float() / w   # 標準化為[0,1]
-        s_y = (s_topk_indices // w).float() / h
-        s_x = (s_topk_indices % w).float() / w
+        s_corr = torch.bmm(s_norm, s_norm.transpose(1, 2))  # [B, 256, 256]
+        t_corr = torch.bmm(t_norm, t_norm.transpose(1, 2))  # [B, 256, 256]
         
-        # 計算點之間的距離矩陣
-        t_coords = torch.stack([t_x, t_y], dim=2)  # [B, 17, 2]
-        s_coords = torch.stack([s_x, s_y], dim=2)  # [B, 17, 2]
+        # 結構相關性損失
+        structure_loss = F.mse_loss(s_corr, t_corr) * 15.0
         
-        # 計算教師模型點之間的歐氏距離
-        t_dists = torch.cdist(t_coords, t_coords)  # [B, 17, 17]
-        s_dists = torch.cdist(s_coords, s_coords)  # [B, 17, 17]
+        # ======== 3. 組合損失 ========
+        # 使用高權重組合所有損失 - 純蒸餾需要更強的信號
+        total_loss = (
+            0.2 * feature_loss +     # 基本特徵匹配
+            0.3 * spatial_loss +     # 空間注意力匹配
+            0.15 * channel_loss +    # 通道注意力匹配
+            0.25 * hotspot_loss +    # 熱點位置匹配
+            0.1 * structure_loss     # 結構相關性匹配
+        )
         
-        # 標準化距離矩陣
-        t_dists = t_dists / torch.max(t_dists, dim=2, keepdim=True)[0].max(dim=1, keepdim=True)[0]
-        s_dists = s_dists / torch.max(s_dists, dim=2, keepdim=True)[0].max(dim=1, keepdim=True)[0]
+        # ======== 4. 計算損失放大係數 ========
+        # 在純蒸餾設置中，可能需要放大損失以提供更強的梯度
+        # 我們根據批次中的平均激活計算一個自適應係數
+        avg_teacher_activation = torch.mean(torch.abs(teacher_feature))
+        avg_student_activation = torch.mean(torch.abs(student_feature))
         
-        # 計算姿勢結構損失
-        structure_loss = F.mse_loss(s_dists, t_dists)
+        # 如果學生激活太弱，則放大損失
+        activation_ratio = avg_teacher_activation / (avg_student_activation + 1e-10)
+        amplification = torch.clamp(activation_ratio, 1.0, 5.0)  # 放大1-5倍
         
-        # ======== 8. 總損失計算 ========
-        # 權重配置
-        spatial_weight = 0.25       # 空間特徵損失權重
-        channel_weight = 0.15       # 通道相關性損失權重
-        stats_weight = 0.15         # 統計量損失權重
-        heatmap_weight = 0.15       # 熱圖損失權重
-        keypoint_weight = 0.15      # 關鍵點損失權重
-        structure_weight = 0.15     # 姿勢結構損失權重
-        
-        # 總損失
-        total_loss = (spatial_weight * multi_scale_loss +
-                    channel_weight * channel_corr_loss +
-                    stats_weight * w_dist +
-                    heatmap_weight * heatmap_loss +
-                    keypoint_weight * keypoint_loss +
-                    structure_weight * structure_loss)
+        # 應用放大係數
+        amplified_loss = total_loss * amplification
         
         # 日誌記錄
-        LOGGER.info(f"P5層蒸餾損失詳情 (改進的多尺度方法):")
-        LOGGER.info(f"  多尺度空間損失: {multi_scale_loss.item():.6f} (權重: {spatial_weight})")
-        LOGGER.info(f"  通道相關性損失: {channel_corr_loss.item():.6f} (權重: {channel_weight})")
-        LOGGER.info(f"  Wasserstein統計損失: {w_dist.item():.6f} (權重: {stats_weight})")
-        LOGGER.info(f"  熱圖損失: {heatmap_loss.item():.6f} (權重: {heatmap_weight})")
-        LOGGER.info(f"  關鍵點損失: {keypoint_loss.item():.6f} (權重: {keypoint_weight})")
-        LOGGER.info(f"  姿勢結構損失: {structure_loss.item():.6f} (權重: {structure_weight})")
-        LOGGER.info(f"  總P5損失: {total_loss.item():.6f}")
-        LOGGER.info(f"  空間掩碼覆蓋率: {spatial_mask.mean().item()*100:.2f}%")
+        LOGGER.info(f"P5層蒸餾損失詳情 (增強純蒸餾方法):")
+        LOGGER.info(f"  特徵匹配損失: {feature_loss.item():.6f} (權重: 0.2)")
+        LOGGER.info(f"  空間注意力損失: {spatial_loss.item():.6f} (權重: 0.3)")
+        LOGGER.info(f"  通道注意力損失: {channel_loss.item():.6f} (權重: 0.15)")
+        LOGGER.info(f"  熱點損失: {hotspot_loss.item():.6f} (權重: 0.25)")
+        LOGGER.info(f"  結構相關性損失: {structure_loss.item():.6f} (權重: 0.1)")
+        LOGGER.info(f"  總基礎損失: {total_loss.item():.6f}")
+        LOGGER.info(f"  損失放大係數: {amplification.item():.2f}")
+        LOGGER.info(f"  放大後損失: {amplified_loss.item():.6f}")
+        LOGGER.info(f"  熱點覆蓋率: {t_hotspots.mean().item()*100:.2f}%")
         
-        return total_loss
+        return amplified_loss
 
     def channel_adaptive_distillation(self, student_feature, teacher_feature):
         """
