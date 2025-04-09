@@ -1,0 +1,52 @@
+# YOLO11n-pose 改良版 (示範稱作 "TinyPose"), 以官方模型為骨架參考大幅減少 channels
+# 目的：1) 減少參數/檔案大小到原先一半以下 2) 預留多人姿勢估計與蒸餾的可能性
+
+# 模型基本資訊
+# 這裡的數字只是概估，實際參數量會依實作而定
+# summary: ~??? layers, ~1.5M params (預估), FLOPs 大幅降低, 檔案大小預計 < 3.2MB
+
+# 主要任務設定
+nc: 1               # 類別數 (同官方)
+kpt_shape: [17, 3]   # Keypoints: 17 個, 維度(x, y, visible)
+
+scales: # model compound scaling constants
+  # [depth, width, max_channels]
+  custom: [1.00, 1.00, 1024]
+
+# TinyPose backbone
+backbone:
+  # [from, repeats, module, args]
+
+  # ==============  1. 以 powers of 2 的方式縮小 channels ==============
+  - [-1, 1, Conv, [8, 3, 2]]     # P1/2
+  - [-1, 1, Conv, [16, 3, 2]]    # P2/4
+  - [-1, 1, C3k2, [32, False, 0.25]]  # 預設 c3k2 block
+  - [-1, 1, Conv, [32, 3, 2]]    # P3/8
+  - [-1, 1, C3k2, [64, False, 0.25]]
+  - [-1, 1, Conv, [64, 3, 2]]    # P4/16
+  - [-1, 1, C3k2, [64, True]]
+  - [-1, 1, Conv, [128, 3, 2]]   # P5/32
+  - [-1, 1, C3k2, [128, True]]
+  - [-1, 1, SPPF, [128, 5]]      # SPPF
+  - [-1, 1, C2PSA, [128]]        # PSA block
+
+# TinyPose head (保持與官方類似的結構，維持可蒸餾性)
+head:
+  - [-1, 1, nn.Upsample, [None, 2, "nearest"]] 
+  - [[-1, 6], 1, Concat, [1]]    # concat backbone P4
+  - [-1, 1, C3k2, [64, False]]  
+
+  - [-1, 1, nn.Upsample, [None, 2, "nearest"]] 
+  - [[-1, 4], 1, Concat, [1]]    # concat backbone P3
+  - [-1, 1, C3k2, [32, False]]   # (P3/8-small)
+
+  - [-1, 1, Conv, [32, 3, 2]]    
+  - [[-1, 13], 1, Concat, [1]]   # cat head P4
+  - [-1, 1, C3k2, [64, False]]   # (P4/16-medium)
+
+  - [-1, 1, Conv, [64, 3, 2]]
+  - [[-1, 10], 1, Concat, [1]]   # cat head P5
+  - [-1, 1, C3k2, [128, True]]   # (P5/32-large)
+
+  # Pose輸出 (多數時候保持和官方類似，可以蒸餾)
+  - [[16, 19, 22], 1, Pose, [nc, kpt_shape]]
