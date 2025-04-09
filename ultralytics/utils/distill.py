@@ -779,7 +779,7 @@ class DistillationLoss:
                         
                         if is_p5_layer:
                             LOGGER.info(f"對層 {i} 應用P5特化蒸餾方法")
-                            loss = self.output_layer_distillation(s, t)
+                            loss = self.conservative_multi_layer_distillation(s, t)
                         else:
                             # 對於其他形狀不同的層，使用通用通道自適應方法
                             LOGGER.info(f"對層 {i} 應用通用通道自適應蒸餾方法")
@@ -821,95 +821,106 @@ class DistillationLoss:
         
         return loss
 
-    def output_layer_distillation(self, student_feature, teacher_feature):
-        """
-        針對姿態估計模型輸出層的專用蒸餾方法
-        適用於model.23.cv4.2.2層 (51通道)
-        """
-        # 確保輸入形狀一致
-        assert student_feature.shape[1] == 51 and teacher_feature.shape[1] == 51, "通道數必須為51"
+    def conservative_multi_layer_distillation(self, student_features, teacher_features):
+        """超保守的多層特徵蒸餾，專注於特徵提取層"""
+        total_loss = 0
+        layer_weights = {
+            "2": 0.1,   # 早期特徵層，權重低
+            "4": 0.2,   # P3層
+            "7": 0.3,   # P4層
+            "22": 0.4   # P5層，權重最高
+        }
         
-        # 每3個通道一組，對應一個關鍵點
-        num_keypoints = 17
-        batch_size = student_feature.shape[0]
-        
-        # 提取原始學生特徵以監控漂移
-        with torch.no_grad():
-            original_student = student_feature.clone()
-        
-        # 計算特徵漂移
-        drift = F.mse_loss(student_feature, original_student)
-        
-        # 安全閾值
-        max_allowed_drift = 0.002
-        
-        # 分離姿態特徵（每個關鍵點的x, y, confidence）
-        kpt_losses = []
-        
-        for kpt_idx in range(num_keypoints):
-            # 提取當前關鍵點的所有通道（x, y, confidence）
-            start_idx = kpt_idx * 3
-            end_idx = start_idx + 3
+        for layer_name, (s_feat, t_feat) in student_features.items():
+            if layer_name not in layer_weights:
+                continue
+                
+            # 獲取當前層的權重
+            layer_weight = layer_weights[layer_name]
             
-            # 提取學生和教師的關鍵點特徵
-            s_kpt = student_feature[:, start_idx:end_idx]
-            t_kpt = teacher_feature[:, start_idx:end_idx]
+            # 基本尺寸信息
+            if len(s_feat.shape) < 3 or len(t_feat.shape) < 3:
+                LOGGER.warning(f"層 {layer_name} 的特徵維度不足，跳過: {s_feat.shape}, {t_feat.shape}")
+                continue
+                
+            batch_size = s_feat.shape[0]
             
-            # 分離x, y, confidence
-            s_x = s_kpt[:, 0]
-            s_y = s_kpt[:, 1]
-            s_conf = s_kpt[:, 2]
+            # 確保空間維度相同
+            if s_feat.shape[2:] != t_feat.shape[2:]:
+                t_feat = F.interpolate(t_feat, size=s_feat.shape[2:], mode='bilinear', align_corners=False)
             
-            t_x = t_kpt[:, 0]
-            t_y = t_kpt[:, 1]
-            t_conf = t_kpt[:, 2]
+            # 保存原始學生特徵作為參考
+            with torch.no_grad():
+                original_student = s_feat.clone()
+                
+            # 特徵差異統計
+            drift = F.mse_loss(s_feat, original_student)
             
-            # 計算教師模型的置信度，用於加權
-            # 高置信度的關鍵點權重更高
-            weight = torch.sigmoid(t_conf).unsqueeze(1)  # 轉換為0-1範圍
+            # 特徵提取層處理
+            # 如果通道數不同，將教師特徵通道降維到學生特徵通道數
+            if s_feat.shape[1] != t_feat.shape[1]:
+                # 使用1x1卷積進行通道降維
+                channel_adapter = nn.Conv2d(t_feat.shape[1], s_feat.shape[1], kernel_size=1).to(s_feat.device)
+                # 初始化為單位映射（儘可能保留信息）
+                nn.init.dirac_(channel_adapter.weight)
+                nn.init.zeros_(channel_adapter.bias)
+                t_feat = channel_adapter(t_feat)
             
-            # 計算位置損失，加權置信度權重
-            # 只對教師高度確信的關鍵點進行強蒸餾
-            pos_loss = F.mse_loss(
-                torch.cat([s_x.unsqueeze(1), s_y.unsqueeze(1)], dim=1),
-                torch.cat([t_x.unsqueeze(1), t_y.unsqueeze(1)], dim=1),
-                reduction='none'
-            ) * weight
+            # 計算特徵差異
+            max_diff = (t_feat - s_feat).abs().max().item()
+            mean_diff = (t_feat - s_feat).abs().mean().item()
+            std_diff = (t_feat - s_feat).abs().std().item()
             
-            # 置信度損失 - 輕微指導
-            # 使用較小的權重優化置信度
-            conf_loss = F.mse_loss(s_conf, t_conf, reduction='none') * 0.3
+            # 計算分位數
+            flat_diff = (t_feat - s_feat).abs().reshape(-1)
+            percentiles = torch.tensor([0.5, 0.75, 0.9, 0.95, 0.99]) * 100
+            percentile_values = torch.quantile(flat_diff, percentiles.to(s_feat.device) / 100)
             
-            # 綜合當前關鍵點的損失
-            kpt_loss = pos_loss.mean() + conf_loss.mean()
-            kpt_losses.append(kpt_loss)
+            # 計算接近零的元素比例
+            near_zero = (flat_diff < 0.01).float().mean().item() * 100
+            
+            # 特徵相似度計算
+            s_flat = s_feat.reshape(batch_size, s_feat.shape[1], -1)
+            t_flat = t_feat.reshape(batch_size, t_feat.shape[1], -1)
+            
+            # 標準化
+            s_norm = F.normalize(s_flat, p=2, dim=2)
+            t_norm = F.normalize(t_flat, p=2, dim=2)
+            
+            # 非常溫和的指導 - 只移動5%
+            guide_strength = 0.05
+            target = s_feat + guide_strength * (t_feat - s_feat)
+            
+            # 計算損失 - 使用Huber損失減輕離群值影響
+            distill_loss = F.smooth_l1_loss(s_feat, target)
+            
+            # 安全閾值
+            max_allowed_drift = 0.0005
+            
+            # 如果漂移太大，減少損失
+            if drift > max_allowed_drift:
+                safety_factor = max_allowed_drift / (drift + 1e-10)
+                layer_loss = distill_loss * safety_factor
+                LOGGER.warning(f"層 {layer_name} 安全機制激活! 漂移={drift:.6f}, 安全係數={safety_factor:.6f}")
+            else:
+                layer_loss = distill_loss
+            
+            # 應用層權重
+            weighted_loss = layer_loss * layer_weight
+            total_loss += weighted_loss
+            
+            # 記錄特徵差異統計
+            LOGGER.info(f"層 {layer_name} 特徵差異統計:")
+            LOGGER.info(f"  形狀: 教師{t_feat.shape}, 學生{s_feat.shape}")
+            LOGGER.info(f"  最大差異: {max_diff:.8f}, 平均差異: {mean_diff:.8f}, 標準差: {std_diff:.8f}")
+            LOGGER.info(f"  接近零的元素比例: {near_zero:.2f}%")
+            LOGGER.info(f"  分位數分析: 50%: {percentile_values[0].item():.8f}, 75%: {percentile_values[1].item():.8f}, "
+                    f"90%: {percentile_values[2].item():.8f}, 95%: {percentile_values[3].item():.8f}, "
+                    f"99%: {percentile_values[4].item():.8f}")
+            LOGGER.info(f"  層權重: {layer_weight:.2f}, 原始損失: {distill_loss.item():.8f}, 加權損失: {weighted_loss.item():.8f}")
         
-        # 計算所有關鍵點的總損失
-        total_loss = sum(kpt_losses) / len(kpt_losses)
-        
-        # 安全機制：如果漂移太大，減小損失
-        if drift > max_allowed_drift:
-            safety_factor = max_allowed_drift / (drift + 1e-10)
-            final_loss = total_loss * safety_factor
-            LOGGER.warning(f"安全機制激活! 漂移={drift:.6f}, 安全係數={safety_factor:.6f}")
-        else:
-            final_loss = total_loss
-        
-        # 記錄詳細信息
-        LOGGER.info(f"輸出層蒸餾損失詳情:")
-        LOGGER.info(f"  總關鍵點數: {num_keypoints}")
-        LOGGER.info(f"  平均損失: {total_loss.item():.6f}")
-        LOGGER.info(f"  特徵漂移: {drift.item():.6f}")
-        
-        # 記錄各關鍵點的損失，每5個點顯示一次
-        for i in range(0, num_keypoints, 5):
-            end = min(i+5, num_keypoints)
-            losses = [f"{j}:{kpt_losses[j].item():.4f}" for j in range(i, end)]
-            LOGGER.info(f"  關鍵點 {i}-{end-1} 損失: {', '.join(losses)}")
-        
-        LOGGER.info(f"  最終損失: {final_loss.item():.6f}")
-        
-        return final_loss
+        LOGGER.info(f"計算出的總損失: {total_loss.item():.8f}")
+        return total_loss
 
     def channel_adaptive_distillation(self, student_feature, teacher_feature):
         """

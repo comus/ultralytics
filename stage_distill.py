@@ -66,28 +66,24 @@ student_model.train(
     data="coco-pose.yaml",
     teacher=teacher_model.model,
     
-    # # 蒸餾設置 - 使用輸出層(層23)
-    # distillation_layers=["23"],  # 針對輸出層純蒸餾
-    # pure_distill=True,
-    
-    # 溫和的學習設置
+    # 超保守學習設置
     optimizer="SGD",
-    lr0=0.00005,                # 溫和的學習率
+    lr0=0.000005,               # 極低學習率
     lrf=0.1,
     momentum=0.9,
     weight_decay=0.0005,
     
-    # 適中的訓練時間
-    epochs=7,                  # 稍微長一點的訓練
+    # 短期訓練
+    epochs=3,                   # 非常短的訓練
     cos_lr=True,
     
     # 數據設置
     batch=32,
     workers=8,
-    amp=False,                 # 關閉混合精度以確保穩定性
+    amp=False,
     imgsz=640,
     cache="disk",
-    fraction=0.3,              # 使用30%的數據
+    fraction=0.15,              # 只使用15%的數據
     
     # 驗證設置
     val=True,
@@ -96,9 +92,9 @@ student_model.train(
     # 預熱設置
     warmup_epochs=1,
     warmup_momentum=0.5,
-    warmup_bias_lr=0.01,
+    warmup_bias_lr=0.001,
     
     # 輸出設置
-    project="output_layer_distill",
-    name="yolo11n_pose_output_distill",
+    project="ultra_safe_distill",
+    name="yolo11n_pose_safe_feature_distill",
 )
