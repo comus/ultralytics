@@ -485,7 +485,7 @@ class v8PoseLoss(v8DetectionLoss):
 
         if "distill_instance" in batch and batch["distill_instance"] is not None:
             distill_loss = self._compute_distillation_loss(preds, batch)
-            loss[5] *= distill_loss.detach() * self.hyp_distill
+            loss[5] = distill_loss.detach() * self.hyp_distill
         
         # 創建顯示損失
         display_loss = loss.detach().clone()
