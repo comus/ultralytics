@@ -149,7 +149,7 @@ class PoseTrainer(yolo.detect.DetectionTrainer):
 
             distillation_loss = "cwd"
             distillation_layers = ["22"]
-            self.model.args.distill = 0.001
+            self.model.args.distill = 0.01
 
             self.distill_loss_instance.remove_handle_()
 
