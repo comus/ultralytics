@@ -658,6 +658,34 @@ class DistillationLoss:
         if not self.teacher_outputs or not self.student_outputs:
             return torch.tensor(0.0, requires_grad=True, device=next(self.models.parameters()).device)
         
+        # 特徵差異分析
+        for i, (t, s) in enumerate(zip(self.teacher_outputs, self.student_outputs)):
+            if isinstance(t, torch.Tensor) and isinstance(s, torch.Tensor):
+                t_detached = t.detach()
+                diff = (s - t_detached).abs()
+                
+                # 基本統計
+                max_diff = diff.max().item()
+                mean_diff = diff.mean().item()
+                std_diff = diff.std().item()
+                
+                # 稀疏性分析
+                zero_elements = (diff < 1e-6).sum().item() / diff.numel()
+                
+                # 分位數分析
+                percentiles = [50, 75, 90, 95, 99]
+                percentile_values = [torch.quantile(diff.float(), q/100).item() for q in percentiles]
+                
+                LOGGER.info(f"層 {i} 特徵差異統計:")
+                LOGGER.info(f"  形狀: 教師{t.shape}, 學生{s.shape}")
+                LOGGER.info(f"  最大差異: {max_diff:.8f}, 平均差異: {mean_diff:.8f}, 標準差: {std_diff:.8f}")
+                LOGGER.info(f"  接近零的元素比例: {zero_elements:.2%}")
+                LOGGER.info(f"  分位數分析: {', '.join([f'{p}%: {v:.8f}' for p, v in zip(percentiles, percentile_values)])}")
+                
+                # 檢查是否有NaN或Inf
+                if torch.isnan(s).any() or torch.isinf(s).any() or torch.isnan(t).any() or torch.isinf(t).any():
+                    LOGGER.warning(f"警告: 層 {i} 中發現NaN或Inf值!")
+        
         # 確保教師輸出已經分離
         teacher_outputs_detached = []
         for t in self.teacher_outputs:
