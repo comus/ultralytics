@@ -212,6 +212,16 @@ class PoseTrainer(yolo.detect.DetectionTrainer):
             'mean_diffs': mean_diffs,
             'var_diffs': var_diffs
         }
+    
+    def freeze_bn_statistics(self, model):
+        """凍結模型中所有BN層的統計量更新"""
+        for m in model.modules():
+            if isinstance(m, nn.BatchNorm2d):
+                m.track_running_stats = False  # 停止更新running_mean和running_var
+                m.running_mean.requires_grad = False
+                m.running_var.requires_grad = False
+        
+        LOGGER.info("已凍結模型的BN統計量更新")
 
 
     def distill_on_train_start(self, trainer):
@@ -245,6 +255,9 @@ class PoseTrainer(yolo.detect.DetectionTrainer):
                 distiller=distillation_loss,
                 layers=distillation_layers,
             )
+
+            # 選擇: 凍結BN統計量更新
+            self.freeze_bn_statistics(self.model)
 
         # 在訓練開始前檢查教師模型
         LOGGER.info("=" * 50)
