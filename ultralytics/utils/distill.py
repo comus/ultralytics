@@ -779,7 +779,7 @@ class DistillationLoss:
                         
                         if is_p5_layer:
                             LOGGER.info(f"對層 {i} 應用P5特化蒸餾方法")
-                            loss = self.conservative_multi_layer_distillation(s, t)
+                            loss = self.p5_feature_distillation(s, t)
                         else:
                             # 對於其他形狀不同的層，使用通用通道自適應方法
                             LOGGER.info(f"對層 {i} 應用通用通道自適應蒸餾方法")
@@ -821,171 +821,243 @@ class DistillationLoss:
         
         return loss
 
-    def conservative_multi_layer_distillation(self, student_feature, teacher_feature, layer_idx=0):
-        """超保守的特徵蒸餾，針對單層特徵進行處理"""
-        
+    def p5_feature_distillation(self, student_feature, teacher_feature):
+        """
+        適度保守型蒸餾方法，修正維度處理
+        """
         # 基本尺寸信息
-        if len(student_feature.shape) < 3 or len(teacher_feature.shape) < 3:
-            LOGGER.warning(f"層 {layer_idx} 的特徵維度不足，跳過: {student_feature.shape}, {teacher_feature.shape}")
-            return torch.tensor(0.0, device=student_feature.device)
-            
         batch_size = student_feature.shape[0]
-        s_channels = student_feature.shape[1]
-        t_channels = teacher_feature.shape[1]
-        
-        # 檢查通道數是否相同
-        if s_channels != t_channels:
-            LOGGER.info(f"對層 {layer_idx} 應用通用通道自適應蒸餾方法")
-            return self.channel_adaptive_distillation(student_feature, teacher_feature)
-        
-        # 確保空間維度相同
-        if student_feature.shape[2:] != teacher_feature.shape[2:]:
-            teacher_feature = F.interpolate(teacher_feature, size=student_feature.shape[2:], mode='bilinear', align_corners=False)
+        student_channels = student_feature.shape[1]  # 256
+        spatial_size = student_feature.shape[2:]  # (H, W)
         
         # 保存原始學生特徵作為參考
         with torch.no_grad():
             original_student = student_feature.clone()
         
-        # 特徵差異統計
-        drift = F.mse_loss(student_feature, original_student)
+        # 確保空間維度相同
+        if student_feature.shape[2:] != teacher_feature.shape[2:]:
+            teacher_feature = F.interpolate(
+                teacher_feature, 
+                size=student_feature.shape[2:],
+                mode='bilinear', 
+                align_corners=False
+            )
         
-        # 計算特徵差異
-        max_diff = (teacher_feature - student_feature).abs().max().item()
-        mean_diff = (teacher_feature - student_feature).abs().mean().item()
-        std_diff = (teacher_feature - student_feature).abs().std().item()
+        # 1. 通道維度壓縮
+        t_selected = teacher_feature[:, :student_channels]  # [B, 256, H, W]
         
-        # 計算分位數
-        flat_diff = (teacher_feature - student_feature).abs().reshape(-1)
-        percentiles = torch.tensor([0.5, 0.75, 0.9, 0.95, 0.99]) * 100
-        percentile_values = torch.quantile(flat_diff, percentiles.to(student_feature.device) / 100)
-        
-        # 計算接近零的元素比例
-        near_zero = (flat_diff < 0.01).float().mean().item() * 100
-        
-        # 特徵相似度計算
-        s_flat = student_feature.reshape(batch_size, s_channels, -1)
-        t_flat = teacher_feature.reshape(batch_size, t_channels, -1)
+        # 2. 特徵相似度計算
+        s_flat = student_feature.reshape(batch_size, student_channels, -1)  # [B, 256, H*W]
+        t_flat = t_selected.reshape(batch_size, student_channels, -1)  # [B, 256, H*W]
+        o_flat = original_student.reshape(batch_size, student_channels, -1)  # [B, 256, H*W]
         
         # 標準化
         s_norm = F.normalize(s_flat, p=2, dim=2)
         t_norm = F.normalize(t_flat, p=2, dim=2)
+        o_norm = F.normalize(o_flat, p=2, dim=2)
         
-        # 非常溫和的指導 - 只移動5%
-        guide_strength = 0.05
-        target = student_feature + guide_strength * (teacher_feature - student_feature)
+        # 3. 通道相似度計算
+        channel_sim = torch.bmm(s_norm, t_norm.transpose(1, 2))  # [B, 256, 256]
+        diag_indices = torch.arange(student_channels, device=channel_sim.device)
+        channel_cos_sim = channel_sim[:, diag_indices, diag_indices]  # [B, 256]
         
-        # 計算損失 - 使用Huber損失減輕離群值影響
-        distill_loss = F.smooth_l1_loss(student_feature, target)
+        # 選擇相似度最低的20%通道
+        k = max(1, int(student_channels * 0.2))  # 增加到20%
+        _, bottom_indices = torch.topk(channel_cos_sim, k, dim=1, largest=False)  # [B, k]
         
-        # 安全閾值
-        max_allowed_drift = 0.0005
+        # 4. 蒸餾損失計算
+        selected_loss = torch.zeros(batch_size, device=student_feature.device)
+        
+        for b in range(batch_size):
+            # 獲取當前樣本最需要改進的通道
+            indices = bottom_indices[b]  # [k]
+            
+            # 計算這些通道的特徵差異
+            s_selected = s_flat[b, indices]  # [k, H*W]
+            t_selected = t_flat[b, indices]  # [k, H*W]
+            
+            # 指導 - 輕度將學生特徵向教師特徵方向移動
+            guide_strength = 0.05  # 適度增加指導強度
+            target = s_selected + guide_strength * (t_selected - s_selected)
+            
+            # 計算這些通道的損失
+            channel_loss = F.mse_loss(s_selected, target)
+            selected_loss[b] = channel_loss
+        
+        # 平均損失
+        loss_selective = selected_loss.mean()
+        
+        # 5. 安全檢查 - 確保學生模型不會過度偏離原始特徵
+        drift = F.mse_loss(s_flat, o_flat)
+        
+        # 略微放寬允許的漂移閾值
+        max_allowed_drift = 0.001  
         
         # 如果漂移太大，減少損失
         if drift > max_allowed_drift:
             safety_factor = max_allowed_drift / (drift + 1e-10)
-            layer_loss = distill_loss * safety_factor
-            LOGGER.warning(f"層 {layer_idx} 安全機制激活! 漂移={drift:.6f}, 安全係數={safety_factor:.6f}")
+            final_loss = loss_selective * safety_factor
+            LOGGER.warning(f"安全機制激活! 漂移={drift:.6f}, 安全係數={safety_factor:.6f}")
         else:
-            layer_loss = distill_loss
+            final_loss = loss_selective
         
-        # 權重根據層的深度決定 (這裡簡單設置為1.0)
-        layer_weight = 1.0
-        weighted_loss = layer_loss * layer_weight
+        # 6. 知識保留懲罰
+        # 計算教師特徵與原始學生特徵的相似度
+        t_o_sim = torch.bmm(t_norm, o_norm.transpose(1, 2))
+        t_o_diag_sim = t_o_sim[:, diag_indices, diag_indices]  # [B, 256]
         
-        # 記錄特徵差異統計
-        LOGGER.info(f"層 {layer_idx} 特徵差異統計:")
-        LOGGER.info(f"  形狀: 教師{teacher_feature.shape}, 學生{student_feature.shape}")
-        LOGGER.info(f"  最大差異: {max_diff:.8f}, 平均差異: {mean_diff:.8f}, 標準差: {std_diff:.8f}")
-        LOGGER.info(f"  接近零的元素比例: {near_zero:.2f}%")
-        LOGGER.info(f"  分位數分析: 50%: {percentile_values[0].item():.8f}, 75%: {percentile_values[1].item():.8f}, "
-                f"90%: {percentile_values[2].item():.8f}, 95%: {percentile_values[3].item():.8f}, "
-                f"99%: {percentile_values[4].item():.8f}")
-        LOGGER.info(f"  層權重: {layer_weight:.2f}, 原始損失: {distill_loss.item():.8f}, 加權損失: {weighted_loss.item():.8f}")
+        # 找出教師和原始學生已經相似的通道
+        similarity_threshold = 0.85  # 提高閾值，更嚴格地定義"已相似"
+        high_sim_mask = (t_o_diag_sim > similarity_threshold).float()  # [B, 256]
         
-        return weighted_loss
+        # 計算保留損失
+        preservation_loss = 0
+        if high_sim_mask.sum() > 0:
+            for b in range(batch_size):
+                high_sim_indices = high_sim_mask[b].nonzero().squeeze(-1)
+                if high_sim_indices.numel() > 0:
+                    o_high_sim = o_flat[b, high_sim_indices]
+                    s_high_sim = s_flat[b, high_sim_indices]
+                    preservation_loss += F.mse_loss(s_high_sim, o_high_sim)
+        
+        if high_sim_mask.sum() > 0:
+            preservation_loss = preservation_loss / batch_size
+            
+            # 適度降低保留懲罰權重
+            preservation_weight = 0.8  # 從0.9降低到0.8
+            final_loss = (1 - preservation_weight) * final_loss + preservation_weight * preservation_loss
+            
+            LOGGER.info(f"應用特徵保留懲罰, 權重: {preservation_weight:.2f}, 已相似通道比例: {high_sim_mask.mean().item()*100:.2f}%")
+        
+        # 7. 安全地添加空間注意力指導
+        try:
+            # 首先檢查特徵是否有足夠的空間維度
+            if len(student_feature.shape) >= 4 and student_feature.shape[2] > 1 and student_feature.shape[3] > 1:
+                # 計算空間注意力 (平方和)
+                s_spatial = torch.sum(student_feature**2, dim=1)  # [B, H, W]
+                t_spatial = torch.sum(t_selected**2, dim=1)  # [B, H, W]
+                
+                # 檢查形狀
+                LOGGER.debug(f"空間注意力形狀: 學生 {s_spatial.shape}, 教師 {t_spatial.shape}")
+                
+                # 標準化空間注意力 (每個批次樣本單獨處理)
+                s_spatial_norm = torch.zeros_like(s_spatial)
+                t_spatial_norm = torch.zeros_like(t_spatial)
+                
+                for b in range(batch_size):
+                    # 學生空間注意力標準化
+                    s_min = s_spatial[b].min()
+                    s_max = s_spatial[b].max()
+                    if s_max > s_min:  # 避免除以零
+                        s_spatial_norm[b] = (s_spatial[b] - s_min) / (s_max - s_min + 1e-10)
+                    
+                    # 教師空間注意力標準化
+                    t_min = t_spatial[b].min()
+                    t_max = t_spatial[b].max()
+                    if t_max > t_min:  # 避免除以零
+                        t_spatial_norm[b] = (t_spatial[b] - t_min) / (t_max - t_min + 1e-10)
+                
+                # 識別教師模型中的高激活區域
+                activation_threshold = 0.7  
+                mask = (t_spatial_norm > activation_threshold).float()
+                
+                # 確保至少有5%的區域被選中
+                coverage = mask.mean()
+                if coverage < 0.05:
+                    # 對每個樣本單獨處理
+                    for b in range(batch_size):
+                        flat_attention = t_spatial_norm[b].reshape(-1)
+                        if flat_attention.numel() > 0:  # 確保張量非空
+                            k = max(1, int(0.05 * flat_attention.numel()))
+                            values, _ = torch.topk(flat_attention, k)
+                            if values.numel() > 0:  # 確保有足夠的值
+                                threshold = values[-1]
+                                mask[b] = (t_spatial_norm[b] > threshold).float()
+                
+                # 輕微空間注意力指導
+                if mask.sum() > 0:
+                    spatial_guide_strength = 0.05
+                    spatial_target = s_spatial_norm + spatial_guide_strength * (t_spatial_norm - s_spatial_norm)
+                    
+                    # 只在高激活區域應用指導
+                    masked_spatial_loss = F.mse_loss(
+                        s_spatial_norm * mask, 
+                        spatial_target * mask
+                    ) / (mask.mean() + 1e-10)
+                    
+                    # 添加到總損失，使用非常小的權重
+                    spatial_weight = 0.05
+                    final_loss = (1 - spatial_weight) * final_loss + spatial_weight * masked_spatial_loss
+                    LOGGER.info(f"  高激活空間指導: {masked_spatial_loss.item():.6f} (權重: {spatial_weight:.2f})")
+                    LOGGER.info(f"  高激活區域覆蓋率: {mask.mean().item()*100:.2f}%")
+                else:
+                    LOGGER.info("  未檢測到高激活區域，跳過空間注意力指導")
+            else:
+                LOGGER.info("  特徵的空間維度不足，跳過空間注意力指導")
+        except Exception as e:
+            LOGGER.warning(f"計算空間注意力時出錯: {str(e)}")
+            LOGGER.warning(f"跳過空間注意力指導")
+        
+        # 記錄日誌
+        LOGGER.info(f"P5層適度保守蒸餾損失詳情:")
+        LOGGER.info(f"  選擇性通道損失: {loss_selective.item():.6f}")
+        LOGGER.info(f"  特徵漂移: {drift.item():.6f}")
+        LOGGER.info(f"  改進通道數量: {k} (20%的總通道)")
+        LOGGER.info(f"  指導強度: 0.05 (輕度)")
+        if high_sim_mask.sum() > 0:
+            LOGGER.info(f"  特徵保留損失: {preservation_loss.item():.6f}")
+        LOGGER.info(f"  總損失: {final_loss.item():.6f}")
+        
+        return final_loss
 
     def channel_adaptive_distillation(self, student_feature, teacher_feature):
         """
-        通道自適應蒸餾方法，用於處理通道數不同的特徵
-        使用空間注意力和通道注意力機制
-        """
-        # 提取批次大小和其他維度信息
-        batch_size = student_feature.shape[0]
-        s_channels = student_feature.shape[1]
-        t_channels = teacher_feature.shape[1]
+        通用的通道自適應蒸餾方法，用於處理非P5層的不同通道數特徵圖
         
+        Args:
+            student_feature: 學生模型特徵圖
+            teacher_feature: 教師模型特徵圖
+        
+        Returns:
+            蒸餾損失
+        """
         # 確保空間維度相同
         if student_feature.shape[2:] != teacher_feature.shape[2:]:
-            teacher_feature = F.interpolate(teacher_feature, size=student_feature.shape[2:], mode='bilinear', align_corners=False)
+            teacher_feature = F.interpolate(
+                teacher_feature, 
+                size=student_feature.shape[2:],
+                mode='bilinear', 
+                align_corners=False
+            )
         
-        # 1. 空間注意力機制
-        # 計算空間注意力圖 (對通道維度求平方和)
-        s_spatial_attn = torch.sum(student_feature ** 2, dim=1, keepdim=True)  # [B, 1, H, W]
-        t_spatial_attn = torch.sum(teacher_feature ** 2, dim=1, keepdim=True)  # [B, 1, H, W]
+        # 計算空間注意力圖
+        student_spatial = torch.mean(student_feature, dim=1, keepdim=True)  # [B, 1, H, W]
+        teacher_spatial = torch.mean(teacher_feature, dim=1, keepdim=True)  # [B, 1, H, W]
         
-        # 標準化
-        s_spatial_norm = self.normalize_attention(s_spatial_attn)
-        t_spatial_norm = self.normalize_attention(t_spatial_attn)
+        # 空間注意力損失
+        spatial_loss = F.mse_loss(student_spatial, teacher_spatial)
         
-        # 計算空間注意力損失
-        spatial_loss = F.mse_loss(s_spatial_norm, t_spatial_norm)
+        # 計算通道注意力 (全局平均池化)
+        s_channel = F.adaptive_avg_pool2d(student_feature, 1)  # [B, C_s, 1, 1]
+        t_channel = F.adaptive_avg_pool2d(teacher_feature, 1)  # [B, C_t, 1, 1]
         
-        # 2. 通道注意力機制
-        # 使用全局平均池化獲取通道描述符
-        s_gap = F.adaptive_avg_pool2d(student_feature, 1).view(batch_size, s_channels)  # [B, C_s]
-        t_gap = F.adaptive_avg_pool2d(teacher_feature, 1).view(batch_size, t_channels)  # [B, C_t]
+        # 標準化通道注意力
+        s_channel = F.normalize(s_channel.squeeze(-1).squeeze(-1), p=2, dim=1)
+        t_channel = F.normalize(t_channel.squeeze(-1).squeeze(-1), p=2, dim=1)
         
-        # 降維到相同維度進行比較 - 使用線性投影
-        device = student_feature.device
-        channel_adapter = nn.Linear(t_channels, s_channels).to(device)
-        # 初始化參數
-        nn.init.xavier_uniform_(channel_adapter.weight)
-        nn.init.zeros_(channel_adapter.bias)
+        # 取較小的通道數
+        min_channels = min(student_feature.shape[1], teacher_feature.shape[1])
+        channel_loss = F.mse_loss(s_channel[:, :min_channels], t_channel[:, :min_channels])
         
-        # 線性投影
-        t_gap_adapted = channel_adapter(t_gap)  # [B, C_s]
+        # 組合損失
+        total_loss = spatial_loss * 0.7 + channel_loss * 0.3
         
-        # 標準化
-        s_gap_norm = F.normalize(s_gap, p=2, dim=1)
-        t_gap_norm = F.normalize(t_gap_adapted, p=2, dim=1)
-        
-        # 計算通道注意力損失
-        channel_loss = F.mse_loss(s_gap_norm, t_gap_norm)
-        
-        # 3. 綜合損失，權重偏向空間注意力
-        spatial_weight = 0.7
-        channel_weight = 0.3
-        total_loss = spatial_weight * spatial_loss + channel_weight * channel_loss
-        
-        # 記錄日誌
-        LOGGER.info("通道自適應蒸餾損失詳情:")
+        LOGGER.info(f"通道自適應蒸餾損失詳情:")
         LOGGER.info(f"  空間注意力損失: {spatial_loss.item():.6f}")
         LOGGER.info(f"  通道注意力損失: {channel_loss.item():.6f}")
         LOGGER.info(f"  總損失: {total_loss.item():.6f}")
         
         return total_loss
-
-    def normalize_attention(self, attention_map):
-        """標準化注意力圖到 [0,1] 範圍"""
-        B = attention_map.shape[0]
-        result = torch.zeros_like(attention_map)
-        
-        for b in range(B):
-            # 獲取當前樣本的注意力圖
-            attn = attention_map[b]
-            
-            # 計算最小值和最大值
-            min_val = attn.min()
-            max_val = attn.max()
-            
-            # 標準化到 [0,1]
-            if max_val > min_val:
-                result[b] = (attn - min_val) / (max_val - min_val)
-            else:
-                # 避免除以零
-                result[b] = attn - min_val
-        
-        return result
 
 
     # def get_loss(self):

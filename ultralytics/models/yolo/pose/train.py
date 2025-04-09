@@ -497,7 +497,7 @@ class PoseTrainer(yolo.detect.DetectionTrainer):
             LOGGER.info("階段1: 純蒸餾")
 
             distillation_loss = "cwd"
-            distillation_layers = ["2", "4", "7", "22"]
+            distillation_layers = ["8", "13", "16", "19", "22"]
             self.model.args.distill = 1.0
 
             # 初始化蒸餾損失實例

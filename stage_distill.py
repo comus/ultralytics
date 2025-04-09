@@ -62,39 +62,80 @@ LOGGER.info("硬體: RTX 4090 24GB, Xeon Platinum 8352V, 120GB RAM")
 
 # LOGGER.info("蒸餾訓練完成！")
 
+# student_model.train(
+#     data="coco-pose.yaml",
+#     teacher=teacher_model.model,
+    
+#     # 超保守學習設置
+#     optimizer="SGD",
+#     lr0=0.000005,               # 極低學習率
+#     lrf=0.1,
+#     momentum=0.9,
+#     weight_decay=0.0005,
+    
+#     # 短期訓練
+#     epochs=3,                   # 非常短的訓練
+#     cos_lr=True,
+    
+#     # 數據設置
+#     batch=32,
+#     workers=8,
+#     amp=False,
+#     imgsz=640,
+#     cache="disk",
+#     fraction=0.15,              # 只使用15%的數據
+    
+#     # 驗證設置
+#     val=True,
+#     save_period=1,
+    
+#     # 預熱設置
+#     warmup_epochs=1,
+#     warmup_momentum=0.5,
+#     warmup_bias_lr=0.001,
+    
+#     # 輸出設置
+#     project="ultra_safe_distill",
+#     name="yolo11n_pose_safe_feature_distill",
+# )
+
 student_model.train(
     data="coco-pose.yaml",
     teacher=teacher_model.model,
     
-    # 超保守學習設置
-    optimizer="SGD",
-    lr0=0.000005,               # 極低學習率
-    lrf=0.1,
-    momentum=0.9,
-    weight_decay=0.0005,
+    # # 蒸餾設置
+    # distillation_layers=["22"],  # 只蒸餾P5層
+    # pure_distill=True,           # 純蒸餾
     
-    # 短期訓練
-    epochs=3,                   # 非常短的訓練
-    cos_lr=True,
+    # 適度保守的學習設置
+    optimizer="SGD",             # 使用SGD優化器
+    lr0=0.00003,                 # 略微增加學習率
+    lrf=0.1,                     # 快速降低學習率
+    momentum=0.9,                # 保持動量
+    weight_decay=0.0005,         # 保持權重衰減
+    
+    # 訓練時間
+    epochs=5,                    # 增加到5個epoch
+    cos_lr=True,                 # 余弦學習率調度
     
     # 數據設置
-    batch=32,
+    batch=32,                    # 批次大小
     workers=8,
-    amp=False,
+    amp=False,                   # 關閉混合精度
     imgsz=640,
     cache="disk",
-    fraction=0.15,              # 只使用15%的數據
+    fraction=0.25,               # 增加到25%的數據
     
     # 驗證設置
-    val=True,
-    save_period=1,
+    val=True,                    # 每個epoch驗證
+    save_period=1,               # 每個epoch保存
     
     # 預熱設置
     warmup_epochs=1,
     warmup_momentum=0.5,
-    warmup_bias_lr=0.001,
+    warmup_bias_lr=0.01,
     
     # 輸出設置
-    project="ultra_safe_distill",
-    name="yolo11n_pose_safe_feature_distill",
+    project="moderate_conservative_distill",
+    name="yolo11n_pose_light_distill",
 )

@@ -3,8 +3,8 @@ from ultralytics import YOLO
 import torch
 
 # 加载模型
-student = YOLO("yolo11n-pose.pt")
-teacher = YOLO("yolo11s-pose.pt")
+student = YOLO("yolo11s-pose.pt")
+teacher = YOLO("yolo11m-pose.pt")
 
 print("=" * 50)
 print("学生模型结构:")
