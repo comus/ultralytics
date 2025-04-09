@@ -215,7 +215,12 @@ class PoseTrainer(yolo.detect.DetectionTrainer):
 
 
     def distill_on_train_start(self, trainer):
-        pass
+        # 設置確定性計算環境
+        torch.backends.cudnn.deterministic = True
+        torch.backends.cudnn.benchmark = False
+        torch.manual_seed(42)
+        if torch.cuda.is_available():
+            torch.cuda.manual_seed_all(42)
 
     def distill_on_epoch_start(self, trainer):
         # 在比較模型狀態後添加
