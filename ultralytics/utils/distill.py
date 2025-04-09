@@ -824,24 +824,19 @@ class DistillationLoss:
     def conservative_multi_layer_distillation(self, student_feature, teacher_feature, layer_idx=0):
         """超保守的特徵蒸餾，針對單層特徵進行處理"""
         
-        # 檢查是否為P5層並應用特定策略
-        is_p5 = False
-        
-        # 檢查形狀以判斷層類型
-        if student_feature.shape[1] == 256 and teacher_feature.shape[1] == 512 and student_feature.shape[2] == 20:
-            LOGGER.info("通過特徵形狀猜測層 {} 可能是P5層".format(layer_idx))
-            is_p5 = True
-        
-        if is_p5:
-            LOGGER.info("對層 {} 應用P5特化蒸餾方法".format(layer_idx))
-            return self.p5_feature_distillation(student_feature, teacher_feature)
-        
         # 基本尺寸信息
         if len(student_feature.shape) < 3 or len(teacher_feature.shape) < 3:
             LOGGER.warning(f"層 {layer_idx} 的特徵維度不足，跳過: {student_feature.shape}, {teacher_feature.shape}")
             return torch.tensor(0.0, device=student_feature.device)
             
         batch_size = student_feature.shape[0]
+        s_channels = student_feature.shape[1]
+        t_channels = teacher_feature.shape[1]
+        
+        # 檢查通道數是否相同
+        if s_channels != t_channels:
+            LOGGER.info(f"對層 {layer_idx} 應用通用通道自適應蒸餾方法")
+            return self.channel_adaptive_distillation(student_feature, teacher_feature)
         
         # 確保空間維度相同
         if student_feature.shape[2:] != teacher_feature.shape[2:]:
@@ -850,14 +845,7 @@ class DistillationLoss:
         # 保存原始學生特徵作為參考
         with torch.no_grad():
             original_student = student_feature.clone()
-            
-        # 檢查通道數是否相同
-        if student_feature.shape[1] != teacher_feature.shape[1]:
-            LOGGER.info(f"對層 {layer_idx} 應用通用通道自適應蒸餾方法")
-            # 通道不同，使用注意力自適應蒸餾
-            return self.channel_adaptive_distillation(student_feature, teacher_feature)
         
-        # 如果通道數相同，使用直接特徵匹配
         # 特徵差異統計
         drift = F.mse_loss(student_feature, original_student)
         
@@ -875,8 +863,8 @@ class DistillationLoss:
         near_zero = (flat_diff < 0.01).float().mean().item() * 100
         
         # 特徵相似度計算
-        s_flat = student_feature.reshape(batch_size, student_feature.shape[1], -1)
-        t_flat = teacher_feature.reshape(batch_size, teacher_feature.shape[1], -1)
+        s_flat = student_feature.reshape(batch_size, s_channels, -1)
+        t_flat = teacher_feature.reshape(batch_size, t_channels, -1)
         
         # 標準化
         s_norm = F.normalize(s_flat, p=2, dim=2)
@@ -926,6 +914,10 @@ class DistillationLoss:
         s_channels = student_feature.shape[1]
         t_channels = teacher_feature.shape[1]
         
+        # 確保空間維度相同
+        if student_feature.shape[2:] != teacher_feature.shape[2:]:
+            teacher_feature = F.interpolate(teacher_feature, size=student_feature.shape[2:], mode='bilinear', align_corners=False)
+        
         # 1. 空間注意力機制
         # 計算空間注意力圖 (對通道維度求平方和)
         s_spatial_attn = torch.sum(student_feature ** 2, dim=1, keepdim=True)  # [B, 1, H, W]
@@ -943,13 +935,14 @@ class DistillationLoss:
         s_gap = F.adaptive_avg_pool2d(student_feature, 1).view(batch_size, s_channels)  # [B, C_s]
         t_gap = F.adaptive_avg_pool2d(teacher_feature, 1).view(batch_size, t_channels)  # [B, C_t]
         
-        # 降維到相同維度進行比較
-        # 使用簡單的線性層將教師通道降維到學生通道
-        channel_adapter = nn.Linear(t_channels, s_channels).to(student_feature.device)
+        # 降維到相同維度進行比較 - 使用線性投影
+        device = student_feature.device
+        channel_adapter = nn.Linear(t_channels, s_channels).to(device)
         # 初始化參數
         nn.init.xavier_uniform_(channel_adapter.weight)
         nn.init.zeros_(channel_adapter.bias)
         
+        # 線性投影
         t_gap_adapted = channel_adapter(t_gap)  # [B, C_s]
         
         # 標準化
@@ -988,9 +981,11 @@ class DistillationLoss:
             # 標準化到 [0,1]
             if max_val > min_val:
                 result[b] = (attn - min_val) / (max_val - min_val)
+            else:
+                # 避免除以零
+                result[b] = attn - min_val
         
         return result
-
 
 
     # def get_loss(self):
