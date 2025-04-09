@@ -655,51 +655,41 @@ class DistillationLoss:
 
     def get_loss(self):
         """計算教師和學生模型之間的蒸餾損失"""            
-        # if not self.teacher_outputs or not self.student_outputs:
-        #     LOGGER.warning(f"沒有收集到特徵 - 教師: {len(self.teacher_outputs) if hasattr(self, 'teacher_outputs') else 0}, 學生: {len(self.student_outputs) if hasattr(self, 'student_outputs') else 0}")
-        #     return torch.tensor(0.0, requires_grad=True, device=next(self.models.parameters()).device)
-        
-        # if len(self.teacher_outputs) != len(self.student_outputs):
-        #     LOGGER.warning(f"輸出不匹配 - 教師: {len(self.teacher_outputs)}, 學生: {len(self.student_outputs)}")
-        #     return torch.tensor(0.0, requires_grad=True, device=next(self.models.parameters()).device)
-        
-        # try:
-        #     teacher_outputs = [t.detach() for t in self.teacher_outputs]
-        #     quant_loss = self.distill_loss_fn(y_s=self.student_outputs, y_t=teacher_outputs)
-            
-        #     # 檢查損失值是否合理
-        #     if torch.isnan(quant_loss) or torch.isinf(quant_loss):
-        #         LOGGER.warning(f"蒸餾損失值無效: {quant_loss}")
-        #         quant_loss = torch.tensor(0.0, requires_grad=True, device=next(self.models.parameters()).device)
-        #     elif quant_loss == 0:
-        #         LOGGER.warning("蒸餾損失為零，可能計算出錯")
-        #     else:
-        #         pass
-            
-        #     # 清除收集的特徵，準備下一個批次
-        #     self.teacher_outputs.clear()
-        #     self.student_outputs.clear()
-            
-        #     return quant_loss
-        # except Exception as e:
-        #     LOGGER.error(f"計算蒸餾損失時出錯: {e}")
-        #     import traceback
-        #     LOGGER.error(traceback.format_exc())  # 打印完整的錯誤堆疊
-        #     return torch.tensor(0.0, requires_grad=True, device=next(self.models.parameters()).device)
-
         if not self.teacher_outputs or not self.student_outputs:
             return torch.tensor(0.0, requires_grad=True, device=next(self.models.parameters()).device)
         
-        # 添加調試輸出
-        for i, (t, s) in enumerate(zip(self.teacher_outputs, self.student_outputs)):
-            if isinstance(t, torch.Tensor) and isinstance(s, torch.Tensor):
-                diff = (t - s).abs().mean().item()
-                LOGGER.info(f"層 {i} 特徵差異: {diff:.6f}")
+        # 確保教師輸出已經分離
+        teacher_outputs_detached = []
+        for t in self.teacher_outputs:
+            if isinstance(t, torch.Tensor):
+                teacher_outputs_detached.append(t.detach())  # 確保分離教師輸出
+            else:
+                teacher_outputs_detached.append([o.detach() if isinstance(o, torch.Tensor) else o for o in t])
         
-        loss = 0
-        for t, s in zip(self.teacher_outputs, self.student_outputs):
-            if isinstance(t, torch.Tensor) and isinstance(s, torch.Tensor):
-                loss += F.mse_loss(s, t.detach())
+        # 累加損失
+        losses = []
+        try:
+            for i, (t, s) in enumerate(zip(teacher_outputs_detached, self.student_outputs)):
+                if isinstance(t, torch.Tensor) and isinstance(s, torch.Tensor):
+                    # 使用detach的教師輸出，保持學生輸出的梯度
+                    losses.append(F.mse_loss(s, t))
+            
+            # 如果有任何有效損失，則將它們相加
+            if losses:
+                loss = torch.sum(torch.stack(losses))
+            else:
+                # 如果沒有有效損失，創建一個零損失但帶梯度
+                loss = torch.zeros(1, device=next(self.models.parameters()).device, requires_grad=True)
+        except Exception as e:
+            LOGGER.error(f"計算蒸餾損失時出錯: {e}")
+            import traceback
+            LOGGER.error(traceback.format_exc())
+            # 返回零損失但帶梯度
+            loss = torch.zeros(1, device=next(self.models.parameters()).device, requires_grad=True)
+        
+        # 清空教師和學生的輸出列表，避免二次使用
+        self.teacher_outputs.clear()
+        self.student_outputs.clear()
         
         return loss
 
