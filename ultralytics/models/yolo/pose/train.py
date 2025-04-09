@@ -149,7 +149,7 @@ class PoseTrainer(yolo.detect.DetectionTrainer):
 
             distillation_loss = "enhancedfgd"
             distillation_layers = ["22"]
-            self.model.args.distill = 0.5  # 從較小權重開始
+            self.model.args.distill = 0.0  # 從較小權重開始
 
             self.distill_loss_instance.remove_handle_()
             self.distill_loss_instance = DistillationLoss(
