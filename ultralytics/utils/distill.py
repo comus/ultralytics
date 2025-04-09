@@ -693,133 +693,63 @@ class DistillationLoss:
             self.remove_handle.append(ml.register_forward_hook(make_teacher_hook(self.teacher_outputs)))
             self.remove_handle.append(ori.register_forward_hook(make_student_hook(self.student_outputs)))
 
-    # def get_loss(self):
-    #     """計算教師和學生模型之間的蒸餾損失"""        
-    #     if not self.teacher_outputs or not self.student_outputs:
-    #         return torch.tensor(0.0, requires_grad=True, device=next(self.models.parameters()).device)
-        
-    #     # 特徵差異分析
-    #     for i, (t, s) in enumerate(zip(self.teacher_outputs, self.student_outputs)):
-    #         if isinstance(t, torch.Tensor) and isinstance(s, torch.Tensor):
-    #             t_detached = t.detach()
-    #             diff = (s - t_detached).abs()
-                
-    #             # 基本統計
-    #             max_diff = diff.max().item()
-    #             mean_diff = diff.mean().item()
-    #             std_diff = diff.std().item()
-                
-    #             # 稀疏性分析
-    #             zero_elements = (diff < 1e-6).sum().item() / diff.numel()
-                
-    #             # 分位數分析
-    #             percentiles = [50, 75, 90, 95, 99]
-    #             percentile_values = [torch.quantile(diff.float(), q/100).item() for q in percentiles]
-                
-    #             LOGGER.info(f"層 {i} 特徵差異統計:")
-    #             LOGGER.info(f"  形狀: 教師{t.shape}, 學生{s.shape}")
-    #             LOGGER.info(f"  最大差異: {max_diff:.8f}, 平均差異: {mean_diff:.8f}, 標準差: {std_diff:.8f}")
-    #             LOGGER.info(f"  接近零的元素比例: {zero_elements:.2%}")
-    #             LOGGER.info(f"  分位數分析: {', '.join([f'{p}%: {v:.8f}' for p, v in zip(percentiles, percentile_values)])}")
-                
-    #             # 檢查是否有NaN或Inf
-    #             if torch.isnan(s).any() or torch.isinf(s).any() or torch.isnan(t).any() or torch.isinf(t).any():
-    #                 LOGGER.warning(f"警告: 層 {i} 中發現NaN或Inf值!")
-        
-    #     # 確保教師輸出已經分離
-    #     teacher_outputs_detached = []
-    #     for t in self.teacher_outputs:
-    #         if isinstance(t, torch.Tensor):
-    #             teacher_outputs_detached.append(t.detach())  # 確保分離教師輸出
-    #         else:
-    #             teacher_outputs_detached.append([o.detach() if isinstance(o, torch.Tensor) else o for o in t])
-        
-    #     # 累加損失
-    #     losses = []
-    #     try:
-    #         for i, (t, s) in enumerate(zip(teacher_outputs_detached, self.student_outputs)):
-    #             if isinstance(t, torch.Tensor) and isinstance(s, torch.Tensor):
-    #                 # 使用detach的教師輸出，保持學生輸出的梯度
-    #                 losses.append(F.mse_loss(s, t))
-            
-    #         # 如果有任何有效損失，則將它們相加
-    #         if losses:
-    #             loss = torch.sum(torch.stack(losses))
-    #         else:
-    #             # 如果沒有有效損失，創建一個零損失但帶梯度
-    #             loss = torch.zeros(1, device=next(self.models.parameters()).device, requires_grad=True)
-    #     except Exception as e:
-    #         LOGGER.error(f"計算蒸餾損失時出錯: {e}")
-    #         import traceback
-    #         LOGGER.error(traceback.format_exc())
-    #         # 返回零損失但帶梯度
-    #         loss = torch.zeros(1, device=next(self.models.parameters()).device, requires_grad=True)
-        
-    #     # 清空教師和學生的輸出列表，避免二次使用
-    #     self.teacher_outputs.clear()
-    #     self.student_outputs.clear()
-        
-    #     return loss
-
     def get_loss(self):
-        """計算教師和學生模型之間的蒸餾損失，直接使用CWD方法"""        
+        """計算教師和學生模型之間的蒸餾損失"""        
         if not self.teacher_outputs or not self.student_outputs:
             return torch.tensor(0.0, requires_grad=True, device=next(self.models.parameters()).device)
         
-        # 準備有效的特徵張量列表
-        valid_teacher_features = []
-        valid_student_features = []
-        
+        # 特徵差異分析
         for i, (t, s) in enumerate(zip(self.teacher_outputs, self.student_outputs)):
             if isinstance(t, torch.Tensor) and isinstance(s, torch.Tensor):
-                # 基本檢查，確保特徵是有效的
+                t_detached = t.detach()
+                diff = (s - t_detached).abs()
+                
+                # 基本統計
+                max_diff = diff.max().item()
+                mean_diff = diff.mean().item()
+                std_diff = diff.std().item()
+                
+                # 稀疏性分析
+                zero_elements = (diff < 1e-6).sum().item() / diff.numel()
+                
+                # 分位數分析
+                percentiles = [50, 75, 90, 95, 99]
+                percentile_values = [torch.quantile(diff.float(), q/100).item() for q in percentiles]
+                
+                LOGGER.info(f"層 {i} 特徵差異統計:")
+                LOGGER.info(f"  形狀: 教師{t.shape}, 學生{s.shape}")
+                LOGGER.info(f"  最大差異: {max_diff:.8f}, 平均差異: {mean_diff:.8f}, 標準差: {std_diff:.8f}")
+                LOGGER.info(f"  接近零的元素比例: {zero_elements:.2%}")
+                LOGGER.info(f"  分位數分析: {', '.join([f'{p}%: {v:.8f}' for p, v in zip(percentiles, percentile_values)])}")
+                
+                # 檢查是否有NaN或Inf
                 if torch.isnan(s).any() or torch.isinf(s).any() or torch.isnan(t).any() or torch.isinf(t).any():
                     LOGGER.warning(f"警告: 層 {i} 中發現NaN或Inf值!")
-                    continue
-                    
-                # 將有效特徵添加到列表中
-                valid_teacher_features.append(t.detach())  # 確保分離教師輸出
-                valid_student_features.append(s)  # 保持學生特徵的梯度
         
-        # 如果沒有有效特徵對，返回零損失
-        if not valid_teacher_features or not valid_student_features:
-            LOGGER.warning("沒有找到有效的特徵對進行蒸餾")
-            return torch.zeros(1, device=next(self.models.parameters()).device, requires_grad=True)
+        # 確保教師輸出已經分離
+        teacher_outputs_detached = []
+        for t in self.teacher_outputs:
+            if isinstance(t, torch.Tensor):
+                teacher_outputs_detached.append(t.detach())  # 確保分離教師輸出
+            else:
+                teacher_outputs_detached.append([o.detach() if isinstance(o, torch.Tensor) else o for o in t])
         
+        # 累加損失
+        losses = []
         try:
-            # 取得特徵通道數
-            student_channels = [f.shape[1] for f in valid_student_features]
-            teacher_channels = [f.shape[1] for f in valid_teacher_features]
+            for i, (t, s) in enumerate(zip(teacher_outputs_detached, self.student_outputs)):
+                if isinstance(t, torch.Tensor) and isinstance(s, torch.Tensor):
+                    # 使用detach的教師輸出，保持學生輸出的梯度
+                    losses.append(F.mse_loss(s, t))
             
-            # 檢查是否需要初始化或更新CWD損失函數
-            if not hasattr(self, 'cwd_loss') or self.cwd_loss is None:
-                # 首次初始化CWD損失
-                self.cwd_loss = CWDLoss(
-                    student_channels=student_channels,
-                    teacher_channels=teacher_channels,
-                    tau=4.0,
-                    normalize=True
-                ).to(next(self.models.parameters()).device)
-                LOGGER.info(f"已初始化CWD損失函數，學生通道: {student_channels}, 教師通道: {teacher_channels}")
-            elif (len(student_channels) != len(self.cwd_loss.adapters) or 
-                any(s.shape[1] != adapter.weight.shape[0] for s, adapter in zip(valid_student_features, self.cwd_loss.adapters))):
-                # 通道數變化，需要重新初始化
-                LOGGER.info(f"特徵通道數已變化，重新初始化CWD損失函數")
-                LOGGER.info(f"新的學生通道: {student_channels}, 教師通道: {teacher_channels}")
-                self.cwd_loss = CWDLoss(
-                    student_channels=student_channels,
-                    teacher_channels=teacher_channels,
-                    tau=4.0,
-                    normalize=True
-                ).to(next(self.models.parameters()).device)
-            
-            # 計算損失
-            loss = self.cwd_loss(valid_student_features, valid_teacher_features)
-            
-            # 記錄損失值
-            LOGGER.debug(f"CWD蒸餾損失: {loss.item():.6f}")
+            # 如果有任何有效損失，則將它們相加
+            if losses:
+                loss = torch.sum(torch.stack(losses))
+            else:
+                # 如果沒有有效損失，創建一個零損失但帶梯度
+                loss = torch.zeros(1, device=next(self.models.parameters()).device, requires_grad=True)
         except Exception as e:
-            LOGGER.error(f"計算CWD蒸餾損失時出錯: {e}")
+            LOGGER.error(f"計算蒸餾損失時出錯: {e}")
             import traceback
             LOGGER.error(traceback.format_exc())
             # 返回零損失但帶梯度
@@ -830,6 +760,76 @@ class DistillationLoss:
         self.student_outputs.clear()
         
         return loss
+
+    # def get_loss(self):
+    #     """計算教師和學生模型之間的蒸餾損失，直接使用CWD方法"""        
+    #     if not self.teacher_outputs or not self.student_outputs:
+    #         return torch.tensor(0.0, requires_grad=True, device=next(self.models.parameters()).device)
+        
+    #     # 準備有效的特徵張量列表
+    #     valid_teacher_features = []
+    #     valid_student_features = []
+        
+    #     for i, (t, s) in enumerate(zip(self.teacher_outputs, self.student_outputs)):
+    #         if isinstance(t, torch.Tensor) and isinstance(s, torch.Tensor):
+    #             # 基本檢查，確保特徵是有效的
+    #             if torch.isnan(s).any() or torch.isinf(s).any() or torch.isnan(t).any() or torch.isinf(t).any():
+    #                 LOGGER.warning(f"警告: 層 {i} 中發現NaN或Inf值!")
+    #                 continue
+                    
+    #             # 將有效特徵添加到列表中
+    #             valid_teacher_features.append(t.detach())  # 確保分離教師輸出
+    #             valid_student_features.append(s)  # 保持學生特徵的梯度
+        
+    #     # 如果沒有有效特徵對，返回零損失
+    #     if not valid_teacher_features or not valid_student_features:
+    #         LOGGER.warning("沒有找到有效的特徵對進行蒸餾")
+    #         return torch.zeros(1, device=next(self.models.parameters()).device, requires_grad=True)
+        
+    #     try:
+    #         # 取得特徵通道數
+    #         student_channels = [f.shape[1] for f in valid_student_features]
+    #         teacher_channels = [f.shape[1] for f in valid_teacher_features]
+            
+    #         # 檢查是否需要初始化或更新CWD損失函數
+    #         if not hasattr(self, 'cwd_loss') or self.cwd_loss is None:
+    #             # 首次初始化CWD損失
+    #             self.cwd_loss = CWDLoss(
+    #                 student_channels=student_channels,
+    #                 teacher_channels=teacher_channels,
+    #                 tau=4.0,
+    #                 normalize=True
+    #             ).to(next(self.models.parameters()).device)
+    #             LOGGER.info(f"已初始化CWD損失函數，學生通道: {student_channels}, 教師通道: {teacher_channels}")
+    #         elif (len(student_channels) != len(self.cwd_loss.adapters) or 
+    #             any(s.shape[1] != adapter.weight.shape[0] for s, adapter in zip(valid_student_features, self.cwd_loss.adapters))):
+    #             # 通道數變化，需要重新初始化
+    #             LOGGER.info(f"特徵通道數已變化，重新初始化CWD損失函數")
+    #             LOGGER.info(f"新的學生通道: {student_channels}, 教師通道: {teacher_channels}")
+    #             self.cwd_loss = CWDLoss(
+    #                 student_channels=student_channels,
+    #                 teacher_channels=teacher_channels,
+    #                 tau=4.0,
+    #                 normalize=True
+    #             ).to(next(self.models.parameters()).device)
+            
+    #         # 計算損失
+    #         loss = self.cwd_loss(valid_student_features, valid_teacher_features)
+            
+    #         # 記錄損失值
+    #         LOGGER.debug(f"CWD蒸餾損失: {loss.item():.6f}")
+    #     except Exception as e:
+    #         LOGGER.error(f"計算CWD蒸餾損失時出錯: {e}")
+    #         import traceback
+    #         LOGGER.error(traceback.format_exc())
+    #         # 返回零損失但帶梯度
+    #         loss = torch.zeros(1, device=next(self.models.parameters()).device, requires_grad=True)
+        
+    #     # 清空教師和學生的輸出列表，避免二次使用
+    #     self.teacher_outputs.clear()
+    #     self.student_outputs.clear()
+        
+    #     return loss
 
     def remove_handle_(self):
         """安全移除已註冊的鉤子"""
