@@ -823,7 +823,7 @@ class DistillationLoss:
 
     def p5_feature_distillation(self, student_feature, teacher_feature):
         """
-        超保守型純蒸餾方法，專為保護預訓練模型的原有能力設計
+        適度保守型蒸餾方法，旨在輕微提升性能同時保護模型原有能力
         """
         # 基本尺寸信息
         batch_size = student_feature.shape[0]
@@ -847,7 +847,6 @@ class DistillationLoss:
         t_selected = teacher_feature[:, :student_channels]  # [B, 256, H, W]
         
         # 2. 特徵相似度計算
-        # 計算學生特徵與教師特徵的余弦相似度
         s_flat = student_feature.reshape(batch_size, student_channels, -1)  # [B, 256, H*W]
         t_flat = t_selected.reshape(batch_size, student_channels, -1)  # [B, 256, H*W]
         o_flat = original_student.reshape(batch_size, student_channels, -1)  # [B, 256, H*W]
@@ -857,19 +856,16 @@ class DistillationLoss:
         t_norm = F.normalize(t_flat, p=2, dim=2)
         o_norm = F.normalize(o_flat, p=2, dim=2)
         
-        # 3. 關鍵區域識別
-        # 找出學生特徵與教師特徵最不相似的通道
-        # 這些通道可能需要更多注意力
+        # 3. 通道相似度計算
         channel_sim = torch.bmm(s_norm, t_norm.transpose(1, 2))  # [B, 256, 256]
         diag_indices = torch.arange(student_channels, device=channel_sim.device)
         channel_cos_sim = channel_sim[:, diag_indices, diag_indices]  # [B, 256]
         
-        # 選擇相似度最低的10%通道
-        k = max(1, int(student_channels * 0.1))
+        # 選擇相似度最低的20%通道
+        k = max(1, int(student_channels * 0.2))  # 增加到20%
         _, bottom_indices = torch.topk(channel_cos_sim, k, dim=1, largest=False)  # [B, k]
         
-        # 4. 超保守蒸餾損失
-        # 僅對最不相似的通道應用極輕度指導
+        # 4. 蒸餾損失計算
         selected_loss = torch.zeros(batch_size, device=student_feature.device)
         
         for b in range(batch_size):
@@ -880,8 +876,8 @@ class DistillationLoss:
             s_selected = s_flat[b, indices]  # [k, H*W]
             t_selected = t_flat[b, indices]  # [k, H*W]
             
-            # 極輕度指導 - 僅將學生特徵向教師特徵方向移動一點點
-            guide_strength = 0.01  # 超低的指導強度
+            # 指導 - 輕度將學生特徵向教師特徵方向移動
+            guide_strength = 0.05  # 適度增加指導強度
             target = s_selected + guide_strength * (t_selected - s_selected)
             
             # 計算這些通道的損失
@@ -892,13 +888,12 @@ class DistillationLoss:
         loss_selective = selected_loss.mean()
         
         # 5. 安全檢查 - 確保學生模型不會過度偏離原始特徵
-        # 計算當前學生特徵與原始特徵的差異
         drift = F.mse_loss(s_flat, o_flat)
         
-        # 設置最大允許偏移閾值 - 非常小以避免破壞模型
-        max_allowed_drift = 0.0005  # 進一步降低允許的漂移
+        # 略微放寬允許的漂移閾值
+        max_allowed_drift = 0.001  
         
-        # 如果偏移太大，減少損失
+        # 如果漂移太大，減少損失
         if drift > max_allowed_drift:
             safety_factor = max_allowed_drift / (drift + 1e-10)
             final_loss = loss_selective * safety_factor
@@ -906,17 +901,16 @@ class DistillationLoss:
         else:
             final_loss = loss_selective
         
-        # 6. 懲罰過度偏離原始特徵的行為
+        # 6. 知識保留懲罰
         # 計算教師特徵與原始學生特徵的相似度
         t_o_sim = torch.bmm(t_norm, o_norm.transpose(1, 2))
         t_o_diag_sim = t_o_sim[:, diag_indices, diag_indices]  # [B, 256]
         
-        # 只在原始學生特徵和教師特徵不相似的區域應用蒸餾
-        # 對於已經相似的區域，保留原始特徵
-        similarity_threshold = 0.8
+        # 找出教師和原始學生已經相似的通道
+        similarity_threshold = 0.85  # 提高閾值，更嚴格地定義"已相似"
         high_sim_mask = (t_o_diag_sim > similarity_threshold).float()  # [B, 256]
         
-        # 如果通道已經相似，增加保持原始特徵的懲罰
+        # 計算保留損失
         preservation_loss = 0
         if high_sim_mask.sum() > 0:
             for b in range(batch_size):
@@ -929,18 +923,61 @@ class DistillationLoss:
         if high_sim_mask.sum() > 0:
             preservation_loss = preservation_loss / batch_size
             
-            # 對原本已經好的部分施加強大的保留懲罰
-            preservation_weight = 0.9
+            # 適度降低保留懲罰權重
+            preservation_weight = 0.8  # 從0.9降低到0.8
             final_loss = (1 - preservation_weight) * final_loss + preservation_weight * preservation_loss
             
             LOGGER.info(f"應用特徵保留懲罰, 權重: {preservation_weight:.2f}, 已相似通道比例: {high_sim_mask.mean().item()*100:.2f}%")
         
+        # 7. 增加空間注意力指導
+        # 針對高激活區域進行輕微指導
+        s_spatial = torch.sum(student_feature**2, dim=1)  # [B, H, W]
+        t_spatial = torch.sum(t_selected**2, dim=1)  # [B, H, W]
+        
+        # 標準化空間注意力
+        s_spatial_norm = (s_spatial - s_spatial.min(dim=1, keepdim=True)[0].min(dim=2, keepdim=True)[0]) / \
+                        (s_spatial.max(dim=1, keepdim=True)[0].max(dim=2, keepdim=True)[0] - 
+                        s_spatial.min(dim=1, keepdim=True)[0].min(dim=2, keepdim=True)[0] + 1e-10)
+        
+        t_spatial_norm = (t_spatial - t_spatial.min(dim=1, keepdim=True)[0].min(dim=2, keepdim=True)[0]) / \
+                        (t_spatial.max(dim=1, keepdim=True)[0].max(dim=2, keepdim=True)[0] - 
+                        t_spatial.min(dim=1, keepdim=True)[0].min(dim=2, keepdim=True)[0] + 1e-10)
+        
+        # 識別教師模型中的高激活區域
+        activation_threshold = 0.7  
+        mask = (t_spatial_norm > activation_threshold).float()
+        
+        # 確保至少有5%的區域被選中
+        coverage = mask.mean()
+        if coverage < 0.05:
+            k = int(0.05 * mask.shape[1] * mask.shape[2])
+            for b in range(batch_size):
+                values, _ = torch.topk(t_spatial_norm[b].reshape(-1), k)
+                mask[b] = (t_spatial_norm[b] > values[-1]).float()
+        
+        # 輕微空間注意力指導
+        if mask.mean() > 0:
+            spatial_guide_strength = 0.05
+            spatial_target = s_spatial_norm + spatial_guide_strength * (t_spatial_norm - s_spatial_norm)
+            
+            # 只在高激活區域應用指導
+            masked_spatial_loss = F.mse_loss(
+                s_spatial_norm * mask, 
+                spatial_target * mask
+            ) / (mask.mean() + 1e-10)
+            
+            # 添加到總損失，使用非常小的權重
+            spatial_weight = 0.05
+            final_loss = (1 - spatial_weight) * final_loss + spatial_weight * masked_spatial_loss
+            LOGGER.info(f"  高激活空間指導: {masked_spatial_loss.item():.6f} (權重: {spatial_weight:.2f})")
+            LOGGER.info(f"  高激活區域覆蓋率: {mask.mean().item()*100:.2f}%")
+        
         # 記錄日誌
-        LOGGER.info(f"P5層超保守蒸餾損失詳情:")
+        LOGGER.info(f"P5層適度保守蒸餾損失詳情:")
         LOGGER.info(f"  選擇性通道損失: {loss_selective.item():.6f}")
         LOGGER.info(f"  特徵漂移: {drift.item():.6f}")
-        LOGGER.info(f"  改進通道數量: {k} (10%的總通道)")
-        LOGGER.info(f"  指導強度: 0.01 (超輕度)")
+        LOGGER.info(f"  改進通道數量: {k} (20%的總通道)")
+        LOGGER.info(f"  指導強度: 0.05 (輕度)")
         if high_sim_mask.sum() > 0:
             LOGGER.info(f"  特徵保留損失: {preservation_loss.item():.6f}")
         LOGGER.info(f"  總損失: {final_loss.item():.6f}")
