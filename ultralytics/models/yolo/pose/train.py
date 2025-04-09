@@ -112,16 +112,43 @@ class PoseTrainer(yolo.detect.DetectionTrainer):
         teacher_bns = [m for m in teacher_model.modules() if isinstance(m, nn.BatchNorm2d)]
         student_bns = [m for m in student_model.modules() if isinstance(m, nn.BatchNorm2d)]
         
-        # 確保兩個模型的BN層數量相同
-        assert len(teacher_bns) == len(student_bns), f"BN層數量不匹配: 教師({len(teacher_bns)}) vs 學生({len(student_bns)})"
+        # 記錄兩個模型的BN層數量
+        LOGGER.info(f"BN層數量: 教師({len(teacher_bns)}), 學生({len(student_bns)})")
         
-        # 計算所有BN層統計數據的差異
+        # 創建兩個列表存儲BN層的大小信息
+        teacher_bn_sizes = [bn.num_features for bn in teacher_bns]
+        student_bn_sizes = [bn.num_features for bn in student_bns]
+        
+        # 只比較大小相同的BN層
+        comparable_bns = []
+        for i, (t_bn, s_bn) in enumerate(zip(teacher_bns, student_bns)):
+            if t_bn.num_features == s_bn.num_features:
+                comparable_bns.append((i, t_bn, s_bn))
+        
+        LOGGER.info(f"可比較的BN層數量: {len(comparable_bns)}/{min(len(teacher_bns), len(student_bns))}")
+        
+        if not comparable_bns:
+            LOGGER.warning("沒有可比較的BN層，跳過統計數據比較")
+            return {
+                'avg_mean_diff': 0,
+                'avg_var_diff': 0,
+                'avg_mean_rel_diff': 0,
+                'avg_var_rel_diff': 0,
+                'max_mean_diff': 0,
+                'max_var_diff': 0,
+                'max_mean_rel_diff': 0, 
+                'max_var_rel_diff': 0,
+                'mean_diffs': [],
+                'var_diffs': []
+            }
+        
+        # 計算所有可比較BN層統計數據的差異
         mean_diffs = []
         var_diffs = []
         mean_rel_diffs = []  # 相對差異
         var_rel_diffs = []   # 相對差異
         
-        for i, (t_bn, s_bn) in enumerate(zip(teacher_bns, student_bns)):
+        for idx, t_bn, s_bn in comparable_bns:
             # 計算絕對差異
             mean_diff = (t_bn.running_mean - s_bn.running_mean).abs().mean().item()
             var_diff = (t_bn.running_var - s_bn.running_var).abs().mean().item()
@@ -139,20 +166,20 @@ class PoseTrainer(yolo.detect.DetectionTrainer):
             var_rel_diffs.append(var_rel_diff)
         
         # 計算總體統計數據
-        avg_mean_diff = sum(mean_diffs) / len(mean_diffs)
-        avg_var_diff = sum(var_diffs) / len(var_diffs)
-        avg_mean_rel_diff = sum(mean_rel_diffs) / len(mean_rel_diffs)
-        avg_var_rel_diff = sum(var_rel_diffs) / len(var_rel_diffs)
+        avg_mean_diff = sum(mean_diffs) / len(mean_diffs) if mean_diffs else 0
+        avg_var_diff = sum(var_diffs) / len(var_diffs) if var_diffs else 0
+        avg_mean_rel_diff = sum(mean_rel_diffs) / len(mean_rel_diffs) if mean_rel_diffs else 0
+        avg_var_rel_diff = sum(var_rel_diffs) / len(var_rel_diffs) if var_rel_diffs else 0
         
-        max_mean_diff = max(mean_diffs)
-        max_var_diff = max(var_diffs)
-        max_mean_rel_diff = max(mean_rel_diffs)
-        max_var_rel_diff = max(var_rel_diffs)
+        max_mean_diff = max(mean_diffs) if mean_diffs else 0
+        max_var_diff = max(var_diffs) if var_diffs else 0
+        max_mean_rel_diff = max(mean_rel_diffs) if mean_rel_diffs else 0
+        max_var_rel_diff = max(var_rel_diffs) if var_rel_diffs else 0
         
         # 打印總體統計數據
         LOGGER.info("=" * 50)
         LOGGER.info("BatchNorm層統計數據比較:")
-        LOGGER.info(f"總計比較了 {len(teacher_bns)} 個BN層")
+        LOGGER.info(f"總計比較了 {len(comparable_bns)} 個BN層")
         LOGGER.info(f"平均絕對差異 - 均值: {avg_mean_diff:.6f}, 方差: {avg_var_diff:.6f}")
         LOGGER.info(f"平均相對差異 - 均值: {avg_mean_rel_diff:.2%}, 方差: {avg_var_rel_diff:.2%}")
         LOGGER.info(f"最大絕對差異 - 均值: {max_mean_diff:.6f}, 方差: {max_var_diff:.6f}")
@@ -164,8 +191,8 @@ class PoseTrainer(yolo.detect.DetectionTrainer):
         
         # 選擇一些有代表性的層(前幾層、中間幾層、後幾層)
         sample_indices = []
-        if len(teacher_bns) <= sample_layers:
-            sample_indices = list(range(len(teacher_bns)))
+        if len(comparable_bns) <= sample_layers:
+            sample_indices = list(range(len(comparable_bns)))
         else:
             # 選擇前幾層、中間幾層和後幾層
             front = sample_layers // 3
@@ -173,29 +200,29 @@ class PoseTrainer(yolo.detect.DetectionTrainer):
             back = sample_layers - front - middle
             
             sample_indices = list(range(front))
-            sample_indices += list(range(len(teacher_bns)//2 - middle//2, len(teacher_bns)//2 + middle//2 + middle%2))
-            sample_indices += list(range(len(teacher_bns) - back, len(teacher_bns)))
+            sample_indices += list(range(len(comparable_bns)//2 - middle//2, len(comparable_bns)//2 + middle//2 + middle%2))
+            sample_indices += list(range(len(comparable_bns) - back, len(comparable_bns)))
         
         for i in sample_indices:
-            t_bn = teacher_bns[i]
-            s_bn = student_bns[i]
-            
-            # 計算基本統計數據
-            t_mean = t_bn.running_mean.mean().item()
-            t_var = t_bn.running_var.mean().item()
-            s_mean = s_bn.running_mean.mean().item()
-            s_var = s_bn.running_var.mean().item()
-            
-            mean_diff = mean_diffs[i]
-            var_diff = var_diffs[i]
-            mean_rel_diff = mean_rel_diffs[i]
-            var_rel_diff = var_rel_diffs[i]
-            
-            LOGGER.info(f"BN層 {i}:")
-            LOGGER.info(f"  教師 - 均值: {t_mean:.6f}, 方差: {t_var:.6f}")
-            LOGGER.info(f"  學生 - 均值: {s_mean:.6f}, 方差: {s_var:.6f}")
-            LOGGER.info(f"  絕對差異 - 均值: {mean_diff:.6f}, 方差: {var_diff:.6f}")
-            LOGGER.info(f"  相對差異 - 均值: {mean_rel_diff:.2%}, 方差: {var_rel_diff:.2%}")
+            if i < len(comparable_bns):
+                idx, t_bn, s_bn = comparable_bns[i]
+                
+                # 計算基本統計數據
+                t_mean = t_bn.running_mean.mean().item()
+                t_var = t_bn.running_var.mean().item()
+                s_mean = s_bn.running_mean.mean().item()
+                s_var = s_bn.running_var.mean().item()
+                
+                mean_diff = mean_diffs[i]
+                var_diff = var_diffs[i]
+                mean_rel_diff = mean_rel_diffs[i]
+                var_rel_diff = var_rel_diffs[i]
+                
+                LOGGER.info(f"BN層 {idx} (特徵數: {t_bn.num_features}):")
+                LOGGER.info(f"  教師 - 均值: {t_mean:.6f}, 方差: {t_var:.6f}")
+                LOGGER.info(f"  學生 - 均值: {s_mean:.6f}, 方差: {s_var:.6f}")
+                LOGGER.info(f"  絕對差異 - 均值: {mean_diff:.6f}, 方差: {var_diff:.6f}")
+                LOGGER.info(f"  相對差異 - 均值: {mean_rel_diff:.2%}, 方差: {var_rel_diff:.2%}")
         
         LOGGER.info("=" * 50)
         
