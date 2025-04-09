@@ -823,12 +823,7 @@ class DistillationLoss:
 
     def p5_feature_distillation(self, student_feature, teacher_feature):
         """
-        專門為YOLO11-pose P5層(層22的cv2.conv)設計的蒸餾方法
-        
-        P5層特點:
-        - 低分辨率特徵圖
-        - 捕捉整體姿勢結構和身體方向
-        - 對關鍵點之間的關係編碼
+        專門為YOLO11-pose P5層設計的蒸餾方法，使用CWD(通道注意力蒸餾)處理不同通道數
         
         Args:
             student_feature: 學生模型特徵圖 [B, 256, H, W]
@@ -839,8 +834,8 @@ class DistillationLoss:
         """
         # 獲取批次大小和特徵維度
         batch_size = student_feature.shape[0]
-        student_channels = student_feature.shape[1]  # 應該是256
-        teacher_channels = teacher_feature.shape[1]  # 應該是512
+        student_channels = student_feature.shape[1]  # 256
+        teacher_channels = teacher_feature.shape[1]  # 512
         
         # 確保空間維度相同
         if student_feature.shape[2:] != teacher_feature.shape[2:]:
@@ -851,112 +846,166 @@ class DistillationLoss:
                 align_corners=False
             )
         
-        # 1. 結構相關性損失 - 適合P5層的主要功能
-        # 這捕捉了全身姿勢結構的關係性特徵
-        
-        # 將特徵展平為空間位置
+        # 1. CWD通道注意力蒸餾 - 專門處理不同通道數
+        # 計算通道注意力圖 (論文中的Mc)
         s_flat = student_feature.reshape(batch_size, student_channels, -1)  # [B, 256, H*W]
         t_flat = teacher_feature.reshape(batch_size, teacher_channels, -1)  # [B, 512, H*W]
         
-        # 計算特徵的空間相關性
-        s_corr = torch.bmm(s_flat, s_flat.transpose(1, 2))  # [B, 256, 256]
-        t_corr = torch.bmm(t_flat, t_flat.transpose(1, 2))  # [B, 512, 512]
+        # 通道間相關性矩陣
+        s_channel_mean = torch.mean(s_flat, dim=2)  # [B, 256]
+        t_channel_mean = torch.mean(t_flat, dim=2)  # [B, 512]
         
-        # 由於通道數不同，我們需要將教師模型的相關性矩陣投影到學生模型的維度
-        # 方法1: 使用主要奇異值
-        if hasattr(torch, 'linalg') and hasattr(torch.linalg, 'svd'):
-            # 使用SVD將教師相關性降至學生維度
-            try:
-                # 計算教師相關性的SVD
-                U, S, Vh = torch.linalg.svd(t_corr)
-                # 取前student_channels個奇異值/向量
-                U_reduced = U[:, :, :student_channels]
-                S_reduced = S[:, :student_channels]
-                Vh_reduced = Vh[:, :student_channels, :]
-                
-                # 重建降維後的教師相關性
-                t_corr_reduced = torch.bmm(torch.bmm(U_reduced, torch.diag_embed(S_reduced)), Vh_reduced)
-                
-                # 計算結構相關性損失
-                structure_loss = F.mse_loss(s_corr, t_corr_reduced)
-            except Exception as e:
-                # 如果SVD失敗，退回到簡單的尺寸裁剪
-                LOGGER.warning(f"SVD降維失敗: {e}，使用簡單裁剪")
-                t_corr_simple = t_corr[:, :student_channels, :student_channels]
-                structure_loss = F.mse_loss(s_corr, t_corr_simple)
-        else:
-            # 如果不支持SVD，使用簡單裁剪
-            t_corr_simple = t_corr[:, :student_channels, :student_channels]
-            structure_loss = F.mse_loss(s_corr, t_corr_simple)
+        # 標準化通道特徵以計算餘弦相似度
+        s_norm = F.normalize(s_channel_mean, p=2, dim=1)  # [B, 256]
+        t_norm = F.normalize(t_channel_mean, p=2, dim=1)  # [B, 512]
         
-        # 2. 姿勢感知注意力損失 - 捕捉關鍵點注意力
+        # 計算相似性矩陣 - CWD的核心
+        # 生成兩個模型的通道相似度矩陣
+        similarity_matrix = torch.matmul(s_norm.unsqueeze(2), t_norm.unsqueeze(1))  # [B, 256, 512]
         
-        # 計算空間注意力圖
-        s_attn = torch.mean(student_feature, dim=1, keepdim=True)  # [B, 1, H, W]
-        t_attn = torch.mean(teacher_feature, dim=1, keepdim=True)  # [B, 1, H, W]
+        # 獲取最佳匹配 - 為每個學生通道找到最匹配的教師通道
+        # 在教師通道維度上找最大值
+        student_to_teacher_sim, _ = similarity_matrix.max(dim=2)  # [B, 256]
         
-        # 標準化注意力圖以便更好比較
-        s_attn = F.normalize(s_attn.view(batch_size, -1), p=2, dim=1).view_as(s_attn)
-        t_attn = F.normalize(t_attn.view(batch_size, -1), p=2, dim=1).view_as(t_attn)
+        # 在學生通道維度上找最大值
+        teacher_to_student_sim, _ = similarity_matrix.max(dim=1)  # [B, 512]
         
-        # 計算注意力損失
-        attention_loss = F.mse_loss(s_attn, t_attn)
+        # 計算CWD損失 - 鼓勵雙向匹配
+        # 學生通道應該至少有一個高匹配的教師通道
+        cwd_loss_s2t = 1.0 - student_to_teacher_sim.mean()
         
-        # 3. 全局姿勢編碼損失 - 特別重要的P5層功能
+        # 教師通道的前256個應該至少有一個高匹配的學生通道
+        # 只考慮前256個教師通道，這對應於更重要的特徵
+        cwd_loss_t2s = 1.0 - teacher_to_student_sim[:, :student_channels].mean()
         
-        # 計算全局姿勢特徵 (直接使用平均池化)
-        s_global = F.adaptive_avg_pool2d(student_feature, 1).view(batch_size, -1)  # [B, 256]
-        t_global = F.adaptive_avg_pool2d(teacher_feature, 1).view(batch_size, -1)  # [B, 512]
+        # 通道注意力損失
+        cwd_loss = (cwd_loss_s2t + cwd_loss_t2s) * 0.5
         
-        # 投影教師的全局特徵到學生的維度
-        if not hasattr(self, 'global_projector'):
-            # 創建簡單的線性投影層 (僅首次使用時)
-            self.global_projector = nn.Linear(teacher_channels, student_channels).to(student_feature.device)
-            # 使用正交初始化
-            nn.init.orthogonal_(self.global_projector.weight)
+        # 2. 空間注意力損失 - 跨所有通道的注意力
+        s_spatial = torch.mean(student_feature, dim=1)  # [B, H, W]
+        t_spatial = torch.mean(teacher_feature, dim=1)  # [B, H, W]
         
-        # 投影教師全局特徵
-        t_global_proj = self.global_projector(t_global)
+        # 標準化空間注意力圖
+        s_spatial = F.normalize(s_spatial.reshape(batch_size, -1), p=2, dim=1).reshape(batch_size, *s_spatial.shape[1:])
+        t_spatial = F.normalize(t_spatial.reshape(batch_size, -1), p=2, dim=1).reshape(batch_size, *t_spatial.shape[1:])
         
-        # 全局特徵損失
-        global_loss = F.mse_loss(F.normalize(s_global, p=2, dim=1), 
-                                F.normalize(t_global_proj, p=2, dim=1))
+        # 空間注意力損失
+        spatial_loss = F.mse_loss(s_spatial, t_spatial)
+        
+        # 3. 姿勢特定結構損失
+        # 3.1 姿勢關鍵點預測特徵保持
+        # 使用高激活區域作為潛在關鍵點
+        # 找出高激活值的位置(可能的關鍵點)
+        s_keypoints = (s_spatial > s_spatial.mean() + 0.5 * s_spatial.std()).float()
+        t_keypoints = (t_spatial > t_spatial.mean() + 0.5 * t_spatial.std()).float()
+        
+        # 關鍵點位置的損失，只在可能的關鍵點位置計算
+        # 使用遮罩確保只關注這些位置
+        keypoint_mask = (s_keypoints + t_keypoints).clamp(0, 1)
+        keypoint_loss = F.mse_loss(s_spatial * keypoint_mask, t_spatial * keypoint_mask) * 2.0
+        
+        # A.2. 全局姿勢結構保持
+        # 使用教師模型通道注意力引導學生模型
+        
+        # 計算教師模型通道間的相關性
+        # 只取前k個最重要的通道，我們假設它們包含最關鍵的姿勢信息
+        k = min(128, student_channels)  # 取最多128個通道或全部學生通道
+        
+        # 獲取教師模型最重要的通道
+        t_importance = torch.norm(t_flat, p=2, dim=2)  # [B, 512] 計算每個通道的L2範數
+        _, top_t_indices = torch.topk(t_importance, k, dim=1)  # [B, k]
+        
+        # 為每個批次樣本，收集最重要的通道
+        t_important = []
+        for b in range(batch_size):
+            t_important.append(t_flat[b, top_t_indices[b]])  # [k, H*W]
+        t_important = torch.stack(t_important)  # [B, k, H*W]
+        
+        # 計算學生模型對應的注意力分佈
+        s_importance = torch.norm(s_flat, p=2, dim=2)  # [B, 256]
+        _, top_s_indices = torch.topk(s_importance, k, dim=1)  # [B, k]
+        
+        s_important = []
+        for b in range(batch_size):
+            s_important.append(s_flat[b, top_s_indices[b]])  # [k, H*W]
+        s_important = torch.stack(s_important)  # [B, k, H*W]
+        
+        # 計算重要通道間的相關性
+        s_imp_norm = F.normalize(s_important, p=2, dim=2)  # [B, k, H*W]
+        t_imp_norm = F.normalize(t_important, p=2, dim=2)  # [B, k, H*W]
+        
+        s_relation = torch.bmm(s_imp_norm, s_imp_norm.transpose(1, 2))  # [B, k, k]
+        t_relation = torch.bmm(t_imp_norm, t_imp_norm.transpose(1, 2))  # [B, k, k]
+        
+        # 標準化相關性矩陣
+        s_relation = F.normalize(s_relation, p='fro', dim=(1,2))
+        t_relation = F.normalize(t_relation, p='fro', dim=(1,2))
+        
+        # 結構相關性損失
+        structure_loss = F.mse_loss(s_relation, t_relation)
         
         # 4. 姿勢結構分布損失 - 統計特性匹配
+        # 為P5層特別關注通道統計分布，因為它們包含整體姿勢信息
         
-        # 計算每個通道的統計分布
-        s_mean = student_feature.mean(dim=[2, 3])  # [B, 256]
-        t_mean = teacher_feature.mean(dim=[2, 3])  # [B, 512]
-        s_var = student_feature.var(dim=[2, 3])    # [B, 256]
-        t_var = teacher_feature.var(dim=[2, 3])    # [B, 512]
+        # 使用教師模型重要性引導學生模型
+        # 使用CWD相似度矩陣計算通道匹配
+        # 為每個學生通道找到最匹配的教師通道
+        _, best_teacher_match = similarity_matrix.max(dim=2)  # [B, 256]
         
-        # 簡單裁剪教師統計量
-        t_mean_clip = t_mean[:, :student_channels]
-        t_var_clip = t_var[:, :student_channels]
+        # 獲取匹配的教師通道統計量
+        t_matched_means = []
+        t_matched_vars = []
+        
+        for b in range(batch_size):
+            # 獲取當前批次的匹配教師通道
+            matched_indices = best_teacher_match[b]  # [256]
+            # 獲取教師特徵的統計量
+            t_means = teacher_feature[b].mean(dim=[1, 2])  # [512]
+            t_vars = teacher_feature[b].var(dim=[1, 2])  # [512]
+            # 收集匹配的統計量
+            t_matched_means.append(t_means[matched_indices])  # [256]
+            t_matched_vars.append(t_vars[matched_indices])  # [256]
+        
+        t_matched_means = torch.stack(t_matched_means)  # [B, 256]
+        t_matched_vars = torch.stack(t_matched_vars)  # [B, 256]
+        
+        # 學生特徵的統計量
+        s_means = student_feature.mean(dim=[2, 3])  # [B, 256]
+        s_vars = student_feature.var(dim=[2, 3])  # [B, 256]
+        
+        # 標準化均值和方差
+        s_means = F.normalize(s_means, p=2, dim=1)
+        t_matched_means = F.normalize(t_matched_means, p=2, dim=1)
+        
+        # 處理方差 (使用對數變換處理小值)
+        s_vars_safe = torch.log(s_vars + 1e-6)
+        t_vars_safe = torch.log(t_matched_vars + 1e-6)
         
         # 統計匹配損失
-        stats_loss = (F.mse_loss(s_mean, t_mean_clip) + 
-                    F.mse_loss(s_var, t_var_clip)) * 0.5
+        stats_loss = (F.mse_loss(s_means, t_matched_means) + 
+                    F.mse_loss(s_vars_safe, t_vars_safe)) * 0.5
         
-        # 針對P5層的權重配置
-        # P5層主要關注整體結構，較少關注細節
-        structure_weight = 0.4    # 結構相關性是P5層的核心
-        attention_weight = 0.2    # 注意力在P5層中等重要
-        global_weight = 0.3       # 全局姿勢特徵對P5非常重要
-        stats_weight = 0.1        # 統計特性較不重要
+        # 權重配置 - 針對P5層的特點
+        cwd_weight = 0.25       # 通道匹配權重
+        spatial_weight = 0.20   # 空間注意力權重
+        keypoint_weight = 0.15  # 關鍵點位置權重
+        structure_weight = 0.25 # 結構相關性權重
+        stats_weight = 0.15     # 統計匹配權重
         
         # 組合損失
-        total_loss = (structure_weight * structure_loss + 
-                    attention_weight * attention_loss + 
-                    global_weight * global_loss + 
+        total_loss = (cwd_weight * cwd_loss + 
+                    spatial_weight * spatial_loss + 
+                    keypoint_weight * keypoint_loss + 
+                    structure_weight * structure_loss + 
                     stats_weight * stats_loss)
         
         # 記錄詳細損失
-        LOGGER.info(f"P5層蒸餾損失詳情:")
+        LOGGER.info(f"P5層蒸餾損失詳情 (使用CWD):")
+        LOGGER.info(f"  CWD通道匹配損失: {cwd_loss.item():.6f} (權重: {cwd_weight})")
+        LOGGER.info(f"  空間注意力損失: {spatial_loss.item():.6f} (權重: {spatial_weight})")
+        LOGGER.info(f"  關鍵點位置損失: {keypoint_loss.item():.6f} (權重: {keypoint_weight})")
         LOGGER.info(f"  結構相關性損失: {structure_loss.item():.6f} (權重: {structure_weight})")
-        LOGGER.info(f"  注意力損失: {attention_loss.item():.6f} (權重: {attention_weight})")
-        LOGGER.info(f"  全局姿勢損失: {global_loss.item():.6f} (權重: {global_weight})")
-        LOGGER.info(f"  統計分布損失: {stats_loss.item():.6f} (權重: {stats_weight})")
+        LOGGER.info(f"  統計匹配損失: {stats_loss.item():.6f} (權重: {stats_weight})")
         LOGGER.info(f"  總P5損失: {total_loss.item():.6f}")
         
         return total_loss
