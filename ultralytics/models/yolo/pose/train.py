@@ -213,6 +213,103 @@ class PoseTrainer(yolo.detect.DetectionTrainer):
             'var_diffs': var_diffs
         }
     
+    def verify_initial_model_state(self):
+        """在訓練開始前驗證教師和學生模型的初始狀態"""
+        LOGGER.info("=" * 50)
+        LOGGER.info("驗證教師和學生模型的初始狀態")
+        
+        # 1. 比較模型參數
+        teacher_params = {name: param.clone() for name, param in self.teacher.named_parameters()}
+        student_params = {name: param.clone() for name, param in self.model.named_parameters()}
+        
+        param_diffs = []
+        for name in teacher_params:
+            if name in student_params:
+                diff = (teacher_params[name] - student_params[name]).abs().max().item()
+                param_diffs.append((name, diff))
+        
+        max_param_diff = max(param_diffs, key=lambda x: x[1]) if param_diffs else (None, 0)
+        LOGGER.info(f"參數最大差異: {max_param_diff[1]:.10f} (在層 {max_param_diff[0]})")
+        
+        # 2. 比較模型前向傳播 (使用相同輸入)
+        # 準備固定的測試輸入
+        test_input = torch.rand(1, 3, 640, 640, device=self.device)
+        
+        # 保存教師和學生的當前模式
+        teacher_training = self.teacher.training
+        student_training = self.model.training
+        
+        # 設置兩個模型為評估模式
+        self.teacher.eval()
+        self.model.eval()
+        
+        # 收集中間特徵
+        teacher_features = []
+        student_features = []
+        teacher_hooks = []
+        student_hooks = []
+        
+        # 定義特徵收集函數
+        def hook_fn(features_list):
+            return lambda module, input, output: features_list.append(output.detach())
+        
+        # 為特定層註冊hooks
+        for name, module in self.teacher.named_modules():
+            if "22.cv2" in name:  # 使用相同的蒸餾層
+                teacher_hooks.append(module.register_forward_hook(hook_fn(teacher_features)))
+        
+        for name, module in self.model.named_modules():
+            if "22.cv2" in name:  # 使用相同的蒸餾層
+                student_hooks.append(module.register_forward_hook(hook_fn(student_features)))
+        
+        # 執行前向傳播
+        with torch.no_grad():
+            teacher_output = self.teacher(test_input)
+            student_output = self.model(test_input)
+        
+        # 移除hooks
+        for hook in teacher_hooks + student_hooks:
+            hook.remove()
+        
+        # 比較最終輸出
+        if isinstance(teacher_output, torch.Tensor) and isinstance(student_output, torch.Tensor):
+            output_diff = (teacher_output - student_output).abs().max().item()
+            LOGGER.info(f"最終輸出最大差異: {output_diff:.10f}")
+        
+        # 比較中間特徵
+        for i, (t_feat, s_feat) in enumerate(zip(teacher_features, student_features)):
+            if isinstance(t_feat, torch.Tensor) and isinstance(s_feat, torch.Tensor):
+                feat_diff = (t_feat - s_feat).abs()
+                max_diff = feat_diff.max().item()
+                mean_diff = feat_diff.mean().item()
+                std_diff = feat_diff.std().item()
+                
+                LOGGER.info(f"層 {i} 特徵差異統計:")
+                LOGGER.info(f"  最大差異: {max_diff:.10f}, 平均差異: {mean_diff:.10f}, 標準差: {std_diff:.10f}")
+        
+        # 恢復原始模式
+        self.teacher.train(teacher_training)
+        self.model.train(student_training)
+        
+        # 3. 特殊檢查 - 模型內部狀態
+        LOGGER.info("-" * 30)
+        LOGGER.info("檢查模型內部狀態:")
+        
+        # 檢查模型是否有相同的buffer (如BN層的running_mean/var)
+        teacher_buffers = {name: buf.clone() for name, buf in self.teacher.named_buffers()}
+        student_buffers = {name: buf.clone() for name, buf in self.model.named_buffers()}
+        
+        buffer_diffs = []
+        for name in teacher_buffers:
+            if name in student_buffers:
+                diff = (teacher_buffers[name] - student_buffers[name]).abs().max().item()
+                buffer_diffs.append((name, diff))
+        
+        max_buffer_diff = max(buffer_diffs, key=lambda x: x[1]) if buffer_diffs else (None, 0)
+        LOGGER.info(f"Buffer最大差異: {max_buffer_diff[1]:.10f} (在 {max_buffer_diff[0]})")
+        
+        LOGGER.info("=" * 50)
+    
     def freeze_bn_statistics(self, model):
         """凍結模型中所有BN層的統計量更新"""
         for m in model.modules():
@@ -240,6 +337,8 @@ class PoseTrainer(yolo.detect.DetectionTrainer):
         # 根據差異大小發出警告
         if bn_diff_stats['avg_mean_rel_diff'] > 0.5 or bn_diff_stats['avg_var_rel_diff'] > 0.5:
             LOGGER.warning("警告：BN層統計數據差異顯著，可能影響蒸餾效果!")
+
+        self.verify_initial_model_state()
 
         if self.epoch == 0:
             LOGGER.info("階段1: 純蒸餾")
