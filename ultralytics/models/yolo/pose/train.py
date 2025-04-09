@@ -348,34 +348,79 @@ class PoseTrainer(yolo.detect.DetectionTrainer):
         self.distill_loss_instance.remove_handle_()
         LOGGER.debug("Ensuring distillation hooks are removed for validation")
 
+    def _get_performance_metric(self, validator):
+        """安全地获取性能指标"""
+        try:
+            # 记录验证器和度量对象信息
+            LOGGER.debug(f"验证器类型: {type(validator)}")
+            
+            # 尝试多种方式获取性能指标
+            if hasattr(validator, 'metrics'):
+                LOGGER.debug(f"度量对象类型: {type(validator.metrics)}")
+                
+                # 方法1: 从pose对象获取
+                if hasattr(validator.metrics, 'pose'):
+                    if hasattr(validator.metrics.pose, 'mp'):
+                        mp_value = validator.metrics.pose.mp
+                        if hasattr(mp_value, 'mean'):
+                            return float(mp_value.mean())
+                        elif isinstance(mp_value, (float, int)):
+                            return float(mp_value)
+                
+                # 方法2: 从fitness属性获取
+                if hasattr(validator.metrics, 'fitness'):
+                    return float(validator.metrics.fitness)
+                
+                # 方法3: 尝试从results_dict获取
+                if hasattr(validator.metrics, 'results_dict'):
+                    results = validator.metrics.results_dict
+                    if 'metrics/mAP50-95(P)' in results:
+                        return results['metrics/mAP50-95(P)']
+            
+            # 如果找不到任何指标，记录警告
+            LOGGER.warning("无法找到有效的性能指标")
+            return 0.01
+            
+        except Exception as e:
+            LOGGER.error(f"获取性能指标时出错: {e}")
+            return 0.01
+
     def distill_on_val_end(self, validator):
         """验证结束回调，用于监控性能并调整蒸馏强度"""
-        # 获取当前姿态性能
-        current_performance = validator.metrics.get('metrics/mAP50-95(P)', 0)
-        
-        # 监控性能变化
-        if hasattr(self, 'best_performance'):
-            if current_performance < 0.3 * self.best_performance:
-                # 性能下降超过70%，紧急干预
-                LOGGER.warning(f"性能严重下降! 从 {self.best_performance:.4f} 到 {current_performance:.4f}")
-                LOGGER.warning("紧急调整训练参数...")
-                
-                # 增强任务损失权重
-                self.model.args.pose *= 2.0  # 加倍姿态损失
-                self.model.args.box *= 1.5   # 增加边界框损失
-                
-                # 降低蒸馏权重
-                self.model.args.distill *= 0.3  # 大幅降低蒸馏权重
-                
-                # 降低学习率
-                for param_group in self.optimizer.param_groups:
-                    param_group['lr'] *= 0.5
+        try:
+            # 获取当前姿态性能
+            current_performance = self._get_performance_metric(validator)
+            LOGGER.info(f"当前性能指标: {current_performance:.4f}")
+            
+            # 监控性能变化
+            if hasattr(self, 'best_performance'):
+                if current_performance < 0.3 * self.best_performance:
+                    # 性能下降超过70%，紧急干预
+                    LOGGER.warning(f"性能严重下降! 从 {self.best_performance:.4f} 到 {current_performance:.4f}")
+                    LOGGER.warning("紧急调整训练参数...")
                     
-                LOGGER.warning(f"调整后参数: pose={self.model.args.pose}, distill={self.model.args.distill}")
-        else:
-            # 首次验证，记录基准性能
-            self.best_performance = current_performance
-            LOGGER.info(f"基准性能: mAP50-95(P)={current_performance:.4f}")
+                    # 增强任务损失权重
+                    self.model.args.pose = min(self.model.args.pose * 2.0, 1.0)  # 加倍姿态损失，最大为1.0
+                    self.model.args.box = min(self.model.args.box * 1.5, 1.0)    # 增加边界框损失，最大为1.0
+                    
+                    # 降低蒸馏权重
+                    self.model.args.distill = max(self.model.args.distill * 0.3, 0.05)  # 降低蒸馏权重，最小为0.05
+                    
+                    # 降低学习率
+                    for param_group in self.optimizer.param_groups:
+                        param_group['lr'] *= 0.5
+                        
+                    LOGGER.warning(f"调整后参数: pose={self.model.args.pose:.2f}, "
+                                f"distill={self.model.args.distill:.2f}, "
+                                f"lr={param_group['lr']:.6f}")
+            else:
+                # 首次验证，记录基准性能
+                self.best_performance = max(current_performance, 0.01)  # 确保至少有0.01作为基准
+                LOGGER.info(f"设置基准性能: {self.best_performance:.4f}")
+        
+        except Exception as e:
+            LOGGER.error(f"在验证结束回调中出错: {e}")
+
 
     def distill_on_train_end(self, trainer):
         self.distill_loss_instance.remove_handle_()
