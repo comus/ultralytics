@@ -67,36 +67,40 @@ student_model.train(
     data="coco-pose.yaml",
     teacher=teacher_model.model,
     
+    # 蒸餾設置
+    distillation_layers=["22"],  # 只蒸餾P5層
+    pure_distill=True,           # 純蒸餾
+    
     # 極度保守的學習設置
     optimizer="SGD",             # 使用更穩定的SGD優化器
-    lr0=0.00005,                 # 極低的學習率
-    lrf=0.2,                     # 快速降低學習率
+    lr0=0.00001,                 # 再次降低學習率
+    lrf=0.1,                     # 快速降低學習率
     momentum=0.9,                # 增加動量，更穩定的更新
-    weight_decay=0.0005,         # 較高的權重衰減，防止過擬合
+    weight_decay=0.0005,         # 保持較高的權重衰減
     
-    # 較短的訓練時間
-    epochs=5,                    # 只訓練5個epoch
+    # 更短的訓練時間
+    epochs=3,                    # 只訓練3個epoch
     cos_lr=True,                 # 余弦學習率調度
     
     # 較小的批次大小和數據集
     batch=32,                    # 較小的批次大小
     workers=8,
-    amp=False,                   # 關閉混合精度以獲得更穩定的結果
+    amp=False,                   # 關閉混合精度
     imgsz=640,
     cache="disk",
-    fraction=0.25,               # 只使用25%的數據
+    fraction=0.1,                # 只使用10%的數據
     
     # 驗證設置
     val=True,                    # 每個epoch驗證
     save_period=1,               # 每個epoch保存
-    patience=5,                  # 完整訓練
+    patience=3,                  # 完整訓練
     
     # 預熱設置
-    warmup_epochs=1,             # 更短的預熱
-    warmup_momentum=0.8,
-    warmup_bias_lr=0.01,
+    warmup_epochs=1,             # 預熱
+    warmup_momentum=0.5,
+    warmup_bias_lr=0.005,        # 降低預熱學習率
     
     # 輸出設置
     project="ultraconservative_distill",
-    name="yolo11n_pose_safe_distill",
+    name="yolo11n_pose_minimal_distill",
 )

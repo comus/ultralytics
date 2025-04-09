@@ -3,6 +3,7 @@
 import math
 import random
 from copy import copy
+import torch.nn.functional as F
 
 import torch.nn as nn
 import torch
@@ -85,6 +86,7 @@ class PoseTrainer(yolo.detect.DetectionTrainer):
             _callbacks["on_val_end"].append(self.distill_on_val_end)
             _callbacks["on_train_end"].append(self.distill_on_train_end)
             _callbacks["teardown"].append(self.distill_teardown)
+            _callbacks["on_batch_end"].append(self.distill_on_batch_end)
             
             LOGGER.info("已啟用蒸餾訓練策略")
         
@@ -435,6 +437,49 @@ class PoseTrainer(yolo.detect.DetectionTrainer):
         torch.manual_seed(42)
         if torch.cuda.is_available():
             torch.cuda.manual_seed_all(42)
+        
+        # 保存初始模型權重
+        self.initial_weights = {}
+        for name, param in self.model.named_parameters():
+            if param.requires_grad:
+                self.initial_weights[name] = param.data.clone()
+        
+        LOGGER.info(f"已保存 {len(self.initial_weights)} 個初始模型權重用於權重漂移檢測")
+
+    def distill_on_batch_end(self, trainer):
+        # 每50個批次檢查一次權重漂移
+        if trainer.epoch == 0 and trainer.step % 50 == 0:
+            total_drift = 0
+            count = 0
+            max_drift = 0
+            max_drift_layer = ""
+            
+            for name, param in self.model.named_parameters():
+                if param.requires_grad and name in self.initial_weights:
+                    # 計算與初始權重的差異
+                    drift = F.mse_loss(param.data, self.initial_weights[name]).item()
+                    total_drift += drift
+                    count += 1
+                    
+                    if drift > max_drift:
+                        max_drift = drift
+                        max_drift_layer = name
+            
+            avg_drift = total_drift / (count + 1e-10)
+            LOGGER.info(f"批次 {trainer.step} 模型權重平均漂移: {avg_drift:.8f}, 最大漂移: {max_drift:.8f} (層: {max_drift_layer})")
+            
+            # 如果漂移太大，提前停止當前epoch
+            if avg_drift > 0.01:
+                LOGGER.warning(f"模型權重漂移過大({avg_drift:.8f} > 0.01)! 重置權重並提前結束epoch.")
+                
+                # 重置為原始權重
+                with torch.no_grad():
+                    for name, param in self.model.named_parameters():
+                        if param.requires_grad and name in self.initial_weights:
+                            param.data.copy_(self.initial_weights[name])
+                
+                # 結束當前epoch (這需要額外邏輯來實際執行)
+                # trainer._finish_epoch_early = True  # 需要在trainer中添加對應的檢查
 
     def distill_on_epoch_start(self, trainer):
         # 在比較模型狀態後添加

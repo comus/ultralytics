@@ -896,7 +896,7 @@ class DistillationLoss:
         drift = F.mse_loss(s_flat, o_flat)
         
         # 設置最大允許偏移閾值 - 非常小以避免破壞模型
-        max_allowed_drift = 0.001
+        max_allowed_drift = 0.0005  # 進一步降低允許的漂移
         
         # 如果偏移太大，減少損失
         if drift > max_allowed_drift:
@@ -906,12 +906,43 @@ class DistillationLoss:
         else:
             final_loss = loss_selective
         
+        # 6. 懲罰過度偏離原始特徵的行為
+        # 計算教師特徵與原始學生特徵的相似度
+        t_o_sim = torch.bmm(t_norm, o_norm.transpose(1, 2))
+        t_o_diag_sim = t_o_sim[:, diag_indices, diag_indices]  # [B, 256]
+        
+        # 只在原始學生特徵和教師特徵不相似的區域應用蒸餾
+        # 對於已經相似的區域，保留原始特徵
+        similarity_threshold = 0.8
+        high_sim_mask = (t_o_diag_sim > similarity_threshold).float()  # [B, 256]
+        
+        # 如果通道已經相似，增加保持原始特徵的懲罰
+        preservation_loss = 0
+        if high_sim_mask.sum() > 0:
+            for b in range(batch_size):
+                high_sim_indices = high_sim_mask[b].nonzero().squeeze(-1)
+                if high_sim_indices.numel() > 0:
+                    o_high_sim = o_flat[b, high_sim_indices]
+                    s_high_sim = s_flat[b, high_sim_indices]
+                    preservation_loss += F.mse_loss(s_high_sim, o_high_sim)
+        
+        if high_sim_mask.sum() > 0:
+            preservation_loss = preservation_loss / batch_size
+            
+            # 對原本已經好的部分施加強大的保留懲罰
+            preservation_weight = 0.9
+            final_loss = (1 - preservation_weight) * final_loss + preservation_weight * preservation_loss
+            
+            LOGGER.info(f"應用特徵保留懲罰, 權重: {preservation_weight:.2f}, 已相似通道比例: {high_sim_mask.mean().item()*100:.2f}%")
+        
         # 記錄日誌
         LOGGER.info(f"P5層超保守蒸餾損失詳情:")
         LOGGER.info(f"  選擇性通道損失: {loss_selective.item():.6f}")
         LOGGER.info(f"  特徵漂移: {drift.item():.6f}")
         LOGGER.info(f"  改進通道數量: {k} (10%的總通道)")
         LOGGER.info(f"  指導強度: 0.01 (超輕度)")
+        if high_sim_mask.sum() > 0:
+            LOGGER.info(f"  特徵保留損失: {preservation_loss.item():.6f}")
         LOGGER.info(f"  總損失: {final_loss.item():.6f}")
         
         return final_loss
