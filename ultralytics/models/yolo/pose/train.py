@@ -107,7 +107,7 @@ class PoseTrainer(yolo.detect.DetectionTrainer):
             )
 
 
-    def compare_bn_statistics(teacher_model, student_model, sample_layers=10):
+    def compare_bn_statistics(self, teacher_model, student_model, sample_layers=10):
         """比較教師和學生模型的BN層統計數據"""
         teacher_bns = [m for m in teacher_model.modules() if isinstance(m, nn.BatchNorm2d)]
         student_bns = [m for m in student_model.modules() if isinstance(m, nn.BatchNorm2d)]
