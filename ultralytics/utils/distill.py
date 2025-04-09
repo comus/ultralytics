@@ -779,7 +779,7 @@ class DistillationLoss:
                         
                         if is_p5_layer:
                             LOGGER.info(f"對層 {i} 應用P5特化蒸餾方法")
-                            loss = self.p5_feature_distillation(s, t)
+                            loss = self.output_layer_distillation(s, t)
                         else:
                             # 對於其他形狀不同的層，使用通用通道自適應方法
                             LOGGER.info(f"對層 {i} 應用通用通道自適應蒸餾方法")
@@ -821,192 +821,93 @@ class DistillationLoss:
         
         return loss
 
-    def p5_feature_distillation(self, student_feature, teacher_feature):
+    def output_layer_distillation(self, student_feature, teacher_feature):
         """
-        適度保守型蒸餾方法，修正維度處理
+        針對姿態估計模型輸出層的專用蒸餾方法
+        適用於model.23.cv4.2.2層 (51通道)
         """
-        # 基本尺寸信息
-        batch_size = student_feature.shape[0]
-        student_channels = student_feature.shape[1]  # 256
-        spatial_size = student_feature.shape[2:]  # (H, W)
+        # 確保輸入形狀一致
+        assert student_feature.shape[1] == 51 and teacher_feature.shape[1] == 51, "通道數必須為51"
         
-        # 保存原始學生特徵作為參考
+        # 每3個通道一組，對應一個關鍵點
+        num_keypoints = 17
+        batch_size = student_feature.shape[0]
+        
+        # 提取原始學生特徵以監控漂移
         with torch.no_grad():
             original_student = student_feature.clone()
         
-        # 確保空間維度相同
-        if student_feature.shape[2:] != teacher_feature.shape[2:]:
-            teacher_feature = F.interpolate(
-                teacher_feature, 
-                size=student_feature.shape[2:],
-                mode='bilinear', 
-                align_corners=False
-            )
+        # 計算特徵漂移
+        drift = F.mse_loss(student_feature, original_student)
         
-        # 1. 通道維度壓縮
-        t_selected = teacher_feature[:, :student_channels]  # [B, 256, H, W]
+        # 安全閾值
+        max_allowed_drift = 0.002
         
-        # 2. 特徵相似度計算
-        s_flat = student_feature.reshape(batch_size, student_channels, -1)  # [B, 256, H*W]
-        t_flat = t_selected.reshape(batch_size, student_channels, -1)  # [B, 256, H*W]
-        o_flat = original_student.reshape(batch_size, student_channels, -1)  # [B, 256, H*W]
+        # 分離姿態特徵（每個關鍵點的x, y, confidence）
+        kpt_losses = []
         
-        # 標準化
-        s_norm = F.normalize(s_flat, p=2, dim=2)
-        t_norm = F.normalize(t_flat, p=2, dim=2)
-        o_norm = F.normalize(o_flat, p=2, dim=2)
-        
-        # 3. 通道相似度計算
-        channel_sim = torch.bmm(s_norm, t_norm.transpose(1, 2))  # [B, 256, 256]
-        diag_indices = torch.arange(student_channels, device=channel_sim.device)
-        channel_cos_sim = channel_sim[:, diag_indices, diag_indices]  # [B, 256]
-        
-        # 選擇相似度最低的20%通道
-        k = max(1, int(student_channels * 0.2))  # 增加到20%
-        _, bottom_indices = torch.topk(channel_cos_sim, k, dim=1, largest=False)  # [B, k]
-        
-        # 4. 蒸餾損失計算
-        selected_loss = torch.zeros(batch_size, device=student_feature.device)
-        
-        for b in range(batch_size):
-            # 獲取當前樣本最需要改進的通道
-            indices = bottom_indices[b]  # [k]
+        for kpt_idx in range(num_keypoints):
+            # 提取當前關鍵點的所有通道（x, y, confidence）
+            start_idx = kpt_idx * 3
+            end_idx = start_idx + 3
             
-            # 計算這些通道的特徵差異
-            s_selected = s_flat[b, indices]  # [k, H*W]
-            t_selected = t_flat[b, indices]  # [k, H*W]
+            # 提取學生和教師的關鍵點特徵
+            s_kpt = student_feature[:, start_idx:end_idx]
+            t_kpt = teacher_feature[:, start_idx:end_idx]
             
-            # 指導 - 輕度將學生特徵向教師特徵方向移動
-            guide_strength = 0.05  # 適度增加指導強度
-            target = s_selected + guide_strength * (t_selected - s_selected)
+            # 分離x, y, confidence
+            s_x = s_kpt[:, 0]
+            s_y = s_kpt[:, 1]
+            s_conf = s_kpt[:, 2]
             
-            # 計算這些通道的損失
-            channel_loss = F.mse_loss(s_selected, target)
-            selected_loss[b] = channel_loss
+            t_x = t_kpt[:, 0]
+            t_y = t_kpt[:, 1]
+            t_conf = t_kpt[:, 2]
+            
+            # 計算教師模型的置信度，用於加權
+            # 高置信度的關鍵點權重更高
+            weight = torch.sigmoid(t_conf).unsqueeze(1)  # 轉換為0-1範圍
+            
+            # 計算位置損失，加權置信度權重
+            # 只對教師高度確信的關鍵點進行強蒸餾
+            pos_loss = F.mse_loss(
+                torch.cat([s_x.unsqueeze(1), s_y.unsqueeze(1)], dim=1),
+                torch.cat([t_x.unsqueeze(1), t_y.unsqueeze(1)], dim=1),
+                reduction='none'
+            ) * weight
+            
+            # 置信度損失 - 輕微指導
+            # 使用較小的權重優化置信度
+            conf_loss = F.mse_loss(s_conf, t_conf, reduction='none') * 0.3
+            
+            # 綜合當前關鍵點的損失
+            kpt_loss = pos_loss.mean() + conf_loss.mean()
+            kpt_losses.append(kpt_loss)
         
-        # 平均損失
-        loss_selective = selected_loss.mean()
+        # 計算所有關鍵點的總損失
+        total_loss = sum(kpt_losses) / len(kpt_losses)
         
-        # 5. 安全檢查 - 確保學生模型不會過度偏離原始特徵
-        drift = F.mse_loss(s_flat, o_flat)
-        
-        # 略微放寬允許的漂移閾值
-        max_allowed_drift = 0.001  
-        
-        # 如果漂移太大，減少損失
+        # 安全機制：如果漂移太大，減小損失
         if drift > max_allowed_drift:
             safety_factor = max_allowed_drift / (drift + 1e-10)
-            final_loss = loss_selective * safety_factor
+            final_loss = total_loss * safety_factor
             LOGGER.warning(f"安全機制激活! 漂移={drift:.6f}, 安全係數={safety_factor:.6f}")
         else:
-            final_loss = loss_selective
+            final_loss = total_loss
         
-        # 6. 知識保留懲罰
-        # 計算教師特徵與原始學生特徵的相似度
-        t_o_sim = torch.bmm(t_norm, o_norm.transpose(1, 2))
-        t_o_diag_sim = t_o_sim[:, diag_indices, diag_indices]  # [B, 256]
-        
-        # 找出教師和原始學生已經相似的通道
-        similarity_threshold = 0.85  # 提高閾值，更嚴格地定義"已相似"
-        high_sim_mask = (t_o_diag_sim > similarity_threshold).float()  # [B, 256]
-        
-        # 計算保留損失
-        preservation_loss = 0
-        if high_sim_mask.sum() > 0:
-            for b in range(batch_size):
-                high_sim_indices = high_sim_mask[b].nonzero().squeeze(-1)
-                if high_sim_indices.numel() > 0:
-                    o_high_sim = o_flat[b, high_sim_indices]
-                    s_high_sim = s_flat[b, high_sim_indices]
-                    preservation_loss += F.mse_loss(s_high_sim, o_high_sim)
-        
-        if high_sim_mask.sum() > 0:
-            preservation_loss = preservation_loss / batch_size
-            
-            # 適度降低保留懲罰權重
-            preservation_weight = 0.8  # 從0.9降低到0.8
-            final_loss = (1 - preservation_weight) * final_loss + preservation_weight * preservation_loss
-            
-            LOGGER.info(f"應用特徵保留懲罰, 權重: {preservation_weight:.2f}, 已相似通道比例: {high_sim_mask.mean().item()*100:.2f}%")
-        
-        # 7. 安全地添加空間注意力指導
-        try:
-            # 首先檢查特徵是否有足夠的空間維度
-            if len(student_feature.shape) >= 4 and student_feature.shape[2] > 1 and student_feature.shape[3] > 1:
-                # 計算空間注意力 (平方和)
-                s_spatial = torch.sum(student_feature**2, dim=1)  # [B, H, W]
-                t_spatial = torch.sum(t_selected**2, dim=1)  # [B, H, W]
-                
-                # 檢查形狀
-                LOGGER.debug(f"空間注意力形狀: 學生 {s_spatial.shape}, 教師 {t_spatial.shape}")
-                
-                # 標準化空間注意力 (每個批次樣本單獨處理)
-                s_spatial_norm = torch.zeros_like(s_spatial)
-                t_spatial_norm = torch.zeros_like(t_spatial)
-                
-                for b in range(batch_size):
-                    # 學生空間注意力標準化
-                    s_min = s_spatial[b].min()
-                    s_max = s_spatial[b].max()
-                    if s_max > s_min:  # 避免除以零
-                        s_spatial_norm[b] = (s_spatial[b] - s_min) / (s_max - s_min + 1e-10)
-                    
-                    # 教師空間注意力標準化
-                    t_min = t_spatial[b].min()
-                    t_max = t_spatial[b].max()
-                    if t_max > t_min:  # 避免除以零
-                        t_spatial_norm[b] = (t_spatial[b] - t_min) / (t_max - t_min + 1e-10)
-                
-                # 識別教師模型中的高激活區域
-                activation_threshold = 0.7  
-                mask = (t_spatial_norm > activation_threshold).float()
-                
-                # 確保至少有5%的區域被選中
-                coverage = mask.mean()
-                if coverage < 0.05:
-                    # 對每個樣本單獨處理
-                    for b in range(batch_size):
-                        flat_attention = t_spatial_norm[b].reshape(-1)
-                        if flat_attention.numel() > 0:  # 確保張量非空
-                            k = max(1, int(0.05 * flat_attention.numel()))
-                            values, _ = torch.topk(flat_attention, k)
-                            if values.numel() > 0:  # 確保有足夠的值
-                                threshold = values[-1]
-                                mask[b] = (t_spatial_norm[b] > threshold).float()
-                
-                # 輕微空間注意力指導
-                if mask.sum() > 0:
-                    spatial_guide_strength = 0.05
-                    spatial_target = s_spatial_norm + spatial_guide_strength * (t_spatial_norm - s_spatial_norm)
-                    
-                    # 只在高激活區域應用指導
-                    masked_spatial_loss = F.mse_loss(
-                        s_spatial_norm * mask, 
-                        spatial_target * mask
-                    ) / (mask.mean() + 1e-10)
-                    
-                    # 添加到總損失，使用非常小的權重
-                    spatial_weight = 0.05
-                    final_loss = (1 - spatial_weight) * final_loss + spatial_weight * masked_spatial_loss
-                    LOGGER.info(f"  高激活空間指導: {masked_spatial_loss.item():.6f} (權重: {spatial_weight:.2f})")
-                    LOGGER.info(f"  高激活區域覆蓋率: {mask.mean().item()*100:.2f}%")
-                else:
-                    LOGGER.info("  未檢測到高激活區域，跳過空間注意力指導")
-            else:
-                LOGGER.info("  特徵的空間維度不足，跳過空間注意力指導")
-        except Exception as e:
-            LOGGER.warning(f"計算空間注意力時出錯: {str(e)}")
-            LOGGER.warning(f"跳過空間注意力指導")
-        
-        # 記錄日誌
-        LOGGER.info(f"P5層適度保守蒸餾損失詳情:")
-        LOGGER.info(f"  選擇性通道損失: {loss_selective.item():.6f}")
+        # 記錄詳細信息
+        LOGGER.info(f"輸出層蒸餾損失詳情:")
+        LOGGER.info(f"  總關鍵點數: {num_keypoints}")
+        LOGGER.info(f"  平均損失: {total_loss.item():.6f}")
         LOGGER.info(f"  特徵漂移: {drift.item():.6f}")
-        LOGGER.info(f"  改進通道數量: {k} (20%的總通道)")
-        LOGGER.info(f"  指導強度: 0.05 (輕度)")
-        if high_sim_mask.sum() > 0:
-            LOGGER.info(f"  特徵保留損失: {preservation_loss.item():.6f}")
-        LOGGER.info(f"  總損失: {final_loss.item():.6f}")
+        
+        # 記錄各關鍵點的損失，每5個點顯示一次
+        for i in range(0, num_keypoints, 5):
+            end = min(i+5, num_keypoints)
+            losses = [f"{j}:{kpt_losses[j].item():.4f}" for j in range(i, end)]
+            LOGGER.info(f"  關鍵點 {i}-{end-1} 損失: {', '.join(losses)}")
+        
+        LOGGER.info(f"  最終損失: {final_loss.item():.6f}")
         
         return final_loss
 

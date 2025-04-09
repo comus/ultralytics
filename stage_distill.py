@@ -62,37 +62,36 @@ LOGGER.info("硬體: RTX 4090 24GB, Xeon Platinum 8352V, 120GB RAM")
 
 # LOGGER.info("蒸餾訓練完成！")
 
-# 階段1：模型微調（無蒸餾）
 student_model.train(
     data="coco-pose.yaml",
     teacher=teacher_model.model,
     
-    # 蒸餾設置
-    # distillation_layers=["22"],  # 只蒸餾P5層
-    # pure_distill=True,           # 純蒸餾
+    # # 蒸餾設置 - 使用輸出層(層23)
+    # distillation_layers=["23"],  # 針對輸出層純蒸餾
+    # pure_distill=True,
     
-    # 適度保守的學習設置
-    optimizer="SGD",             # 使用SGD優化器
-    lr0=0.00003,                 # 略微增加學習率
-    lrf=0.1,                     # 快速降低學習率
-    momentum=0.9,                # 保持動量
-    weight_decay=0.0005,         # 保持權重衰減
+    # 溫和的學習設置
+    optimizer="SGD",
+    lr0=0.00005,                # 溫和的學習率
+    lrf=0.1,
+    momentum=0.9,
+    weight_decay=0.0005,
     
-    # 訓練時間
-    epochs=5,                    # 增加到5個epoch
-    cos_lr=True,                 # 余弦學習率調度
+    # 適中的訓練時間
+    epochs=7,                  # 稍微長一點的訓練
+    cos_lr=True,
     
     # 數據設置
-    batch=32,                    # 批次大小
+    batch=32,
     workers=8,
-    amp=False,                   # 關閉混合精度
+    amp=False,                 # 關閉混合精度以確保穩定性
     imgsz=640,
     cache="disk",
-    fraction=0.25,               # 增加到25%的數據
+    fraction=0.3,              # 使用30%的數據
     
     # 驗證設置
-    val=True,                    # 每個epoch驗證
-    save_period=1,               # 每個epoch保存
+    val=True,
+    save_period=1,
     
     # 預熱設置
     warmup_epochs=1,
@@ -100,6 +99,6 @@ student_model.train(
     warmup_bias_lr=0.01,
     
     # 輸出設置
-    project="moderate_conservative_distill",
-    name="yolo11n_pose_light_distill",
+    project="output_layer_distill",
+    name="yolo11n_pose_output_distill",
 )
