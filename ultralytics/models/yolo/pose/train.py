@@ -219,6 +219,35 @@ class PoseTrainer(yolo.detect.DetectionTrainer):
             LOGGER.info(f"凍結層示例 (前5個): {frozen_layers[:5]}")
         LOGGER.info("=" * 50)
 
+        # 檢查模型中的隨機性來源
+        LOGGER.info("檢查模型中的隨機性來源:")
+        
+        # 檢查教師模型
+        teacher_dropout_layers = []
+        for name, module in self.teacher.named_modules():
+            if isinstance(module, nn.Dropout):
+                teacher_dropout_layers.append(name)
+        
+        if teacher_dropout_layers:
+            LOGGER.info(f"教師模型包含 {len(teacher_dropout_layers)} 個Dropout層:")
+            for name in teacher_dropout_layers[:5]:  # 只顯示前5個
+                LOGGER.info(f"  - {name}")
+        else:
+            LOGGER.info("教師模型不包含任何Dropout層")
+        
+        # 檢查學生模型的隨機性來源
+        student_dropout_layers = []
+        for name, module in self.model.named_modules():
+            if isinstance(module, nn.Dropout):
+                student_dropout_layers.append(name)
+        
+        if student_dropout_layers:
+            LOGGER.info(f"學生模型包含 {len(student_dropout_layers)} 個Dropout層:")
+            for name in student_dropout_layers[:5]:  # 只顯示前5個
+                LOGGER.info(f"  - {name}")
+        else:
+            LOGGER.info("學生模型不包含任何Dropout層")
+
         # 註冊鉤子
         self.distill_loss_instance.register_hook()
         for i, h in enumerate(self.distill_loss_instance.remove_handle):
