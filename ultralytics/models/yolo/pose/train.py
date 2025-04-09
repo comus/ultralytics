@@ -126,15 +126,59 @@ class PoseTrainer(yolo.detect.DetectionTrainer):
                 layers=distillation_layers,
             )
 
-        # 在訓練開始前檢查
+        # 在訓練開始前檢查教師模型
+        LOGGER.info("=" * 50)
+        LOGGER.info("教師模型狀態檢查:")
+        LOGGER.info(f"教師模型評估模式: {'開啟' if not self.teacher.training else '關閉'}")
+        
+        teacher_frozen_params = 0
+        teacher_trainable_params = 0
+        teacher_total_params = 0
+        teacher_frozen_layers = []
+        teacher_trainable_layers = []
+        
         for name, param in self.teacher.named_parameters():
+            teacher_total_params += param.numel()
             if param.requires_grad:
-                LOGGER.warning(f"教師參數 {name} 未凍結！")
-
-        if self.teacher.training:
-            LOGGER.warning("教師模型不在評估模式！")
+                teacher_trainable_params += param.numel()
+                teacher_trainable_layers.append(name)
+            else:
+                teacher_frozen_params += param.numel()
+                teacher_frozen_layers.append(name)
+                
+        LOGGER.info(f"教師模型參數統計:")
+        LOGGER.info(f"總參數數量: {teacher_total_params:,}")
+        LOGGER.info(f"凍結參數數量: {teacher_frozen_params:,} ({teacher_frozen_params/teacher_total_params:.2%})")
+        LOGGER.info(f"可訓練參數數量: {teacher_trainable_params:,} ({teacher_trainable_params/teacher_total_params:.2%})")
+        LOGGER.info(f"凍結層數: {len(teacher_frozen_layers)}")
+        LOGGER.info(f"可訓練層數: {len(teacher_trainable_layers)}")
+        
+        # 如果有可訓練層，這是個警告
+        if teacher_trainable_params > 0:
+            LOGGER.warning(f"警告: 教師模型有 {len(teacher_trainable_layers)} 個可訓練層!")
+            if len(teacher_trainable_layers) > 0:
+                LOGGER.warning(f"可訓練層示例: {teacher_trainable_layers[:5]}")
+        
+        # 檢查教師模型的BN層狀態
+        teacher_bn_train_count = 0
+        teacher_bn_eval_count = 0
+        
+        for name, module in self.teacher.named_modules():
+            if isinstance(module, torch.nn.BatchNorm2d):
+                if module.training:
+                    teacher_bn_train_count += 1
+                else:
+                    teacher_bn_eval_count += 1
+        
+        LOGGER.info(f"教師模型BN層統計: 訓練模式 {teacher_bn_train_count} 個, 評估模式 {teacher_bn_eval_count} 個")
+        if teacher_bn_train_count > 0:
+            LOGGER.warning(f"警告: 教師模型有 {teacher_bn_train_count} 個BN層處於訓練模式!")
+        LOGGER.info("=" * 50)
 
         # 檢查學生模型參數訓練狀態
+        LOGGER.info("學生模型狀態檢查:")
+        LOGGER.info(f"學生模型評估模式: {'關閉' if self.model.training else '開啟'}")
+        
         total_params = 0
         trainable_params = 0
         frozen_layers = []
@@ -173,6 +217,7 @@ class PoseTrainer(yolo.detect.DetectionTrainer):
             LOGGER.info(f"訓練層示例 (前5個): {trainable_layers[:5]}")
         if len(frozen_layers) > 0:
             LOGGER.info(f"凍結層示例 (前5個): {frozen_layers[:5]}")
+        LOGGER.info("=" * 50)
 
         # 註冊鉤子
         self.distill_loss_instance.register_hook()
