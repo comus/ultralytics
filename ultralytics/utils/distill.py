@@ -417,134 +417,134 @@ class CWDLoss(nn.Module):
 #         loss = sum(losses)
 #         return loss
 
-class FeatureLoss(nn.Module):
-    """特徵層蒸餾損失，支持多種蒸餾方法，包括特徵對齊"""
-    def __init__(self, channels_s, channels_t, distiller='mgd', loss_weight=1.0):
-        super(FeatureLoss, self).__init__()
-        self.loss_weight = loss_weight
-        self.distiller = distiller
+# class FeatureLoss(nn.Module):
+#     """特徵層蒸餾損失，支持多種蒸餾方法，包括特徵對齊"""
+#     def __init__(self, channels_s, channels_t, distiller='mgd', loss_weight=1.0):
+#         super(FeatureLoss, self).__init__()
+#         self.loss_weight = loss_weight
+#         self.distiller = distiller
         
-        # 將所有模塊移動到相同精度
-        device = 'cuda' if torch.cuda.is_available() else 'cpu'
+#         # 將所有模塊移動到相同精度
+#         device = 'cuda' if torch.cuda.is_available() else 'cpu'
         
-        # 轉換為ModuleList並確保一致的數據類型
-        self.align_module = nn.ModuleList()
-        self.norm = nn.ModuleList()
-        self.norm1 = nn.ModuleList()
+#         # 轉換為ModuleList並確保一致的數據類型
+#         self.align_module = nn.ModuleList()
+#         self.norm = nn.ModuleList()
+#         self.norm1 = nn.ModuleList()
         
-        # 創建對齊模塊
-        for s_chan, t_chan in zip(channels_s, channels_t):
-            align = nn.Sequential(
-                nn.Conv2d(s_chan, t_chan, kernel_size=1, stride=1, padding=0),
-                nn.BatchNorm2d(t_chan, affine=False)
-            ).to(device)
-            self.align_module.append(align)
+#         # 創建對齊模塊
+#         for s_chan, t_chan in zip(channels_s, channels_t):
+#             align = nn.Sequential(
+#                 nn.Conv2d(s_chan, t_chan, kernel_size=1, stride=1, padding=0),
+#                 nn.BatchNorm2d(t_chan, affine=False)
+#             ).to(device)
+#             self.align_module.append(align)
             
-        # 創建歸一化層
-        for t_chan in channels_t:
-            self.norm.append(nn.BatchNorm2d(t_chan, affine=False).to(device))
+#         # 創建歸一化層
+#         for t_chan in channels_t:
+#             self.norm.append(nn.BatchNorm2d(t_chan, affine=False).to(device))
             
-        for s_chan in channels_s:
-            self.norm1.append(nn.BatchNorm2d(s_chan, affine=False).to(device))
+#         for s_chan in channels_s:
+#             self.norm1.append(nn.BatchNorm2d(s_chan, affine=False).to(device))
             
-        # 選擇蒸餾損失函數
-        if distiller == 'mgd':
-            self.feature_loss = MGDLoss(channels_s, channels_t)
-        elif distiller == 'cwd':
-            self.feature_loss = CWDLoss(channels_s, channels_t)
-        elif distiller == 'rev':
-            self.feature_loss = ReviewKDLoss(channels_s, channels_t)
-        elif distiller == 'fgd':
-            self.feature_loss = FGDLoss(channels_s, channels_t, spatial_weight=2.0, channel_weight=0.6)
-        elif distiller == 'enhancedfgd':
-            self.feature_loss = EnhancedFGDLoss(channels_s, channels_t, spatial_weight=3.5, channel_weight=0.4)
-            LOGGER.info("使用增強版FGD蒸餾方法")
-        elif distiller == 'pkd':
-            self.feature_loss = PKDLoss(channels_s, channels_t)
-        else:
-            raise NotImplementedError(f"Unknown distiller: {distiller}")
+#         # 選擇蒸餾損失函數
+#         if distiller == 'mgd':
+#             self.feature_loss = MGDLoss(channels_s, channels_t)
+#         elif distiller == 'cwd':
+#             self.feature_loss = CWDLoss(channels_s, channels_t)
+#         elif distiller == 'rev':
+#             self.feature_loss = ReviewKDLoss(channels_s, channels_t)
+#         elif distiller == 'fgd':
+#             self.feature_loss = FGDLoss(channels_s, channels_t, spatial_weight=2.0, channel_weight=0.6)
+#         elif distiller == 'enhancedfgd':
+#             self.feature_loss = EnhancedFGDLoss(channels_s, channels_t, spatial_weight=3.5, channel_weight=0.4)
+#             LOGGER.info("使用增強版FGD蒸餾方法")
+#         elif distiller == 'pkd':
+#             self.feature_loss = PKDLoss(channels_s, channels_t)
+#         else:
+#             raise NotImplementedError(f"Unknown distiller: {distiller}")
             
-    def forward(self, y_s, y_t):
-        """計算特徵層蒸餾損失
+#     def forward(self, y_s, y_t):
+#         """計算特徵層蒸餾損失
         
-        Args:
-            y_s (list): 學生模型的特徵
-            y_t (list): 教師模型的特徵
+#         Args:
+#             y_s (list): 學生模型的特徵
+#             y_t (list): 教師模型的特徵
             
-        Returns:
-            torch.Tensor: 計算的損失值
-        """
-        # LOGGER.info(f"FeatureLoss.forward 被調用，特徵列表長度 - 學生: {len(y_s)}, 教師: {len(y_t)}")
+#         Returns:
+#             torch.Tensor: 計算的損失值
+#         """
+#         # LOGGER.info(f"FeatureLoss.forward 被調用，特徵列表長度 - 學生: {len(y_s)}, 教師: {len(y_t)}")
         
-        min_len = min(len(y_s), len(y_t))
-        y_s = y_s[:min_len]
-        y_t = y_t[:min_len]
+#         min_len = min(len(y_s), len(y_t))
+#         y_s = y_s[:min_len]
+#         y_t = y_t[:min_len]
 
-        tea_feats = []
-        stu_feats = []
+#         tea_feats = []
+#         stu_feats = []
 
-        for idx, (s, t) in enumerate(zip(y_s, y_t)):
-            if idx >= len(self.align_module):
-                LOGGER.warning(f"索引 {idx} 超出對齊模塊範圍 {len(self.align_module)}")
-                break
+#         for idx, (s, t) in enumerate(zip(y_s, y_t)):
+#             if idx >= len(self.align_module):
+#                 LOGGER.warning(f"索引 {idx} 超出對齊模塊範圍 {len(self.align_module)}")
+#                 break
             
-            # 處理不同類型的特徵
-            if not isinstance(s, torch.Tensor) or not isinstance(t, torch.Tensor):
-                LOGGER.warning(f"特徵類型不是張量 - 學生: {type(s)}, 教師: {type(t)}")
-                if isinstance(s, list) and len(s) > 0:
-                    s = s[0]
-                if isinstance(t, list) and len(t) > 0:
-                    t = t[0]
+#             # 處理不同類型的特徵
+#             if not isinstance(s, torch.Tensor) or not isinstance(t, torch.Tensor):
+#                 LOGGER.warning(f"特徵類型不是張量 - 學生: {type(s)}, 教師: {type(t)}")
+#                 if isinstance(s, list) and len(s) > 0:
+#                     s = s[0]
+#                 if isinstance(t, list) and len(t) > 0:
+#                     t = t[0]
             
-            # 確保特徵是張量
-            if not isinstance(s, torch.Tensor) or not isinstance(t, torch.Tensor):
-                LOGGER.warning(f"轉換後特徵類型仍不是張量 - 學生: {type(s)}, 教師: {type(t)}")
-                continue
+#             # 確保特徵是張量
+#             if not isinstance(s, torch.Tensor) or not isinstance(t, torch.Tensor):
+#                 LOGGER.warning(f"轉換後特徵類型仍不是張量 - 學生: {type(s)}, 教師: {type(t)}")
+#                 continue
                 
-            # LOGGER.info(f"處理第 {idx+1} 對特徵 - 學生形狀: {s.shape}, 教師形狀: {t.shape}")
+#             # LOGGER.info(f"處理第 {idx+1} 對特徵 - 學生形狀: {s.shape}, 教師形狀: {t.shape}")
             
-            # 轉換數據類型以匹配對齊模塊
-            s = s.type(next(self.align_module[idx].parameters()).dtype)
-            t = t.type(next(self.align_module[idx].parameters()).dtype)
+#             # 轉換數據類型以匹配對齊模塊
+#             s = s.type(next(self.align_module[idx].parameters()).dtype)
+#             t = t.type(next(self.align_module[idx].parameters()).dtype)
 
-            try:
-                # 特別處理FGD方法，直接傳遞特徵而不進行標準化
-                if self.distiller == "fgd":
-                    if s.shape[1] != t.shape[1]:  # 如果通道數不匹配
-                        s = self.align_module[idx](s)
-                    stu_feats.append(s)
-                    tea_feats.append(t.detach())
-                elif self.distiller == "cwd":
-                    s = self.align_module[idx](s)
-                    # LOGGER.info(f"  對齊後學生特徵形狀: {s.shape}")
-                    stu_feats.append(s)
-                    tea_feats.append(t.detach())
-                else:
-                    t = self.norm[idx](t)
-                    # LOGGER.info(f"  標準化後教師特徵形狀: {t.shape}")
-                    stu_feats.append(s)
-                    tea_feats.append(t.detach())
-            except Exception as e:
-                LOGGER.error(f"處理特徵時出錯: {e}")
-                import traceback
-                LOGGER.error(traceback.format_exc())
-                continue
+#             try:
+#                 # 特別處理FGD方法，直接傳遞特徵而不進行標準化
+#                 if self.distiller == "fgd":
+#                     if s.shape[1] != t.shape[1]:  # 如果通道數不匹配
+#                         s = self.align_module[idx](s)
+#                     stu_feats.append(s)
+#                     tea_feats.append(t.detach())
+#                 elif self.distiller == "cwd":
+#                     s = self.align_module[idx](s)
+#                     # LOGGER.info(f"  對齊後學生特徵形狀: {s.shape}")
+#                     stu_feats.append(s)
+#                     tea_feats.append(t.detach())
+#                 else:
+#                     t = self.norm[idx](t)
+#                     # LOGGER.info(f"  標準化後教師特徵形狀: {t.shape}")
+#                     stu_feats.append(s)
+#                     tea_feats.append(t.detach())
+#             except Exception as e:
+#                 LOGGER.error(f"處理特徵時出錯: {e}")
+#                 import traceback
+#                 LOGGER.error(traceback.format_exc())
+#                 continue
 
-        # 安全檢查
-        if len(stu_feats) == 0 or len(tea_feats) == 0:
-            LOGGER.warning("沒有有效的特徵對進行蒸餾")
-            return torch.tensor(0.0, requires_grad=True, device=next(self.parameters()).device)
+#         # 安全檢查
+#         if len(stu_feats) == 0 or len(tea_feats) == 0:
+#             LOGGER.warning("沒有有效的特徵對進行蒸餾")
+#             return torch.tensor(0.0, requires_grad=True, device=next(self.parameters()).device)
         
-        try:
-            # LOGGER.info(f"調用 {self.feature_loss.__class__.__name__} 計算損失")
-            loss = self.feature_loss(stu_feats, tea_feats)
-            # LOGGER.info(f"計算的原始損失: {loss.item():.6f}, 加權後: {(self.loss_weight * loss).item():.6f}")
-            return self.loss_weight * loss
-        except Exception as e:
-            LOGGER.error(f"計算特徵損失時出錯: {e}")
-            import traceback
-            LOGGER.error(traceback.format_exc())
-            return torch.tensor(0.0, requires_grad=True, device=next(self.parameters()).device)
+#         try:
+#             # LOGGER.info(f"調用 {self.feature_loss.__class__.__name__} 計算損失")
+#             loss = self.feature_loss(stu_feats, tea_feats)
+#             # LOGGER.info(f"計算的原始損失: {loss.item():.6f}, 加權後: {(self.loss_weight * loss).item():.6f}")
+#             return self.loss_weight * loss
+#         except Exception as e:
+#             LOGGER.error(f"計算特徵損失時出錯: {e}")
+#             import traceback
+#             LOGGER.error(traceback.format_exc())
+#             return torch.tensor(0.0, requires_grad=True, device=next(self.parameters()).device)
 
 class DistillationLoss:
     """知識蒸餾損失實現，集成多種蒸餾方法，針對YOLO模型優化"""
@@ -694,7 +694,7 @@ class DistillationLoss:
             self.remove_handle.append(ori.register_forward_hook(make_student_hook(self.student_outputs)))
 
     def get_loss(self):
-        """計算教師和學生模型之間的蒸餾損失，並過濾微小的計算誤差"""        
+        """計算教師和學生模型之間的蒸餾損失，支持不同通道數的特徵圖"""        
         if not self.teacher_outputs or not self.student_outputs:
             return torch.tensor(0.0, requires_grad=True, device=next(self.models.parameters()).device)
         
@@ -708,40 +708,46 @@ class DistillationLoss:
         # 特徵差異分析
         for i, (t, s) in enumerate(zip(self.teacher_outputs, self.student_outputs)):
             if isinstance(t, torch.Tensor) and isinstance(s, torch.Tensor):
-                t_detached = t.detach()
-                diff = (s - t_detached).abs()
-                
-                # 基本統計
-                max_diff = diff.max().item()
-                global_max_diff = max(global_max_diff, max_diff)
-                mean_diff = diff.mean().item()
-                std_diff = diff.std().item()
-                
-                # 稀疏性分析
-                zero_elements = (diff < DIFFERENCE_THRESHOLD).sum().item() / diff.numel()
-                
-                # 分位數分析
-                percentiles = [50, 75, 90, 95, 99]
-                percentile_values = [torch.quantile(diff.float(), q/100).item() for q in percentiles]
-                
-                LOGGER.info(f"層 {i} 特徵差異統計:")
-                LOGGER.info(f"  形狀: 教師{t.shape}, 學生{s.shape}")
-                LOGGER.info(f"  最大差異: {max_diff:.8f}, 平均差異: {mean_diff:.8f}, 標準差: {std_diff:.8f}")
-                LOGGER.info(f"  接近零的元素比例: {zero_elements:.2%}")
-                LOGGER.info(f"  分位數分析: {', '.join([f'{p}%: {v:.8f}' for p, v in zip(percentiles, percentile_values)])}")
-                
+                # 檢查形狀是否相同
+                if t.shape == s.shape:
+                    t_detached = t.detach()
+                    diff = (s - t_detached).abs()
+                    
+                    # 基本統計
+                    max_diff = diff.max().item()
+                    global_max_diff = max(global_max_diff, max_diff)
+                    mean_diff = diff.mean().item()
+                    std_diff = diff.std().item()
+                    
+                    # 稀疏性分析
+                    zero_elements = (diff < DIFFERENCE_THRESHOLD).sum().item() / diff.numel()
+                    
+                    # 分位數分析
+                    percentiles = [50, 75, 90, 95, 99]
+                    percentile_values = [torch.quantile(diff.float(), q/100).item() for q in percentiles]
+                    
+                    LOGGER.info(f"層 {i} 特徵差異統計:")
+                    LOGGER.info(f"  形狀: 教師{t.shape}, 學生{s.shape}")
+                    LOGGER.info(f"  最大差異: {max_diff:.8f}, 平均差異: {mean_diff:.8f}, 標準差: {std_diff:.8f}")
+                    LOGGER.info(f"  接近零的元素比例: {zero_elements:.2%}")
+                    LOGGER.info(f"  分位數分析: {', '.join([f'{p}%: {v:.8f}' for p, v in zip(percentiles, percentile_values)])}")
+                else:
+                    # 形狀不同時只記錄基本信息
+                    LOGGER.info(f"層 {i} 特徵形狀不同:")
+                    LOGGER.info(f"  形狀: 教師{t.shape}, 學生{s.shape}")
+                    LOGGER.info(f"  將使用P5特化蒸餾方法")
+                    
                 # 檢查是否有NaN或Inf
                 if torch.isnan(s).any() or torch.isinf(s).any() or torch.isnan(t).any() or torch.isinf(t).any():
                     LOGGER.warning(f"警告: 層 {i} 中發現NaN或Inf值!")
         
-        # 檢查是否所有差異都可視為計算誤差
-        if global_max_diff < MAX_DIFF_THRESHOLD:
-            LOGGER.info(f"所有層的最大差異 ({global_max_diff:.8f}) 低於閾值 {MAX_DIFF_THRESHOLD}，將視為計算誤差並返回零損失")
-            # 清空輸出列表
-            self.teacher_outputs.clear()
-            self.student_outputs.clear()
-            # 返回零損失但帶梯度
-            return torch.zeros(1, device=next(self.models.parameters()).device, requires_grad=True)
+        # 僅對形狀相同的層檢查是否所有差異都可視為計算誤差
+        # 對於形狀不同的層，我們需要用特殊方法蒸餾，不應該跳過
+        same_shape_exists = any(t.shape == s.shape for t, s in zip(self.teacher_outputs, self.student_outputs) 
+                            if isinstance(t, torch.Tensor) and isinstance(s, torch.Tensor))
+        
+        if same_shape_exists and global_max_diff < MAX_DIFF_THRESHOLD:
+            LOGGER.info(f"所有相同形狀層的最大差異 ({global_max_diff:.8f}) 低於閾值 {MAX_DIFF_THRESHOLD}，將僅應用特化蒸餾")
         
         # 確保教師輸出已經分離
         teacher_outputs_detached = []
@@ -751,23 +757,49 @@ class DistillationLoss:
             else:
                 teacher_outputs_detached.append([o.detach() if isinstance(o, torch.Tensor) else o for o in t])
         
-        # 累加損失，忽略微小差異
+        # 累加損失，分別處理形狀相同和不同的層
         losses = []
         try:
             for i, (t, s) in enumerate(zip(teacher_outputs_detached, self.student_outputs)):
                 if isinstance(t, torch.Tensor) and isinstance(s, torch.Tensor):
-                    # 計算差異
-                    diff = (s - t).abs()
-                    max_layer_diff = diff.max().item()
-                    
-                    # 如果層的最大差異低於閾值，則忽略該層的損失
-                    if max_layer_diff < DIFFERENCE_THRESHOLD:
-                        LOGGER.info(f"層 {i} 的最大差異 ({max_layer_diff:.8f}) 低於閾值，忽略該層的損失計算")
-                        continue
-                    
-                    # 使用detach的教師輸出，保持學生輸出的梯度
-                    losses.append(F.mse_loss(s, t))
-            
+                    # 檢查是否是形狀不同的層
+                    if t.shape != s.shape:
+                        # 檢查是否是22.cv2.conv層(P5層)
+                        is_p5_layer = False
+                        
+                        # 如果有記錄當前層名稱的屬性，則使用它判斷
+                        if hasattr(self, 'current_layer_name'):
+                            is_p5_layer = "model.22.cv2.conv" in self.current_layer_name
+                        
+                        # 如果沒有層名稱，則嘗試通過特徵形狀和索引猜測
+                        # P5層通常是低分辨率高通道數的特徵圖
+                        elif (t.shape[1] >= 512 and s.shape[1] >= 256 and t.shape[2] <= 20 and t.shape[3] <= 20):
+                            is_p5_layer = True
+                            LOGGER.info(f"通過特徵形狀猜測層 {i} 可能是P5層")
+                        
+                        if is_p5_layer:
+                            LOGGER.info(f"對層 {i} 應用P5特化蒸餾方法")
+                            loss = self.p5_feature_distillation(s, t)
+                        else:
+                            # 對於其他形狀不同的層，使用通用通道自適應方法
+                            LOGGER.info(f"對層 {i} 應用通用通道自適應蒸餾方法")
+                            loss = self.channel_adaptive_distillation(s, t)
+                        
+                        losses.append(loss)
+                    else:
+                        # 形狀相同的層，使用原有邏輯處理
+                        # 計算差異
+                        diff = (s - t).abs()
+                        max_layer_diff = diff.max().item()
+                        
+                        # 如果層的最大差異低於閾值，則忽略該層的損失
+                        if max_layer_diff < DIFFERENCE_THRESHOLD:
+                            LOGGER.info(f"層 {i} 的最大差異 ({max_layer_diff:.8f}) 低於閾值，忽略該層的損失計算")
+                            continue
+                        
+                        # 使用標準MSE損失
+                        losses.append(F.mse_loss(s, t))
+                
             # 如果有任何有效損失，則將它們相加
             if losses:
                 loss = torch.sum(torch.stack(losses))
@@ -775,7 +807,7 @@ class DistillationLoss:
             else:
                 # 如果沒有有效損失，創建一個零損失但帶梯度
                 loss = torch.zeros(1, device=next(self.models.parameters()).device, requires_grad=True)
-                LOGGER.info("所有層差異均低於閾值，返回零損失")
+                LOGGER.info("沒有計算任何有效損失，返回零損失")
         except Exception as e:
             LOGGER.error(f"計算蒸餾損失時出錯: {e}")
             import traceback
@@ -788,6 +820,196 @@ class DistillationLoss:
         self.student_outputs.clear()
         
         return loss
+
+    def p5_feature_distillation(self, student_feature, teacher_feature):
+        """
+        專門為YOLO11-pose P5層(層22的cv2.conv)設計的蒸餾方法
+        
+        P5層特點:
+        - 低分辨率特徵圖
+        - 捕捉整體姿勢結構和身體方向
+        - 對關鍵點之間的關係編碼
+        
+        Args:
+            student_feature: 學生模型特徵圖 [B, 256, H, W]
+            teacher_feature: 教師模型特徵圖 [B, 512, H, W]
+        
+        Returns:
+            適合姿勢識別P5層的蒸餾損失
+        """
+        # 獲取批次大小和特徵維度
+        batch_size = student_feature.shape[0]
+        student_channels = student_feature.shape[1]  # 應該是256
+        teacher_channels = teacher_feature.shape[1]  # 應該是512
+        
+        # 確保空間維度相同
+        if student_feature.shape[2:] != teacher_feature.shape[2:]:
+            teacher_feature = F.interpolate(
+                teacher_feature, 
+                size=student_feature.shape[2:],
+                mode='bilinear', 
+                align_corners=False
+            )
+        
+        # 1. 結構相關性損失 - 適合P5層的主要功能
+        # 這捕捉了全身姿勢結構的關係性特徵
+        
+        # 將特徵展平為空間位置
+        s_flat = student_feature.reshape(batch_size, student_channels, -1)  # [B, 256, H*W]
+        t_flat = teacher_feature.reshape(batch_size, teacher_channels, -1)  # [B, 512, H*W]
+        
+        # 計算特徵的空間相關性
+        s_corr = torch.bmm(s_flat, s_flat.transpose(1, 2))  # [B, 256, 256]
+        t_corr = torch.bmm(t_flat, t_flat.transpose(1, 2))  # [B, 512, 512]
+        
+        # 由於通道數不同，我們需要將教師模型的相關性矩陣投影到學生模型的維度
+        # 方法1: 使用主要奇異值
+        if hasattr(torch, 'linalg') and hasattr(torch.linalg, 'svd'):
+            # 使用SVD將教師相關性降至學生維度
+            try:
+                # 計算教師相關性的SVD
+                U, S, Vh = torch.linalg.svd(t_corr)
+                # 取前student_channels個奇異值/向量
+                U_reduced = U[:, :, :student_channels]
+                S_reduced = S[:, :student_channels]
+                Vh_reduced = Vh[:, :student_channels, :]
+                
+                # 重建降維後的教師相關性
+                t_corr_reduced = torch.bmm(torch.bmm(U_reduced, torch.diag_embed(S_reduced)), Vh_reduced)
+                
+                # 計算結構相關性損失
+                structure_loss = F.mse_loss(s_corr, t_corr_reduced)
+            except Exception as e:
+                # 如果SVD失敗，退回到簡單的尺寸裁剪
+                LOGGER.warning(f"SVD降維失敗: {e}，使用簡單裁剪")
+                t_corr_simple = t_corr[:, :student_channels, :student_channels]
+                structure_loss = F.mse_loss(s_corr, t_corr_simple)
+        else:
+            # 如果不支持SVD，使用簡單裁剪
+            t_corr_simple = t_corr[:, :student_channels, :student_channels]
+            structure_loss = F.mse_loss(s_corr, t_corr_simple)
+        
+        # 2. 姿勢感知注意力損失 - 捕捉關鍵點注意力
+        
+        # 計算空間注意力圖
+        s_attn = torch.mean(student_feature, dim=1, keepdim=True)  # [B, 1, H, W]
+        t_attn = torch.mean(teacher_feature, dim=1, keepdim=True)  # [B, 1, H, W]
+        
+        # 標準化注意力圖以便更好比較
+        s_attn = F.normalize(s_attn.view(batch_size, -1), p=2, dim=1).view_as(s_attn)
+        t_attn = F.normalize(t_attn.view(batch_size, -1), p=2, dim=1).view_as(t_attn)
+        
+        # 計算注意力損失
+        attention_loss = F.mse_loss(s_attn, t_attn)
+        
+        # 3. 全局姿勢編碼損失 - 特別重要的P5層功能
+        
+        # 計算全局姿勢特徵 (直接使用平均池化)
+        s_global = F.adaptive_avg_pool2d(student_feature, 1).view(batch_size, -1)  # [B, 256]
+        t_global = F.adaptive_avg_pool2d(teacher_feature, 1).view(batch_size, -1)  # [B, 512]
+        
+        # 投影教師的全局特徵到學生的維度
+        if not hasattr(self, 'global_projector'):
+            # 創建簡單的線性投影層 (僅首次使用時)
+            self.global_projector = nn.Linear(teacher_channels, student_channels).to(student_feature.device)
+            # 使用正交初始化
+            nn.init.orthogonal_(self.global_projector.weight)
+        
+        # 投影教師全局特徵
+        t_global_proj = self.global_projector(t_global)
+        
+        # 全局特徵損失
+        global_loss = F.mse_loss(F.normalize(s_global, p=2, dim=1), 
+                                F.normalize(t_global_proj, p=2, dim=1))
+        
+        # 4. 姿勢結構分布損失 - 統計特性匹配
+        
+        # 計算每個通道的統計分布
+        s_mean = student_feature.mean(dim=[2, 3])  # [B, 256]
+        t_mean = teacher_feature.mean(dim=[2, 3])  # [B, 512]
+        s_var = student_feature.var(dim=[2, 3])    # [B, 256]
+        t_var = teacher_feature.var(dim=[2, 3])    # [B, 512]
+        
+        # 簡單裁剪教師統計量
+        t_mean_clip = t_mean[:, :student_channels]
+        t_var_clip = t_var[:, :student_channels]
+        
+        # 統計匹配損失
+        stats_loss = (F.mse_loss(s_mean, t_mean_clip) + 
+                    F.mse_loss(s_var, t_var_clip)) * 0.5
+        
+        # 針對P5層的權重配置
+        # P5層主要關注整體結構，較少關注細節
+        structure_weight = 0.4    # 結構相關性是P5層的核心
+        attention_weight = 0.2    # 注意力在P5層中等重要
+        global_weight = 0.3       # 全局姿勢特徵對P5非常重要
+        stats_weight = 0.1        # 統計特性較不重要
+        
+        # 組合損失
+        total_loss = (structure_weight * structure_loss + 
+                    attention_weight * attention_loss + 
+                    global_weight * global_loss + 
+                    stats_weight * stats_loss)
+        
+        # 記錄詳細損失
+        LOGGER.info(f"P5層蒸餾損失詳情:")
+        LOGGER.info(f"  結構相關性損失: {structure_loss.item():.6f} (權重: {structure_weight})")
+        LOGGER.info(f"  注意力損失: {attention_loss.item():.6f} (權重: {attention_weight})")
+        LOGGER.info(f"  全局姿勢損失: {global_loss.item():.6f} (權重: {global_weight})")
+        LOGGER.info(f"  統計分布損失: {stats_loss.item():.6f} (權重: {stats_weight})")
+        LOGGER.info(f"  總P5損失: {total_loss.item():.6f}")
+        
+        return total_loss
+
+    def channel_adaptive_distillation(self, student_feature, teacher_feature):
+        """
+        通用的通道自適應蒸餾方法，用於處理非P5層的不同通道數特徵圖
+        
+        Args:
+            student_feature: 學生模型特徵圖
+            teacher_feature: 教師模型特徵圖
+        
+        Returns:
+            蒸餾損失
+        """
+        # 確保空間維度相同
+        if student_feature.shape[2:] != teacher_feature.shape[2:]:
+            teacher_feature = F.interpolate(
+                teacher_feature, 
+                size=student_feature.shape[2:],
+                mode='bilinear', 
+                align_corners=False
+            )
+        
+        # 計算空間注意力圖
+        student_spatial = torch.mean(student_feature, dim=1, keepdim=True)  # [B, 1, H, W]
+        teacher_spatial = torch.mean(teacher_feature, dim=1, keepdim=True)  # [B, 1, H, W]
+        
+        # 空間注意力損失
+        spatial_loss = F.mse_loss(student_spatial, teacher_spatial)
+        
+        # 計算通道注意力 (全局平均池化)
+        s_channel = F.adaptive_avg_pool2d(student_feature, 1)  # [B, C_s, 1, 1]
+        t_channel = F.adaptive_avg_pool2d(teacher_feature, 1)  # [B, C_t, 1, 1]
+        
+        # 標準化通道注意力
+        s_channel = F.normalize(s_channel.squeeze(-1).squeeze(-1), p=2, dim=1)
+        t_channel = F.normalize(t_channel.squeeze(-1).squeeze(-1), p=2, dim=1)
+        
+        # 取較小的通道數
+        min_channels = min(student_feature.shape[1], teacher_feature.shape[1])
+        channel_loss = F.mse_loss(s_channel[:, :min_channels], t_channel[:, :min_channels])
+        
+        # 組合損失
+        total_loss = spatial_loss * 0.7 + channel_loss * 0.3
+        
+        LOGGER.info(f"通道自適應蒸餾損失詳情:")
+        LOGGER.info(f"  空間注意力損失: {spatial_loss.item():.6f}")
+        LOGGER.info(f"  通道注意力損失: {channel_loss.item():.6f}")
+        LOGGER.info(f"  總損失: {total_loss.item():.6f}")
+        
+        return total_loss
+
 
     # def get_loss(self):
     #     """計算教師和學生模型之間的蒸餾損失，直接使用CWD方法"""        
