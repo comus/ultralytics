@@ -1,47 +1,56 @@
-# balanced_distill.py - 平衡任务和蒸馏的训练策略
+# safe_distill.py - 安全的姿态蒸馏训练脚本
 from ultralytics import YOLO
 from ultralytics.utils import LOGGER
+import os
+
+# 设置环境变量以获取更详细的日志
+os.environ["ULTRALYTICS_DEBUG"] = "1"
 
 # 加载模型
 student = YOLO("yolo11n-pose.pt")
 teacher = YOLO("yolo11s-pose.pt")
 
-LOGGER.info("初始化平衡式蒸馏训练...")
+LOGGER.info("初始化安全姿态蒸馏训练...")
 
-# 执行平衡蒸馏训练
+# 打印模型信息以便调试
+LOGGER.info(f"学生模型: {type(student.model)}")
+LOGGER.info(f"教师模型: {type(teacher.model)}")
+
+# 执行蒸馏训练
 results = student.train(
     data="coco-pose.yaml",
     teacher=teacher.model,
     
     # 硬件优化设置
-    batch=48,  # 减小批次大小，提高稳定性
+    batch=32,  # 减小批次大小提高稳定性
     workers=8,
     device=0,
+    amp=False,  # 禁用混合精度
     
     # 训练超参数
-    epochs=25,  # 延长训练时间
+    epochs=25,
     optimizer="AdamW",
     weight_decay=0.0002,
     
     # 初始参数
-    lr0=0.0002,  # 非常小的初始学习率
-    lrf=0.05,    # 更低的最终学习率
+    lr0=0.0002,
+    lrf=0.05,
     
     # 初始任务损失权重
-    box=0.5,     # 保持边界框损失
-    pose=0.7,    # 强调姿态损失
-    kobj=0.5,    # 保持关键点置信度损失
-    cls=0.5,     # 保持分类损失
-    dfl=0.5,     # 保持分布焦点损失
-    distill=0.1, # 轻微蒸馏
+    box=0.5,
+    pose=0.7,
+    kobj=0.5,
+    cls=0.5,
+    dfl=0.5,
+    distill=0.1,
     
     # 数据处理
     imgsz=640,
     cache="disk",
     
     # 输出设置
-    project="balanced_distillation",
-    name="yolo11n_pose_balanced",
+    project="safe_distillation",
+    name="yolo11n_pose_safe",
     
     # 训练设置
     val=True,
@@ -51,11 +60,10 @@ results = student.train(
     # 预热设置
     warmup_epochs=2,
     warmup_momentum=0.8,
-    
-    # 关闭Mosaic增强
     close_mosaic=0,
-
-    amp=False
+    
+    # 使用FGD蒸馏(而非CWD)
+    distill_type="fgd",
 )
 
-LOGGER.info("平衡蒸馏训练完成！")
+LOGGER.info("安全姿态蒸馏训练完成！")

@@ -663,137 +663,118 @@ class EnhancedFGDLoss(nn.Module):
         return loss
 
 class FeatureLoss(nn.Module):
-    """特徵層蒸餾損失，支持多種蒸餾方法，包括特徵對齊"""
-    def __init__(self, channels_s, channels_t, distiller='mgd', loss_weight=1.0):
-        super(FeatureLoss, self).__init__()
-        self.loss_weight = loss_weight
+    """特征蒸馏损失，增加索引安全检查"""
+    
+    def __init__(self, channels_s, channels_t, distiller="fgd"):
+        super().__init__()
         self.distiller = distiller
         
-        # 將所有模塊移動到相同精度
-        device = 'cuda' if torch.cuda.is_available() else 'cpu'
+        # 确保通道列表长度一致
+        if len(channels_s) != len(channels_t):
+            LOGGER.error(f"通道列表长度不匹配: 学生={len(channels_s)}, 教师={len(channels_t)}")
+            # 截断至较短的长度
+            min_len = min(len(channels_s), len(channels_t))
+            channels_s = channels_s[:min_len]
+            channels_t = channels_t[:min_len]
+            LOGGER.warning(f"截断通道列表至长度 {min_len}")
         
-        # 轉換為ModuleList並確保一致的數據類型
-        self.align_module = nn.ModuleList()
-        self.norm = nn.ModuleList()
-        self.norm1 = nn.ModuleList()
-        
-        # 創建對齊模塊
+        # 创建对齐层
+        self.align = nn.ModuleList()
         for s_chan, t_chan in zip(channels_s, channels_t):
-            align = nn.Sequential(
-                nn.Conv2d(s_chan, t_chan, kernel_size=1, stride=1, padding=0),
-                nn.BatchNorm2d(t_chan, affine=False)
-            ).to(device)
-            self.align_module.append(align)
-            
-        # 創建歸一化層
-        for t_chan in channels_t:
-            self.norm.append(nn.BatchNorm2d(t_chan, affine=False).to(device))
-            
-        for s_chan in channels_s:
-            self.norm1.append(nn.BatchNorm2d(s_chan, affine=False).to(device))
-            
-        # 選擇蒸餾損失函數
-        # 创建蒸馏损失实例 - 新增对AdaptiveDistillationLoss的支持
-        if self.distiller == 'mgd':
-            self.feature_loss = MGDLoss(channels_s, channels_t)
-        elif self.distiller == 'cwd':
-            self.feature_loss = CWDLoss(channels_s, channels_t)
-        elif distiller == 'rev':
-            self.feature_loss = ReviewKDLoss(channels_s, channels_t)
-        elif distiller == 'fgd':
-            self.feature_loss = FGDLoss(channels_s, channels_t, spatial_weight=2.0, channel_weight=0.6)
-        elif distiller == 'enhancedfgd':
-            self.feature_loss = EnhancedFGDLoss(channels_s, channels_t, spatial_weight=3.5, channel_weight=0.4)
-            LOGGER.info("使用增強版FGD蒸餾方法")
-        elif distiller == 'pkd':
-            self.feature_loss = PKDLoss(channels_s, channels_t)
-        else:
-            raise NotImplementedError(f"Unknown distiller: {distiller}")
-            
+            self.align.append(
+                nn.Sequential(
+                    nn.Conv2d(s_chan, t_chan, kernel_size=1, bias=False),
+                    nn.BatchNorm2d(t_chan)
+                )
+            )
+        
+        LOGGER.info(f"创建了 {len(self.align)} 个特征对齐层")
+        
     def forward(self, y_s, y_t):
-        """計算特徵層蒸餾損失
+        losses = []
         
-        Args:
-            y_s (list): 學生模型的特徵
-            y_t (list): 教師模型的特徵
-            
-        Returns:
-            torch.Tensor: 計算的損失值
-        """
-        # LOGGER.info(f"FeatureLoss.forward 被調用，特徵列表長度 - 學生: {len(y_s)}, 教師: {len(y_t)}")
+        # 安全检查 - 确保特征列表长度一致 
+        min_len = min(len(y_s), len(y_t), len(self.align))
+        if min_len < len(y_s) or min_len < len(y_t):
+            LOGGER.warning(f"特征列表长度不匹配: 学生={len(y_s)}, 教师={len(y_t)}, 对齐层={len(self.align)}")
+            LOGGER.warning(f"将只使用前 {min_len} 个特征")
         
-        min_len = min(len(y_s), len(y_t))
-        y_s = y_s[:min_len]
-        y_t = y_t[:min_len]
-
-        tea_feats = []
-        stu_feats = []
-
-        for idx, (s, t) in enumerate(zip(y_s, y_t)):
-            if idx >= len(self.align_module):
-                LOGGER.warning(f"索引 {idx} 超出對齊模塊範圍 {len(self.align_module)}")
-                break
+        # 只处理有效数量的特征
+        for i in range(min_len):
+            s, t = y_s[i], y_t[i]
             
-            # 處理不同類型的特徵
             if not isinstance(s, torch.Tensor) or not isinstance(t, torch.Tensor):
-                LOGGER.warning(f"特徵類型不是張量 - 學生: {type(s)}, 教師: {type(t)}")
-                if isinstance(s, list) and len(s) > 0:
-                    s = s[0]
-                if isinstance(t, list) and len(t) > 0:
-                    t = t[0]
-            
-            # 確保特徵是張量
-            if not isinstance(s, torch.Tensor) or not isinstance(t, torch.Tensor):
-                LOGGER.warning(f"轉換後特徵類型仍不是張量 - 學生: {type(s)}, 教師: {type(t)}")
                 continue
                 
-            # LOGGER.info(f"處理第 {idx+1} 對特徵 - 學生形狀: {s.shape}, 教師形狀: {t.shape}")
+            # 获取设备和数据类型
+            device = s.device
+            dtype = s.dtype
             
-            # 轉換數據類型以匹配對齊模塊
-            s = s.type(next(self.align_module[idx].parameters()).dtype)
-            t = t.type(next(self.align_module[idx].parameters()).dtype)
-
+            # 安全地处理对齐层
             try:
-                # 特別處理FGD方法，直接傳遞特徵而不進行標準化
-                if self.distiller == "fgd":
-                    if s.shape[1] != t.shape[1]:  # 如果通道數不匹配
-                        s = self.align_module[idx](s)
-                    stu_feats.append(s)
-                    tea_feats.append(t.detach())
-                elif self.distiller == "cwd":
-                    s = self.align_module[idx](s)
-                    # LOGGER.info(f"  對齊後學生特徵形狀: {s.shape}")
-                    stu_feats.append(s)
-                    tea_feats.append(t.detach())
+                # 确保对齐层使用正确的数据类型
+                if i < len(self.align):  # 安全检查
+                    if next(self.align[i].parameters()).dtype != dtype:
+                        self.align[i] = self.align[i].to(dtype)
+                    
+                    # 通道对齐
+                    s_aligned = self.align[i](s)
                 else:
-                    t = self.norm[idx](t)
-                    # LOGGER.info(f"  標準化後教師特徵形狀: {t.shape}")
-                    stu_feats.append(s)
-                    tea_feats.append(t.detach())
+                    LOGGER.error(f"对齐层索引 {i} 超出范围(最大 {len(self.align)-1})")
+                    continue
+                
+                # 空间对齐
+                if s_aligned.size(2) != t.size(2) or s_aligned.size(3) != t.size(3):
+                    t = F.interpolate(t, size=(s_aligned.size(2), s_aligned.size(3)),
+                                     mode='bilinear', align_corners=True)
+                
+                # 计算损失
+                if self.distiller == "fgd":
+                    # FGD保留空间结构  
+                    loss = F.mse_loss(s_aligned, t)
+                    losses.append(loss)
+                    
+                elif self.distiller == "enhancedfgd":
+                    # 增强版FGD，特别关注高激活区域
+                    basic_loss = F.mse_loss(s_aligned, t)
+                    
+                    # 高激活区域（可能是关键点区域）
+                    t_highlight = torch.mean(torch.abs(t), dim=1, keepdim=True)
+                    threshold = torch.mean(t_highlight) * 1.5
+                    t_mask = (t_highlight > threshold).float()
+                    
+                    # 关键区域损失
+                    region_loss = F.mse_loss(s_aligned * t_mask, t * t_mask) * 2.0
+                    
+                    # 结合损失
+                    total_loss = basic_loss + region_loss
+                    losses.append(total_loss)
+                
+                else:  # 默认为标准CWD
+                    # CWD通道级对齐
+                    s_norm = self._channel_normalize(s_aligned)
+                    t_norm = self._channel_normalize(t)
+                    loss = torch.norm(s_norm - t_norm, p=2, dim=1).mean()
+                    losses.append(loss)
+                    
             except Exception as e:
-                LOGGER.error(f"處理特徵時出錯: {e}")
-                import traceback
-                LOGGER.error(traceback.format_exc())
+                LOGGER.error(f"处理特征 {i} 时出错: {e}")
                 continue
-
-        # 安全檢查
-        if len(stu_feats) == 0 or len(tea_feats) == 0:
-            LOGGER.warning("沒有有效的特徵對進行蒸餾")
-            return torch.tensor(0.0, requires_grad=True, device=next(self.parameters()).device)
         
-        try:
-            # LOGGER.info(f"調用 {self.feature_loss.__class__.__name__} 計算損失")
-            loss = self.feature_loss(stu_feats, tea_feats)
-            # LOGGER.info(f"計算的原始損失: {loss.item():.6f}, 加權後: {(self.loss_weight * loss).item():.6f}")
-            return self.loss_weight * loss
-        except Exception as e:
-            LOGGER.error(f"計算特徵損失時出錯: {e}")
-            import traceback
-            LOGGER.error(traceback.format_exc())
-            return torch.tensor(0.0, requires_grad=True, device=next(self.parameters()).device)
+        if not losses:
+            LOGGER.warning("没有计算任何蒸馏损失!")
+            return torch.tensor(0.0, device=device, requires_grad=True)
+            
+        return sum(losses)
+    
+    def _channel_normalize(self, x):
+        """通道级归一化"""
+        channel_mean = x.mean(dim=1, keepdim=True)
+        channel_std = x.std(dim=1, keepdim=True) + 1e-6
+        return (x - channel_mean) / channel_std
 
 class DistillationLoss:
-    """知識蒸餾損失實現，集成多種蒸餾方法，針對YOLO模型優化"""
+    """增强版知识蒸馏损失，改进特征收集机制"""
     
     def __init__(self, models, modelt, distiller="fgd", layers=None, original_performance=None):
         self.models = models
@@ -811,11 +792,9 @@ class DistillationLoss:
             self.using_amp = models.args.amp
             LOGGER.info(f"检测到混合精度训练设置: {self.using_amp}")
         
-        # 初始化通道列表和模块对
-        self.channels_s = []
-        self.channels_t = []
-        self.teacher_module_pairs = []
-        self.student_module_pairs = []
+        # 更明确地记录找到的层
+        self.found_student_layers = []
+        self.found_teacher_layers = []
         
         # 寻找要蒸馏的层
         self._find_layers()
@@ -825,216 +804,139 @@ class DistillationLoss:
             raise ValueError("无法找到适合蒸馏的层")
             
         LOGGER.info(f"成功配对 {len(self.teacher_module_pairs)} 对学生-教师特征层")
+        LOGGER.info(f"学生层: {self.found_student_layers}")
+        LOGGER.info(f"教师层: {self.found_teacher_layers}")
         LOGGER.info(f"学生通道: {self.channels_s}")
         LOGGER.info(f"教师通道: {self.channels_t}")
         
-        # 创建蒸馏损失实例 - 根据选择的蒸馏方法
-        self._init_distill_loss()
-        
-    def _init_distill_loss(self):
-        """初始化蒸馏损失函数"""
-        # 获取模型的设备
-        device = next(self.models.parameters()).device
-        
-        if self.distiller == "spatial_pose":
-            LOGGER.info("使用空间感知姿态蒸馏 - 针对关键点定位优化")
-            self.distill_loss_fn = SpatialPoseDistillation(
-                channels_s=self.channels_s, 
-                channels_t=self.channels_t
-            ).to(device)
-        elif self.distiller == "fgd":
-            LOGGER.info("使用特征引导蒸馏(FGD) - 保留空间结构")
-            self.distill_loss_fn = FeatureLoss(
-                channels_s=self.channels_s, 
-                channels_t=self.channels_t, 
-                distiller="fgd"
-            ).to(device)
-        elif self.distiller == "enhancedfgd":
-            LOGGER.info("使用增强型特征引导蒸馏 - 姿态优化版")
-            self.distill_loss_fn = FeatureLoss(
-                channels_s=self.channels_s, 
-                channels_t=self.channels_t, 
-                distiller="enhancedfgd"
-            ).to(device)
-        else:
-            LOGGER.info(f"使用 {self.distiller} 方法进行蒸馏")
-            self.distill_loss_fn = FeatureLoss(
-                channels_s=self.channels_s, 
-                channels_t=self.channels_t, 
-                distiller=self.distiller
-            ).to(device)
-        
-        # 如果开启混合精度，确保损失函数也使用正确的数据类型
-        if self.using_amp:
-            # 对于混合精度训练，我们尝试使用FP32权重进行蒸馏计算
-            # 这可能会提高稳定性
-            LOGGER.info("混合精度训练模式下配置蒸馏损失函数")
-    
-
     def _find_layers(self):
-        """查找名為 cv2 且具有 conv 屬性的層"""
-        self.channels_s = []
-        self.channels_t = []
-        self.teacher_module_pairs = []
-        self.student_module_pairs = []
+        """寻找要蒸馏的层，增强错误处理和日志记录"""
+        if not self.layers:
+            LOGGER.warning("没有指定蒸馏层，尝试使用默认配置")
+            self.layers = ["22"]  # 使用默认层
         
-        # # 打印模型的一些層，以便於檢查結構
-        # LOGGER.info("教師模型的一些關鍵層:")
-        # for name, ml in self.modelt.named_modules():
-        #     if "model" in name and ("16" in name or "19" in name or "22" in name):
-        #         LOGGER.info(f"  - {name}: {ml.__class__.__name__}")
-        #         if hasattr(ml, 'conv'):
-        #             LOGGER.info(f"    有 conv 屬性，通道數: {ml.conv.out_channels}")
+        # 列出模型模块以帮助调试
+        LOGGER.debug("Available modules in student model:")
+        student_modules = []
+        for name, module in self.models.named_modules():
+            if isinstance(name, str) and name.startswith("model."):
+                student_modules.append(name)
+        LOGGER.debug(f"Student modules: {student_modules[:10]}...")
         
-        # LOGGER.info("學生模型的一些關鍵層:")
-        # for name, ml in self.models.named_modules():
-        #     if "model" in name and ("16" in name or "19" in name or "22" in name):
-        #         LOGGER.info(f"  - {name}: {ml.__class__.__name__}")
-        #         if hasattr(ml, 'conv'):
-        #             LOGGER.info(f"    有 conv 屬性，通道數: {ml.conv.out_channels}")
+        LOGGER.debug("Available modules in teacher model:")
+        teacher_modules = []
+        for name, module in self.modelt.named_modules():
+            if isinstance(name, str) and name.startswith("model."):
+                teacher_modules.append(name)
+        LOGGER.debug(f"Teacher modules: {teacher_modules[:10]}...")
         
-        # 首先查找教師模型中的目標層
-        for name, ml in self.modelt.named_modules():
-            if name is not None:
-                name_parts = name.split(".")
-                
-                if name_parts[0] != "model":
-                    continue
-                if len(name_parts) >= 3:
-                    if name_parts[1] in self.layers:
-                        if "cv2" in name_parts[2]:
-                            if hasattr(ml, 'conv'):
-                                self.channels_t.append(ml.conv.out_channels)
-                                self.teacher_module_pairs.append(ml)
-                                LOGGER.info(f"找到教師模型層: {name}, 通道數: {ml.conv.out_channels}")
-        
-        # 然後查找學生模型中的目標層
-        for name, ml in self.models.named_modules():
-            if name is not None:
-                name_parts = name.split(".")
-                
-                if name_parts[0] != "model":
-                    continue
-                if len(name_parts) >= 3:
-                    if name_parts[1] in self.layers:
-                        if "cv2" in name_parts[2]:
-                            if hasattr(ml, 'conv'):
-                                self.channels_s.append(ml.conv.out_channels)
-                                self.student_module_pairs.append(ml)
-                                LOGGER.info(f"找到學生模型層: {name}, 通道數: {ml.conv.out_channels}")
-        
-        # 確保通道數和模塊數量匹配
-        nl = min(len(self.channels_s), len(self.channels_t))
-          
-        self.channels_s = self.channels_s[-nl:]
-        self.channels_t = self.channels_t[-nl:]
-        self.teacher_module_pairs = self.teacher_module_pairs[-nl:]
-        self.student_module_pairs = self.student_module_pairs[-nl:]
-        
-        LOGGER.info(f"匹配了 {nl} 對層進行蒸餾")
-        LOGGER.info(f"學生通道: {self.channels_s}")
-        LOGGER.info(f"教師通道: {self.channels_t}")
-        
-        # 詳細列出所有匹配的模塊對
-        for i, (t, s) in enumerate(zip(self.teacher_module_pairs, self.student_module_pairs)):
-            LOGGER.info(f"模塊對 {i+1}:")
-            LOGGER.info(f"  教師: {t.__class__.__name__}, 通道數: {self.channels_t[i]}")
-            LOGGER.info(f"  學生: {s.__class__.__name__}, 通道數: {self.channels_s[i]}")
+        # 查找学生模型中的层
+        for layer_idx in self.layers:
+            student_found = False
+            teacher_found = False
             
-    def register_hook(self):
-        """註冊用於捕獲特徵的鉤子"""
-        # 移除可能存在的舊鉤子
-        self.remove_handle_()
+            # 查找学生模型层
+            for name, module in self.models.named_modules():
+                if not name or not isinstance(name, str):
+                    continue
+                if f"model.{layer_idx}." in name and isinstance(module, nn.Conv2d):
+                    self.student_module_pairs.append((name, module))
+                    self.channels_s.append(module.out_channels)
+                    student_found = True
+                    self.found_student_layers.append(layer_idx)
+                    LOGGER.info(f"学生模型找到层 {name} 用于蒸馏")
+                    break
+            
+            # 如果学生层找到了，再查找相应的教师层
+            if student_found:
+                for name, module in self.modelt.named_modules():
+                    if not name or not isinstance(name, str):
+                        continue
+                    if f"model.{layer_idx}." in name and isinstance(module, nn.Conv2d):
+                        self.teacher_module_pairs.append((name, module))
+                        self.channels_t.append(module.out_channels)
+                        teacher_found = True
+                        self.found_teacher_layers.append(layer_idx)
+                        LOGGER.info(f"教师模型找到层 {name} 用于蒸馏")
+                        break
+            
+            # 记录未找到的层
+            if not student_found:
+                LOGGER.warning(f"在学生模型中没有找到层 {layer_idx}")
+            if not teacher_found and student_found:
+                LOGGER.warning(f"在教师模型中没有找到对应的层 {layer_idx}")
+                # 移除最后添加的学生层
+                self.student_module_pairs.pop()
+                self.channels_s.pop()
+                self.found_student_layers.pop()
         
+        # 确保列表长度一致
+        min_len = min(len(self.student_module_pairs), len(self.teacher_module_pairs))
+        if min_len < len(self.student_module_pairs):
+            LOGGER.warning(f"截断学生模块列表从 {len(self.student_module_pairs)} 到 {min_len}")
+            self.student_module_pairs = self.student_module_pairs[:min_len]
+            self.channels_s = self.channels_s[:min_len]
+            self.found_student_layers = self.found_student_layers[:min_len]
+        
+        if min_len < len(self.teacher_module_pairs):
+            LOGGER.warning(f"截断教师模块列表从 {len(self.teacher_module_pairs)} 到 {min_len}")
+            self.teacher_module_pairs = self.teacher_module_pairs[:min_len]
+            self.channels_t = self.channels_t[:min_len]
+            self.found_teacher_layers = self.found_teacher_layers[:min_len]
+    
+    def register_hook(self):
+        """注册钩子函数，增强错误处理和日志记录"""
+        # 清空之前的输出
         self.teacher_outputs = []
         self.student_outputs = []
-
-        # 為教師模型創建鉤子
-        def make_teacher_hook(l):
-            def forward_hook(m, input, output):
-                LOGGER.debug(f"教師鉤子被觸發，輸出形狀: {output.shape if isinstance(output, torch.Tensor) else type(output)}")
-                if isinstance(output, torch.Tensor):
-                    l.append(output.detach().clone())  # 分離並複製教師輸出
-                else:
-                    l.append([o.detach().clone() if isinstance(o, torch.Tensor) else o for o in output])
-            return forward_hook
-
-        # 為學生模型創建鉤子
-        def make_student_hook(l):
-            def forward_hook(m, input, output):
-                LOGGER.debug(f"學生鉤子被觸發，輸出形狀: {output.shape if isinstance(output, torch.Tensor) else type(output)}")
-                if isinstance(output, torch.Tensor):
-                    out = output.clone()  # 複製以確保不修改原始輸出
-                    l.append(out)
-                else:
-                    l.append([o.clone() if isinstance(o, torch.Tensor) else o for o in output])
-            return forward_hook
-
-        # 確保模塊對正確
-        if len(self.teacher_module_pairs) == 0 or len(self.student_module_pairs) == 0:
-            LOGGER.error("沒有找到匹配的模塊對進行蒸餾")
+        
+        if not self.student_module_pairs or not self.teacher_module_pairs:
+            LOGGER.error("无法注册钩子：模块对为空")
             return
-            
-        # 註冊鉤子到教師和學生模型的對應層
-        for i, (ml, ori) in enumerate(zip(self.teacher_module_pairs, self.student_module_pairs)):
-            self.remove_handle.append(ml.register_forward_hook(make_teacher_hook(self.teacher_outputs)))
-            self.remove_handle.append(ori.register_forward_hook(make_student_hook(self.student_outputs)))
-
-    def get_loss(self):
-        """计算蒸馏损失，处理数据类型不匹配问题"""
-        if not self.teacher_outputs or not self.student_outputs:
-            return torch.tensor(0.0).to(self.models.device)
         
-        teacher_outputs = [t.detach() for t in self.teacher_outputs]
+        LOGGER.info(f"注册蒸馏钩子 - 学生层数: {len(self.student_module_pairs)}, 教师层数: {len(self.teacher_module_pairs)}")
         
+        # 注册学生模型钩子
+        for i, (name, module) in enumerate(self.student_module_pairs):
+            self.remove_handle.append(
+                module.register_forward_hook(
+                    lambda m, inp, out, idx=i: self._student_hook(m, inp, out, idx)
+                )
+            )
+            LOGGER.debug(f"为学生层 {name} 注册钩子(索引 {i})")
+        
+        # 注册教师模型钩子
+        for i, (name, module) in enumerate(self.teacher_module_pairs):
+            self.remove_handle.append(
+                module.register_forward_hook(
+                    lambda m, inp, out, idx=i: self._teacher_hook(m, inp, out, idx)
+                )
+            )
+            LOGGER.debug(f"为教师层 {name} 注册钩子(索引 {i})")
+    
+    def _student_hook(self, module, input, output, idx):
+        """学生模型钩子函数，增强安全处理"""
         try:
-            # 尝试正常计算损失
-            quant_loss = self.distill_loss_fn(y_s=self.student_outputs, y_t=teacher_outputs)
-            return quant_loss
-        except RuntimeError as e:
-            # 如果遇到数据类型错误，尝试转换数据类型
-            if "Input type" in str(e) and "weight type" in str(e):
-                LOGGER.warning(f"蒸馏损失计算出现数据类型不匹配: {e}")
-                
-                # 获取模型权重的数据类型
-                model_dtype = next(self.distill_loss_fn.parameters()).dtype
-                LOGGER.info(f"尝试将特征转换为模型数据类型: {model_dtype}")
-                
-                # 转换学生特征
-                converted_student = [s.to(model_dtype) if isinstance(s, torch.Tensor) else s 
-                                    for s in self.student_outputs]
-                
-                # 转换教师特征
-                converted_teacher = [t.to(model_dtype) if isinstance(t, torch.Tensor) else t 
-                                   for t in teacher_outputs]
-                
-                # 再次尝试计算损失
-                try:
-                    quant_loss = self.distill_loss_fn(y_s=converted_student, y_t=converted_teacher)
-                    LOGGER.info("数据类型转换后成功计算损失")
-                    return quant_loss
-                except Exception as e2:
-                    LOGGER.error(f"尝试转换数据类型后仍然失败: {e2}")
-                    # 返回零损失避免训练中断
-                    return torch.tensor(0.0).to(self.models.device)
-            else:
-                # 如果是其他错误，记录并返回零损失
-                LOGGER.error(f"计算蒸馏损失时出现未知错误: {e}")
-                return torch.tensor(0.0).to(self.models.device)
+            # 填充列表直到idx位置
+            while len(self.student_outputs) <= idx:
+                self.student_outputs.append(None)
+            
+            # 设置输出
+            self.student_outputs[idx] = output
+            
+        except Exception as e:
+            LOGGER.error(f"学生钩子处理出错(idx={idx}): {e}")
+    
+    def _teacher_hook(self, module, input, output, idx):
+        """教师模型钩子函数，增强安全处理"""
+        try:
+            # 填充列表直到idx位置
+            while len(self.teacher_outputs) <= idx:
+                self.teacher_outputs.append(None)
+            
+            # 设置输出
+            self.teacher_outputs[idx] = output
+            
 
-    def remove_handle_(self):
-        """安全移除已註冊的鉤子"""
-        for rm in self.remove_handle:
-            try:
-                rm.remove()
-            except Exception as e:
-                LOGGER.warning(f"移除鉤子時出錯: {e}")
-        self.remove_handle.clear()
-        
-        # 清空收集的特徵列表，避免保留對特徵的不必要引用
-        if hasattr(self, 'teacher_outputs'):
-            self.teacher_outputs.clear()
-        if hasattr(self, 'student_outputs'):
-            self.student_outputs.clear()
-        
-        LOGGER.debug("已移除蒸餾鉤子")
+        except Exception as e:
+            LOGGER.error(f"教师钩子处理出错(idx={idx}): {e}")
