@@ -108,8 +108,28 @@ class PoseTrainer(yolo.detect.DetectionTrainer):
 
 
     def distill_on_train_start(self, trainer):
-        pass
-
+        """训练开始时的初始化，处理额外参数"""
+        # 获取指定的蒸馏层(如果有)
+        if hasattr(self.args, 'distill_layers') and self.args.distill_layers:
+            try:
+                # 将字符串转换为列表
+                if isinstance(self.args.distill_layers, str):
+                    self.custom_distill_layers = self.args.distill_layers.split(',')
+                    LOGGER.info(f"使用指定的蒸馏层: {self.custom_distill_layers}")
+                else:
+                    self.custom_distill_layers = None
+            except Exception as e:
+                LOGGER.error(f"解析蒸馏层参数时出错: {e}")
+                self.custom_distill_layers = None
+        else:
+            self.custom_distill_layers = None
+        
+        # 检查蒸馏方法
+        if hasattr(self.args, 'distill_type') and self.args.distill_type:
+            self.distill_method = self.args.distill_type.lower()
+            LOGGER.info(f"使用指定的蒸馏方法: {self.distill_method}")
+        else:
+            self.distill_method = "fgd"  # 默认使用FGD
 
     def distill_on_epoch_start(self, trainer):
         if self.epoch == 0:
@@ -123,20 +143,19 @@ class PoseTrainer(yolo.detect.DetectionTrainer):
             self.model.args.dfl = 0.5
             self.model.args.distill = 0.1
             
-            # 使用单层FGD蒸馏 - 确保层存在
-            distillation_loss = "fgd"
-            distillation_layers = self._find_valid_layers(["22"])
+            # 使用指定的蒸馏层(如果有)
+            if hasattr(self, 'custom_distill_layers') and self.custom_distill_layers:
+                distillation_layers = self.custom_distill_layers
+            else:
+                # 使用默认层
+                distillation_layers = self._find_valid_layers(["22"])
+                if not distillation_layers:
+                    distillation_layers = ["22"]  # 使用默认值
             
-            if not distillation_layers:
-                LOGGER.warning("未找到有效蒸馏层，尝试使用备选层")
-                # 尝试备选层
-                distillation_layers = self._find_valid_layers(["20", "18", "15"])
-                
-            if not distillation_layers:
-                LOGGER.error("没有找到任何有效的蒸馏层!")
-                distillation_layers = ["22"]  # 使用默认值，但可能会导致错误
+            # 使用指定的蒸馏方法
+            distillation_loss = getattr(self, 'distill_method', "fgd")
             
-            LOGGER.info(f"使用蒸馏层: {distillation_layers}")
+            LOGGER.info(f"初始化蒸馏: 方法={distillation_loss}, 层={distillation_layers}")
             
             # 初始化蒸馏损失实例
             try:
@@ -146,47 +165,59 @@ class PoseTrainer(yolo.detect.DetectionTrainer):
                     distiller=distillation_loss,
                     layers=distillation_layers,
                 )
-                LOGGER.info(f"成功初始化蒸馏损失: {distillation_loss}")
+                LOGGER.info(f"成功初始化蒸馏损失")
             except Exception as e:
                 LOGGER.error(f"初始化蒸馏损失时出错: {e}")
-                # 如果使用FGD失败，尝试使用CWD
-                if distillation_loss != "cwd":
-                    LOGGER.info("尝试使用CWD作为备选蒸馏方法")
+                
+                # 尝试使用不同层
+                fallback_layers = self._find_valid_layers(["19", "20", "17"])
+                if fallback_layers:
+                    LOGGER.info(f"尝试使用备选层: {fallback_layers}")
                     self.distill_loss_instance = DistillationLoss(
                         models=self.model,
                         modelt=self.teacher,
-                        distiller="cwd",
-                        layers=distillation_layers,
+                        distiller=distillation_loss,
+                        layers=fallback_layers,
                     )
             
             # 解冻相关层
             self._selective_unfreeze(
                 unfreeze_layers=distillation_layers + ["23", "24", "25"],
-                partial_layers=["19"] if "19" not in distillation_layers else [],
+                partial_layers=["17", "19"],
                 keep_ratio=0.1
             )
             
         elif self.epoch == 3:
-            # 第二阶段 - 同样使用更安全的层选择
             LOGGER.info("阶段2: 特征辅助蒸馏")
             
-            # 调整任务和蒸馏权重
+            # 逐步平衡原始任务和蒸馏
             self.model.args.box = 0.4
             self.model.args.pose = 0.5
             self.model.args.kobj = 0.4
             self.model.args.cls = 0.4
             self.model.args.dfl = 0.4
-            self.model.args.distill = 0.3
+            self.model.args.distill = 0.3  # 增加蒸馏权重
             
-            # 使用更安全的层选择
-            distillation_loss = "fgd"
-            distillation_layers = self._find_valid_layers(["19", "22"])
+            # 使用指定的蒸馏层(如果有)
+            if hasattr(self, 'custom_distill_layers') and self.custom_distill_layers:
+                if len(self.custom_distill_layers) >= 2:
+                    # 如果有多个指定层，全部使用
+                    distillation_layers = self.custom_distill_layers
+                else:
+                    # 只有一个指定层，尝试添加其他层
+                    additional_layers = self._find_valid_layers(["19", "17"])
+                    distillation_layers = list(set(self.custom_distill_layers + additional_layers))
+            else:
+                # 使用默认层组合
+                distillation_layers = self._find_valid_layers(["19", "22"])
+                if not distillation_layers:
+                    distillation_layers = ["22"]
             
-            if not distillation_layers:
-                LOGGER.warning("阶段2未找到有效蒸馏层，使用阶段1相同的层")
-                distillation_layers = self.distill_loss_instance.found_student_layers
+            # 使用指定的蒸馏方法
+            distillation_loss = getattr(self, 'distill_method', "fgd")
             
-            # 移除旧钩子并创建新的蒸馏实例
+            LOGGER.info(f"阶段2蒸馏: 方法={distillation_loss}, 层={distillation_layers}")
+            
             self.distill_loss_instance.remove_handle_()
             self.distill_loss_instance = DistillationLoss(
                 models=self.model,
@@ -195,11 +226,47 @@ class PoseTrainer(yolo.detect.DetectionTrainer):
                 layers=distillation_layers,
             )
             
-            # 同样调整解冻策略
+            # 解冻更多层
             self._selective_unfreeze(
                 unfreeze_layers=distillation_layers + ["23", "24", "25"],
                 partial_layers=["15", "17", "18", "20", "21"],
                 keep_ratio=0.2
+            )
+            
+        elif self.epoch == 8:
+            LOGGER.info("阶段3: 平衡蒸馏")
+            
+            # 平衡原始任务和蒸馏
+            self.model.args.box = 0.3
+            self.model.args.pose = 0.4
+            self.model.args.kobj = 0.3
+            self.model.args.cls = 0.3
+            self.model.args.dfl = 0.3
+            self.model.args.distill = 0.5  # 提高蒸馏权重
+            
+            # 使用指定的蒸馏方法 - 可以考虑使用enhancedfgd
+            distillation_loss = "enhancedfgd"  # 增强版FGD更适合姿态估计
+            
+            # 使用多个层进行蒸馏
+            distillation_layers = self._find_valid_layers(["15", "17", "19", "22"])
+            if len(distillation_layers) < 2:
+                distillation_layers = self._find_valid_layers(["19", "22"])
+            
+            LOGGER.info(f"阶段3蒸馏: 方法={distillation_loss}, 层={distillation_layers}")
+            
+            self.distill_loss_instance.remove_handle_()
+            self.distill_loss_instance = DistillationLoss(
+                models=self.model,
+                modelt=self.teacher,
+                distiller=distillation_loss,
+                layers=distillation_layers,
+            )
+            
+            # 解冻所有相关层
+            self._selective_unfreeze(
+                unfreeze_layers=["15", "17", "18", "19", "20", "21", "22", "23", "24", "25"],
+                partial_layers=[],
+                keep_ratio=0
             )
         
         # 注册钩子
@@ -208,7 +275,7 @@ class PoseTrainer(yolo.detect.DetectionTrainer):
             LOGGER.info("成功注册蒸馏钩子")
         except Exception as e:
             LOGGER.error(f"注册蒸馏钩子时出错: {e}")
-            
+
     def _find_valid_layers(self, layer_candidates):
         """查找模型中存在的有效层"""
         valid_layers = []
