@@ -823,19 +823,18 @@ class DistillationLoss:
 
     def p5_feature_distillation(self, student_feature, teacher_feature):
         """
-        純蒸餾框架下的P5層蒸餾方法，專注於姿勢估計關鍵特徵
+        針對姿勢估計的簡化FGD方法，專門優化P5層特徵
         
         Args:
             student_feature: 學生模型特徵圖 [B, 256, H, W]
             teacher_feature: 教師模型特徵圖 [B, 512, H, W]
         
         Returns:
-            增強的姿勢蒸餾損失
+            FGD蒸餾損失
         """
         # 基本尺寸信息
         batch_size = student_feature.shape[0]
         student_channels = student_feature.shape[1]  # 256
-        teacher_channels = teacher_feature.shape[1]  # 512
         spatial_size = student_feature.shape[2:]  # (H, W)
         
         # 確保空間維度相同
@@ -847,134 +846,95 @@ class DistillationLoss:
                 align_corners=False
             )
         
-        # ======== 1. 教師特徵分析 ========
-        # 分析教師特徵以識別對姿勢估計最重要的通道
-        t_flat = teacher_feature.reshape(batch_size, teacher_channels, -1)  # [B, 512, H*W]
-        s_flat = student_feature.reshape(batch_size, student_channels, -1)  # [B, 256, H*W]
+        # 1. 通道維度壓縮 - 只使用教師模型前256個通道
+        # 這避免了複雜的通道選擇邏輯
+        t_selected = teacher_feature[:, :student_channels]  # [B, 256, H, W]
         
-        # 計算教師特徵的空間方差 - 高方差通道往往包含更多姿勢信息
-        t_spatial_var = torch.var(t_flat, dim=2)  # [B, 512]
-        
-        # 計算教師特徵的L2範數 - 高範數通道往往有更強的激活
-        t_norm = torch.norm(t_flat, p=2, dim=2)  # [B, 512]
-        
-        # 結合方差和範數作為重要性指標
-        t_importance = t_spatial_var * t_norm  # [B, 512]
-        
-        # 選擇最重要的通道
-        _, top_indices = torch.topk(t_importance, student_channels, dim=1)  # [B, 256]
-        
-        # 收集重要通道
-        t_selected = []
-        for b in range(batch_size):
-            t_selected.append(teacher_feature[b, top_indices[b]])  # [256, H, W]
-        
-        t_selected = torch.stack(t_selected)  # [B, 256, H, W]
-        
-        # ======== 2. 增強蒸餾損失 ========
-        # 2.1 特徵匹配損失 - 使用MSE但有一個較大的係數
-        feature_loss = F.mse_loss(student_feature, t_selected) * 10.0
-        
-        # 2.2 空間注意力損失 - 確保空間激活模式匹配
-        s_spatial = torch.sum(student_feature**2, dim=1)  # [B, H, W]
-        t_spatial = torch.sum(t_selected**2, dim=1)  # [B, H, W]
-        
-        # 標準化空間注意力
-        s_spatial = s_spatial / (torch.sum(s_spatial.view(batch_size, -1), dim=1, keepdim=True).view(batch_size, 1, 1) + 1e-10)
-        t_spatial = t_spatial / (torch.sum(t_spatial.view(batch_size, -1), dim=1, keepdim=True).view(batch_size, 1, 1) + 1e-10)
-        
-        # 空間注意力損失
-        spatial_loss = F.mse_loss(s_spatial, t_spatial) * 50.0  # 大幅增加權重
-        
-        # 2.3 通道注意力損失 - 確保通道激活模式匹配
-        s_channel = torch.sum(student_feature**2, dim=(2, 3))  # [B, 256]
-        t_channel = torch.sum(t_selected**2, dim=(2, 3))  # [B, 256]
-        
-        # 標準化通道注意力
-        s_channel = s_channel / (torch.sum(s_channel, dim=1, keepdim=True) + 1e-10)
-        t_channel = t_channel / (torch.sum(t_channel, dim=1, keepdim=True) + 1e-10)
+        # 2. 特徵通道注意力
+        # 全局平均池化獲取通道注意力
+        s_pool = F.adaptive_avg_pool2d(student_feature, 1).flatten(1)  # [B, 256]
+        t_pool = F.adaptive_avg_pool2d(t_selected, 1).flatten(1)  # [B, 256]
         
         # 通道注意力損失
-        channel_loss = F.mse_loss(s_channel, t_channel) * 25.0  # 增加權重
+        channel_loss = F.mse_loss(s_pool, t_pool) * 5.0  # 放大係數
         
-        # 2.4 熱點匹配損失 - 強制關注可能的關鍵點位置
-        # 找出教師特徵中的高激活區域
-        t_heat = torch.max(t_selected, dim=1)[0]  # [B, H, W]
+        # 3. 空間注意力 - 專注於姿勢關鍵區域
+        # 計算空間注意力圖 (每個位置的特徵激活強度)
+        s_spatial = torch.norm(student_feature, p=2, dim=1)  # [B, H, W]
+        t_spatial = torch.norm(t_selected, p=2, dim=1)  # [B, H, W]
         
-        # 標準化熱圖
-        t_heat_norm = (t_heat - t_heat.min(dim=1, keepdim=True)[0].min(dim=2, keepdim=True)[0]) / \
-                    (t_heat.max(dim=1, keepdim=True)[0].max(dim=2, keepdim=True)[0] - 
-                    t_heat.min(dim=1, keepdim=True)[0].min(dim=2, keepdim=True)[0] + 1e-10)
+        # 標準化空間注意力
+        s_spatial_norm = (s_spatial - s_spatial.min(dim=1, keepdim=True)[0].min(dim=2, keepdim=True)[0]) / \
+                        (s_spatial.max(dim=1, keepdim=True)[0].max(dim=2, keepdim=True)[0] - 
+                        s_spatial.min(dim=1, keepdim=True)[0].min(dim=2, keepdim=True)[0] + 1e-10)
         
-        # 創建熱點掩碼
-        threshold = 0.6  # 高閾值，只關注最重要的點
-        t_hotspots = (t_heat_norm > threshold).float()
+        t_spatial_norm = (t_spatial - t_spatial.min(dim=1, keepdim=True)[0].min(dim=2, keepdim=True)[0]) / \
+                        (t_spatial.max(dim=1, keepdim=True)[0].max(dim=2, keepdim=True)[0] - 
+                        t_spatial.min(dim=1, keepdim=True)[0].min(dim=2, keepdim=True)[0] + 1e-10)
         
-        # 擴大熱點區域 - 使用平均池化模擬高斯平滑
-        kernel_size = 5
-        padding = kernel_size // 2
-        t_hotspots = F.avg_pool2d(
-            t_hotspots.unsqueeze(1),
-            kernel_size=kernel_size,
-            stride=1,
-            padding=padding
-        ).squeeze(1)
-        t_hotspots = (t_hotspots > 0.2).float()  # 二值化擴展的熱點
+        # 空間注意力損失 - 姿勢估計中極其重要
+        spatial_loss = F.mse_loss(s_spatial_norm, t_spatial_norm) * 10.0  # 更大的放大係數
         
-        # 在學生特徵中找出相同位置
-        s_heat = torch.max(student_feature, dim=1)[0]  # [B, H, W]
+        # 4. 高激活區域特徵匹配 - 針對可能的關鍵點區域
+        # 識別高激活區域
+        threshold = 0.5
+        mask = (t_spatial_norm > threshold).float()
         
-        # 計算熱點損失 - 在熱點區域強制匹配
-        hotspot_loss = F.mse_loss(
-            s_heat * t_hotspots,
-            t_heat * t_hotspots
-        ) / (t_hotspots.mean() + 1e-10) * 100.0  # 非常高的權重
+        # 確保至少有10%的區域被選中
+        coverage = mask.mean()
+        if coverage < 0.1:
+            # 動態調整閾值
+            k = int(0.1 * mask.shape[1] * mask.shape[2])
+            for b in range(batch_size):
+                values, _ = torch.topk(t_spatial_norm[b].reshape(-1), k)
+                mask[b] = (t_spatial_norm[b] > values[-1]).float()
         
-        # 2.5 結構相關性損失 - 確保通道間關係被保留
-        # 計算通道相關性矩陣
-        s_norm = F.normalize(s_flat, p=2, dim=2)  # [B, 256, H*W]
-        t_norm = F.normalize(t_flat[:, top_indices], p=2, dim=2)  # [B, 256, H*W]
+        # 在高激活區域進行特徵匹配
+        mask_expanded = mask.unsqueeze(1)  # [B, 1, H, W]
+        masked_loss = F.mse_loss(
+            student_feature * mask_expanded,
+            t_selected * mask_expanded
+        ) / (mask.mean() + 1e-10) * 8.0  # 歸一化並放大
         
-        s_corr = torch.bmm(s_norm, s_norm.transpose(1, 2))  # [B, 256, 256]
-        t_corr = torch.bmm(t_norm, t_norm.transpose(1, 2))  # [B, 256, 256]
+        # 5. 全局特徵匹配 - 但賦予較低權重
+        global_loss = F.mse_loss(student_feature, t_selected) * 1.0
         
-        # 結構相關性損失
-        structure_loss = F.mse_loss(s_corr, t_corr) * 15.0
+        # 6. 統計量匹配 - 確保整體分布一致
+        s_mean = student_feature.mean(dim=[2, 3])  # [B, 256]
+        t_mean = t_selected.mean(dim=[2, 3])  # [B, 256]
+        s_std = torch.sqrt(student_feature.var(dim=[2, 3]) + 1e-6)  # [B, 256]
+        t_std = torch.sqrt(t_selected.var(dim=[2, 3]) + 1e-6)  # [B, 256]
         
-        # ======== 3. 組合損失 ========
-        # 使用高權重組合所有損失 - 純蒸餾需要更強的信號
+        # 統計量損失
+        mean_loss = F.mse_loss(s_mean, t_mean)
+        std_loss = F.mse_loss(s_std, t_std)
+        stats_loss = (mean_loss + std_loss) * 2.0
+        
+        # 總損失計算 - 注重空間注意力和高激活區域
         total_loss = (
-            0.2 * feature_loss +     # 基本特徵匹配
-            0.3 * spatial_loss +     # 空間注意力匹配
-            0.15 * channel_loss +    # 通道注意力匹配
-            0.25 * hotspot_loss +    # 熱點位置匹配
-            0.1 * structure_loss     # 結構相關性匹配
+            0.15 * channel_loss +    # 通道注意力
+            0.35 * spatial_loss +    # 空間注意力 (最重要)
+            0.30 * masked_loss +     # 高激活區域匹配
+            0.10 * global_loss +     # 全局特徵匹配
+            0.10 * stats_loss        # 統計量匹配
         )
         
-        # ======== 4. 計算損失放大係數 ========
-        # 在純蒸餾設置中，可能需要放大損失以提供更強的梯度
-        # 我們根據批次中的平均激活計算一個自適應係數
-        avg_teacher_activation = torch.mean(torch.abs(teacher_feature))
-        avg_student_activation = torch.mean(torch.abs(student_feature))
-        
-        # 如果學生激活太弱，則放大損失
-        activation_ratio = avg_teacher_activation / (avg_student_activation + 1e-10)
-        amplification = torch.clamp(activation_ratio, 1.0, 5.0)  # 放大1-5倍
-        
-        # 應用放大係數
+        # 損失放大 - 為純蒸餾提供更強信號
+        # 但不像之前的方法那樣激進
+        amplification = 2.0
         amplified_loss = total_loss * amplification
         
         # 日誌記錄
-        LOGGER.info(f"P5層蒸餾損失詳情 (增強純蒸餾方法):")
-        LOGGER.info(f"  特徵匹配損失: {feature_loss.item():.6f} (權重: 0.2)")
-        LOGGER.info(f"  空間注意力損失: {spatial_loss.item():.6f} (權重: 0.3)")
+        LOGGER.info(f"P5層FGD蒸餾損失詳情:")
         LOGGER.info(f"  通道注意力損失: {channel_loss.item():.6f} (權重: 0.15)")
-        LOGGER.info(f"  熱點損失: {hotspot_loss.item():.6f} (權重: 0.25)")
-        LOGGER.info(f"  結構相關性損失: {structure_loss.item():.6f} (權重: 0.1)")
+        LOGGER.info(f"  空間注意力損失: {spatial_loss.item():.6f} (權重: 0.35)")
+        LOGGER.info(f"  高激活區域損失: {masked_loss.item():.6f} (權重: 0.30)")
+        LOGGER.info(f"  全局特徵損失: {global_loss.item():.6f} (權重: 0.10)")
+        LOGGER.info(f"  統計量損失: {stats_loss.item():.6f} (權重: 0.10)")
         LOGGER.info(f"  總基礎損失: {total_loss.item():.6f}")
-        LOGGER.info(f"  損失放大係數: {amplification.item():.2f}")
-        LOGGER.info(f"  放大後損失: {amplified_loss.item():.6f}")
-        LOGGER.info(f"  熱點覆蓋率: {t_hotspots.mean().item()*100:.2f}%")
+        LOGGER.info(f"  損失放大係數: {amplification:.2f}")
+        LOGGER.info(f"  最終損失: {amplified_loss.item():.6f}")
+        LOGGER.info(f"  高激活區域覆蓋率: {mask.mean().item()*100:.2f}%")
         
         return amplified_loss
 
