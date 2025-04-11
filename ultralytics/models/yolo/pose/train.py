@@ -6,6 +6,7 @@ from ultralytics.models import yolo
 from ultralytics.nn.tasks import PoseModel
 from ultralytics.utils import DEFAULT_CFG, LOGGER, callbacks
 from ultralytics.utils.plotting import plot_images, plot_results
+import torch
 
 
 class PoseTrainer(yolo.detect.DetectionTrainer):
@@ -69,9 +70,18 @@ class PoseTrainer(yolo.detect.DetectionTrainer):
             # 凍結教師模型參數
             for k, v in self.teacher.named_parameters():
                 v.requires_grad = False
+            
+            # 設置教師模型為訓練模式，但凍結BN層統計數據
             self.teacher = self.teacher.to(self.device)
+            # self.teacher.train()  # 設為訓練模式而非評估模式
             self.teacher.eval()
-            LOGGER.info(f"初始化教師模型已完成，設為評估模式")
+            
+            # 凍結BN層，讓它們的統計數據(running_mean, running_var)不會更新
+            for m in self.teacher.modules():
+                if isinstance(m, (torch.nn.BatchNorm2d, torch.nn.BatchNorm1d)):
+                    m.eval()  # 只有BN層設為評估模式
+                    
+            LOGGER.info(f"初始化教師模型已完成，設為訓練模式但凍結BN層")
 
             if _callbacks is None:
                 _callbacks = callbacks.get_default_callbacks()
@@ -90,6 +100,51 @@ class PoseTrainer(yolo.detect.DetectionTrainer):
                 "WARNING ⚠️ Apple MPS known Pose bug. Recommend 'device=cpu' for Pose models. "
                 "See https://github.com/ultralytics/ultralytics/issues/4031."
             )
+
+    def _model_train(self):
+        """Set model in training mode."""
+        self.model.train()
+        # Freeze BN stat
+        for n, m in self.model.named_modules():
+            if any(filter(lambda f: f in n, self.freeze_layer_names)) and isinstance(m, torch.nn.BatchNorm2d):
+                m.eval()
+
+        # 測試完要刪除以下代碼
+
+        # # 凍結學生模型參數
+        # for k, v in self.model.named_parameters():
+        #     v.requires_grad = False
+
+        # 凍結BN層，讓它們的統計數據(running_mean, running_var)不會更新
+        for m in self.model.modules():
+            if isinstance(m, (torch.nn.BatchNorm2d, torch.nn.BatchNorm1d)):
+                m.eval()  # 只有BN層設為評估模式
+
+        # 列出有哪些層是訓練模式
+        print("============= 學生模型層 =============")
+        for n, m in self.model.named_modules():
+            if m.training:
+                print(f"!!!!!!!!!!!_model_train, m.training: {n}")
+            else:
+                print(f"!!!!!!!!!!!_model_train, m.eval: {n}")
+        
+        # 列出參數的 requires_grad 狀態
+        print("============= 學生模型參數 =============")
+        for n, p in self.model.named_parameters():
+            print(f"參數: {n}, requires_grad: {p.requires_grad}")
+            
+        if self.teacher is not None:
+            print("============= 教師模型層 =============")
+            for n, m in self.teacher.named_modules():
+                if m.training:
+                    print(f"!!!!!!!!!!!_model_train, m.training: {n}")
+                else:
+                    print(f"!!!!!!!!!!!_model_train, m.eval: {n}")
+                    
+            # 列出教師模型參數的 requires_grad 狀態
+            print("============= 教師模型參數 =============")
+            for n, p in self.teacher.named_parameters():
+                print(f"參數: {n}, requires_grad: {p.requires_grad}")
 
     def preprocess_batch(self, batch):
         batch = super().preprocess_batch(batch)
@@ -149,7 +204,7 @@ class PoseTrainer(yolo.detect.DetectionTrainer):
 
     def get_validator(self):
         """Returns an instance of the PoseValidator class for validation."""
-        self.loss_names = "box_loss", "pose_loss", "kobj_loss", "cls_loss", "dfl_loss", "d_loss"
+        self.loss_names = "box_loss", "pose_loss", "kobj_loss", "cls_loss", "dfl_loss", "dpose_loss", "dkobj_loss"
         return yolo.pose.PoseValidator(
             self.test_loader, save_dir=self.save_dir, args=copy(self.args), _callbacks=self.callbacks
         )
