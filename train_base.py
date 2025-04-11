@@ -14,8 +14,8 @@ results = model.train(
     workers=16,                  # 增加工作線程數量
     patience=30,
     cos_lr=True,
-    lr0=0.001,
-    lrf=0.01,
+    # lr0=0.001,
+    # lrf=0.01,
     warmup_epochs=3.0,
     weight_decay=0.0005,
     close_mosaic=10,
@@ -29,4 +29,8 @@ results = model.train(
     name="train",
     exist_ok=True,
     multi_scale=True,            # 重新啟用多尺度訓練
+
+    teacher=None,
+    distill=1.0,
+    freezeAllBN=False,
 )
