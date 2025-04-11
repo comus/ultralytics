@@ -63,6 +63,8 @@ class PoseTrainer(yolo.detect.DetectionTrainer):
         overrides["task"] = "pose"
 
         self.teacher = overrides.get("teacher", None)
+        self.distill = overrides.get("distill", 1.0)
+        self.freezeAllBN = overrides.get("freezeAllBN", False)
 
         super().__init__(cfg, overrides, _callbacks)
 
@@ -116,9 +118,10 @@ class PoseTrainer(yolo.detect.DetectionTrainer):
         #     v.requires_grad = False
 
         # 凍結BN層，讓它們的統計數據(running_mean, running_var)不會更新
-        for m in self.model.modules():
-            if isinstance(m, (torch.nn.BatchNorm2d, torch.nn.BatchNorm1d)):
-                m.eval()  # 只有BN層設為評估模式
+        if self.freezeAllBN:
+            for m in self.model.modules():
+                if isinstance(m, (torch.nn.BatchNorm2d, torch.nn.BatchNorm1d)):
+                    m.eval()  # 只有BN層設為評估模式
 
         # # 列出有哪些層是訓練模式
         # print("============= 學生模型層 =============")

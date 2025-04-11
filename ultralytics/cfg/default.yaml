@@ -89,6 +89,8 @@ nms: False # (bool) CoreML: add NMS
 
 # Distillation settings -------------------------------------------------------------------------------------------------
 teacher: None
+distill: 1.0 # (float) distillation loss gain
+freezeAllBN: False # (bool) freeze all BN layers
 
 # Hyperparameters ------------------------------------------------------------------------------------------------------
 lr0: 0.01 # (float) initial learning rate (i.e. SGD=1E-2, Adam=1E-3)

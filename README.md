@@ -59,15 +59,21 @@ Results saved to /root/autodl-tmp/ultralytics/runs/pose/val5
 
 因此結論是 yolo11 官方的模型已經是最優解
 
-這是我最最最後嘗試改善 yolo11n-pose 的過程
+這是我最最最後嘗試改善 yolo11n-pose 的過程 (有關蒸餾損失函數也是在裡面)
 
 https://poe.com/s/1jVchmCmAfe9msarZt8l
 
-# 另外的方向: 先訓練另一小模型，再蒸餾大模型到小模型
+# 另外的方向: 自行建立另一小模型，再蒸餾
 
 主打輕量級模型，我訓練速度快，訓練時間短。
 
+# 方向一，先訓練另一小模型，再蒸餾大模型到小模型
 
+train_base.py
+
+# 方向二，在訓練小模型時，使用蒸餾
+
+train_base_distill.py
 
 
 
