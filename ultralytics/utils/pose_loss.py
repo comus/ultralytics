@@ -114,7 +114,7 @@ class v8PoseLoss(v8DetectionLoss):
             )
         
         if "teacher" in batch and batch["teacher"] is not None:
-            loss[5], _ = self.distillation_loss(preds, batch["teacher_preds"])
+            loss[5] = self.distillation_loss(preds, batch["teacher_preds"])
         else:
             loss[5] = torch.zeros(1, device=self.device, requires_grad=True)
 
@@ -237,9 +237,146 @@ class v8PoseLoss(v8DetectionLoss):
         
     #     return total_loss
 
+    # def distillation_loss(self, student_outputs, teacher_outputs, T=2.0, feat_weight=0.5, pred_weight=1.0):
+    #     """
+    #     YOLO-Pose蒸餾損失函數，專為全關鍵點輸出設計
+        
+    #     參數:
+    #         student_outputs: 學生模型輸出，格式為(特徵圖列表, 預測張量)
+    #         teacher_outputs: 教師模型輸出，格式為(特徵圖列表, 預測張量)
+    #         T: 溫度參數
+    #         feat_weight: 特徵蒸餾權重
+    #         pred_weight: 預測蒸餾權重
+            
+    #     返回:
+    #         total_loss: 總蒸餾損失
+    #     """
+    #     # 獲取學生和教師模型的特徵圖和預測
+    #     student_features = student_outputs[0]
+    #     teacher_features = teacher_outputs[0]
+        
+    #     student_preds = student_outputs[1]  # [batch_size, 51, num_anchors]
+    #     teacher_preds = teacher_outputs[1]  # [batch_size, 51, num_anchors]
+        
+    #     # 1. 特徵圖蒸餾損失
+    #     feat_loss = 0
+    #     for s_feat, t_feat in zip(student_features, teacher_features):
+    #         feat_loss += F.mse_loss(s_feat, t_feat)
+    #     feat_loss = feat_loss / len(student_features)
+        
+    #     # 2. 關鍵點預測蒸餾損失
+    #     num_keypoints = 17
+        
+    #     # 2.1 關鍵點坐標損失 (x和y座標)
+    #     coord_loss = 0
+    #     for i in range(num_keypoints):
+    #         # 每個關鍵點的x和y座標索引
+    #         x_idx = i * 3
+    #         y_idx = i * 3 + 1
+            
+    #         # 使用平滑L1損失進行坐標蒸餾
+    #         x_loss = F.smooth_l1_loss(student_preds[:, x_idx, :], teacher_preds[:, x_idx, :])
+    #         y_loss = F.smooth_l1_loss(student_preds[:, y_idx, :], teacher_preds[:, y_idx, :])
+            
+    #         coord_loss += x_loss + y_loss
+        
+    #     coord_loss = coord_loss / (2 * num_keypoints)  # 平均到每個坐標
+        
+    #     # 2.2 關鍵點置信度損失
+    #     conf_loss = 0
+    #     batch_size = student_preds.shape[0]
+        
+    #     for i in range(num_keypoints):
+    #         conf_idx = i * 3 + 2  # 置信度索引
+            
+    #         # 使用KL散度進行置信度蒸餾
+    #         for b in range(batch_size):
+    #             s_conf = student_preds[b, conf_idx, :] / T
+    #             t_conf = teacher_preds[b, conf_idx, :] / T
+                
+    #             # 軟化後的置信度分佈
+    #             s_conf_log = F.log_softmax(s_conf, dim=0)
+    #             t_conf_soft = F.softmax(t_conf, dim=0)
+                
+    #             # KL散度損失
+    #             kl_loss = F.kl_div(
+    #                 s_conf_log, 
+    #                 t_conf_soft, 
+    #                 reduction='sum'
+    #             ) * (T**2) / student_preds.shape[2]
+                
+    #             conf_loss += kl_loss
+        
+    #     conf_loss = conf_loss / (batch_size * num_keypoints)  # 平均到每個關鍵點的每個批次
+        
+    #     # 2.3 關注高置信度區域的特殊蒸餾
+    #     # 獲取教師模型中所有關鍵點的平均置信度
+    #     teacher_conf_mean = torch.zeros((batch_size, student_preds.shape[2]), device=student_preds.device)
+        
+    #     for i in range(num_keypoints):
+    #         conf_idx = i * 3 + 2
+    #         teacher_conf_mean += teacher_preds[:, conf_idx, :]
+        
+    #     teacher_conf_mean = teacher_conf_mean / num_keypoints
+    #     high_conf_mask = teacher_conf_mean > 0  # 只關注正置信度區域
+        
+    #     if torch.any(high_conf_mask):
+    #         # 計算高置信度區域的位置蒸餾損失
+    #         weighted_coord_loss = 0
+    #         count = 0
+            
+    #         for b in range(batch_size):
+    #             batch_mask = high_conf_mask[b]
+                
+    #             if torch.any(batch_mask):
+    #                 for i in range(num_keypoints):
+    #                     x_idx = i * 3
+    #                     y_idx = i * 3 + 1
+    #                     conf_idx = i * 3 + 2
+                        
+    #                     # 獲取此關鍵點的置信度作為權重
+    #                     weights = torch.sigmoid(teacher_preds[b, conf_idx, batch_mask])
+                        
+    #                     # 計算加權L1損失
+    #                     x_diff = torch.abs(student_preds[b, x_idx, batch_mask] - teacher_preds[b, x_idx, batch_mask])
+    #                     y_diff = torch.abs(student_preds[b, y_idx, batch_mask] - teacher_preds[b, y_idx, batch_mask])
+                        
+    #                     weighted_x_loss = (weights * x_diff).sum() / (weights.sum() + 1e-8)
+    #                     weighted_y_loss = (weights * y_diff).sum() / (weights.sum() + 1e-8)
+                        
+    #                     weighted_coord_loss += weighted_x_loss + weighted_y_loss
+    #                     count += 2
+            
+    #         if count > 0:
+    #             weighted_coord_loss = weighted_coord_loss / count
+    #             # 加入加權損失
+    #             coord_loss = 0.5 * coord_loss + 0.5 * weighted_coord_loss
+        
+    #     # 組合損失
+    #     pred_loss = 1.5 * coord_loss + 2.0 * conf_loss
+        
+    #     # 組合特徵損失和預測損失
+    #     total_loss = feat_weight * feat_loss + pred_weight * pred_loss
+
+    #     # # 輸出損失值
+    #     # print("\n--- Loss Values ---")
+    #     # print(f"feat loss: {feat_loss.item():.4f}")
+    #     # print(f"coord loss: {coord_loss.item():.4f}")
+    #     # print(f"conf loss: {conf_loss.item():.4f}")
+    #     # print(f"pred loss: {pred_loss.item():.4f}")
+    #     # print(f"total loss: {total_loss.item():.4f}")
+        
+    #     return total_loss, {
+    #         'feat_loss': feat_loss.item(),
+    #         'coord_loss': coord_loss.item(),
+    #         'conf_loss': conf_loss.item(),
+    #         'pred_loss': pred_loss.item(),
+    #         'total_loss': total_loss.item()
+    #     }
+
     def distillation_loss(self, student_outputs, teacher_outputs, T=2.0, feat_weight=0.5, pred_weight=1.0):
         """
-        YOLO-Pose蒸餾損失函數，專為全關鍵點輸出設計
+        YOLO-Pose蒸餾損失函數 - 效能優化版本
         
         參數:
             student_outputs: 學生模型輸出，格式為(特徵圖列表, 預測張量)
@@ -258,98 +395,77 @@ class v8PoseLoss(v8DetectionLoss):
         student_preds = student_outputs[1]  # [batch_size, 51, num_anchors]
         teacher_preds = teacher_outputs[1]  # [batch_size, 51, num_anchors]
         
-        # 1. 特徵圖蒸餾損失
-        feat_loss = 0
+        batch_size = student_preds.shape[0]
+        num_keypoints = 17
+        
+        # 1. 特徵圖蒸餾損失 - 向量化操作
+        feat_loss = torch.tensor(0.0, device=student_preds.device)
         for s_feat, t_feat in zip(student_features, teacher_features):
             feat_loss += F.mse_loss(s_feat, t_feat)
         feat_loss = feat_loss / len(student_features)
         
-        # 2. 關鍵點預測蒸餾損失
-        num_keypoints = 17
+        # 2. 關鍵點預測蒸餾損失 - 向量化處理
         
-        # 2.1 關鍵點坐標損失 (x和y座標)
-        coord_loss = 0
-        for i in range(num_keypoints):
-            # 每個關鍵點的x和y座標索引
-            x_idx = i * 3
-            y_idx = i * 3 + 1
-            
-            # 使用平滑L1損失進行坐標蒸餾
-            x_loss = F.smooth_l1_loss(student_preds[:, x_idx, :], teacher_preds[:, x_idx, :])
-            y_loss = F.smooth_l1_loss(student_preds[:, y_idx, :], teacher_preds[:, y_idx, :])
-            
-            coord_loss += x_loss + y_loss
+        # 2.1 關鍵點坐標損失 (x和y座標) - 不使用迴圈
+        # 創建x和y索引掩碼
+        x_indices = torch.tensor([i * 3 for i in range(num_keypoints)], device=student_preds.device)
+        y_indices = torch.tensor([i * 3 + 1 for i in range(num_keypoints)], device=student_preds.device)
         
-        coord_loss = coord_loss / (2 * num_keypoints)  # 平均到每個坐標
+        # 使用索引一次性選取所有x座標
+        s_x_coords = student_preds[:, x_indices, :]  # [batch_size, num_keypoints, num_anchors]
+        t_x_coords = teacher_preds[:, x_indices, :]
         
-        # 2.2 關鍵點置信度損失
-        conf_loss = 0
-        batch_size = student_preds.shape[0]
+        # 使用索引一次性選取所有y座標
+        s_y_coords = student_preds[:, y_indices, :]
+        t_y_coords = teacher_preds[:, y_indices, :]
         
-        for i in range(num_keypoints):
-            conf_idx = i * 3 + 2  # 置信度索引
-            
-            # 使用KL散度進行置信度蒸餾
-            for b in range(batch_size):
-                s_conf = student_preds[b, conf_idx, :] / T
-                t_conf = teacher_preds[b, conf_idx, :] / T
-                
-                # 軟化後的置信度分佈
-                s_conf_log = F.log_softmax(s_conf, dim=0)
-                t_conf_soft = F.softmax(t_conf, dim=0)
-                
-                # KL散度損失
-                kl_loss = F.kl_div(
-                    s_conf_log, 
-                    t_conf_soft, 
-                    reduction='sum'
-                ) * (T**2) / student_preds.shape[2]
-                
-                conf_loss += kl_loss
+        # 計算x和y座標的損失
+        x_loss = F.smooth_l1_loss(s_x_coords, t_x_coords)
+        y_loss = F.smooth_l1_loss(s_y_coords, t_y_coords)
         
-        conf_loss = conf_loss / (batch_size * num_keypoints)  # 平均到每個關鍵點的每個批次
+        coord_loss = (x_loss + y_loss) / 2
         
-        # 2.3 關注高置信度區域的特殊蒸餾
-        # 獲取教師模型中所有關鍵點的平均置信度
-        teacher_conf_mean = torch.zeros((batch_size, student_preds.shape[2]), device=student_preds.device)
+        # 2.2 關鍵點置信度損失 - 簡化版本
+        conf_indices = torch.tensor([i * 3 + 2 for i in range(num_keypoints)], device=student_preds.device)
         
-        for i in range(num_keypoints):
-            conf_idx = i * 3 + 2
-            teacher_conf_mean += teacher_preds[:, conf_idx, :]
+        # 獲取所有置信度通道
+        s_conf = student_preds[:, conf_indices, :]  # [batch_size, num_keypoints, num_anchors]
+        t_conf = teacher_preds[:, conf_indices, :]
         
-        teacher_conf_mean = teacher_conf_mean / num_keypoints
-        high_conf_mask = teacher_conf_mean > 0  # 只關注正置信度區域
+        # 直接使用MSE或BCE損失進行置信度蒸餾，避免使用KL散度的多重迴圈
+        conf_loss = F.mse_loss(s_conf, t_conf)
         
+        # 針對高置信度區域的額外蒸餾 - 簡化版本
+        # 計算每個位置的平均置信度
+        t_conf_mean = torch.mean(t_conf, dim=1)  # [batch_size, num_anchors]
+        high_conf_mask = t_conf_mean > 0.5  # 只關注高置信度區域
+        
+        # 初始化加權損失
+        weighted_coord_loss = torch.tensor(0.0, device=student_preds.device)
+        valid_samples = 0
+        
+        # 檢查是否有高置信度預測
         if torch.any(high_conf_mask):
-            # 計算高置信度區域的位置蒸餾損失
-            weighted_coord_loss = 0
-            count = 0
-            
+            # 批次維度的掩碼處理
             for b in range(batch_size):
                 batch_mask = high_conf_mask[b]
-                
                 if torch.any(batch_mask):
-                    for i in range(num_keypoints):
-                        x_idx = i * 3
-                        y_idx = i * 3 + 1
-                        conf_idx = i * 3 + 2
-                        
-                        # 獲取此關鍵點的置信度作為權重
-                        weights = torch.sigmoid(teacher_preds[b, conf_idx, batch_mask])
-                        
-                        # 計算加權L1損失
-                        x_diff = torch.abs(student_preds[b, x_idx, batch_mask] - teacher_preds[b, x_idx, batch_mask])
-                        y_diff = torch.abs(student_preds[b, y_idx, batch_mask] - teacher_preds[b, y_idx, batch_mask])
-                        
-                        weighted_x_loss = (weights * x_diff).sum() / (weights.sum() + 1e-8)
-                        weighted_y_loss = (weights * y_diff).sum() / (weights.sum() + 1e-8)
-                        
-                        weighted_coord_loss += weighted_x_loss + weighted_y_loss
-                        count += 2
+                    # 提取高置信度區域的坐標
+                    s_x_high = s_x_coords[b, :, batch_mask]  # [num_keypoints, num_high_conf]
+                    t_x_high = t_x_coords[b, :, batch_mask]
+                    s_y_high = s_y_coords[b, :, batch_mask]
+                    t_y_high = t_y_coords[b, :, batch_mask]
+                    
+                    # 計算坐標損失
+                    high_x_loss = F.smooth_l1_loss(s_x_high, t_x_high)
+                    high_y_loss = F.smooth_l1_loss(s_y_high, t_y_high)
+                    
+                    weighted_coord_loss += high_x_loss + high_y_loss
+                    valid_samples += 1
             
-            if count > 0:
-                weighted_coord_loss = weighted_coord_loss / count
-                # 加入加權損失
+            if valid_samples > 0:
+                weighted_coord_loss = weighted_coord_loss / valid_samples
+                # 合併普通坐標損失和加權坐標損失
                 coord_loss = 0.5 * coord_loss + 0.5 * weighted_coord_loss
         
         # 組合損失
@@ -358,21 +474,15 @@ class v8PoseLoss(v8DetectionLoss):
         # 組合特徵損失和預測損失
         total_loss = feat_weight * feat_loss + pred_weight * pred_loss
 
-        # # 輸出損失值
-        # print("\n--- Loss Values ---")
-        # print(f"feat loss: {feat_loss.item():.4f}")
-        # print(f"coord loss: {coord_loss.item():.4f}")
-        # print(f"conf loss: {conf_loss.item():.4f}")
-        # print(f"pred loss: {pred_loss.item():.4f}")
-        # print(f"total loss: {total_loss.item():.4f}")
+        # 輸出損失值
+        print("\n--- Loss Values ---")
+        print(f"feat loss: {feat_loss.item():.4f}")
+        print(f"coord loss: {coord_loss.item():.4f}")
+        print(f"conf loss: {conf_loss.item():.4f}")
+        print(f"pred loss: {pred_loss.item():.4f}")
+        print(f"total loss: {total_loss.item():.4f}")
         
-        return total_loss, {
-            'feat_loss': feat_loss.item(),
-            'coord_loss': coord_loss.item(),
-            'conf_loss': conf_loss.item(),
-            'pred_loss': pred_loss.item(),
-            'total_loss': total_loss.item()
-        }
+        return total_loss
 
 
     @staticmethod
