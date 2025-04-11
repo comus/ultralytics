@@ -3,7 +3,6 @@
 from ultralytics.engine.predictor import BasePredictor
 from ultralytics.engine.results import Results
 from ultralytics.utils import ops
-from ultralytics.utils.dev import describe_var, show_caller
 
 class DetectionPredictor(BasePredictor):
     """
@@ -51,9 +50,6 @@ class DetectionPredictor(BasePredictor):
             >>> results = predictor.predict("path/to/image.jpg")
             >>> processed_results = predictor.postprocess(preds, img, orig_imgs)
         """
-
-        # print('!!!!!!!!!!!!!!!postprocess1, preds\n\n', describe_var(preds))
-
         preds = ops.non_max_suppression(
             preds,
             self.args.conf,
@@ -65,17 +61,6 @@ class DetectionPredictor(BasePredictor):
             end2end=getattr(self.model, "end2end", False),
             rotated=self.args.task == "obb",
         )
-
-        # print("!!!!!!!!!!!!!!!postprocess1, self.args.conf\n\n", self.args.conf)
-        # print("!!!!!!!!!!!!!!!postprocess1, self.args.iou\n\n", self.args.iou)
-        # print("!!!!!!!!!!!!!!!postprocess1, self.args.classes\n\n", self.args.classes)
-        # print("!!!!!!!!!!!!!!!postprocess1, self.args.agnostic_nms\n\n", self.args.agnostic_nms)
-        # print("!!!!!!!!!!!!!!!postprocess1, self.args.max_det\n\n", self.args.max_det)
-        # print("!!!!!!!!!!!!!!!postprocess1, self.model.names\n\n", self.model.names)
-        # print("!!!!!!!!!!!!!!!postprocess1, self.model.end2end\n\n", getattr(self.model, "end2end", False))
-        # print("!!!!!!!!!!!!!!!postprocess1, self.model.rotated\n\n", self.args.task == "obb")
-        # show_caller()
-        # print('!!!!!!!!!!!!!!!postprocess2, preds\n\n', describe_var(preds), preds)
 
         if not isinstance(orig_imgs, list):  # input images are a torch.Tensor, not a list
             orig_imgs = ops.convert_torch2numpy_batch(orig_imgs)
