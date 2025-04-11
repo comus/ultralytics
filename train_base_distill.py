@@ -12,7 +12,7 @@ results = model.train(
     batch=64,                   # 增加批次大小至128
     cache="disk",                # 保持磁盤緩存
     device=0,
-    workers=8,                  # 增加工作線程數量
+    workers=4,                  # 增加工作線程數量
     patience=30,
     cos_lr=True,
     lr0=0.001,
@@ -27,7 +27,7 @@ results = model.train(
     plots=True,
     save_period=1,              # 每10個epoch保存一次
     project="yolo11-pose-base",
-    name="train",
+    name="train-distill",
     exist_ok=True,
     multi_scale=True,            # 重新啟用多尺度訓練
 )
