@@ -298,29 +298,11 @@ class BaseModel(torch.nn.Module):
 
         if "teacher" in batch and batch["teacher"] is not None:
             teacher = batch["teacher"]
-            # print("~~~~~~~~~~~~~", type(teacher))
-            # teacher.eval()
             with torch.no_grad():
-                # print("!!!!!!!!!!!teacher!!!!!!!!!!!!!!!!!!!!!")
                 teacher_preds = teacher(batch["img"])
-                # print('!!!!!!!!!!!!!!!tasks, loss, teacher_preds1\n\n', describe_var(teacher_preds))
-                teacher_preds = ops.non_max_suppression(
-                    teacher_preds,
-                    0.25,
-                    0.7,
-                    None,
-                    False,
-                    max_det=300,
-                    nc=1,
-                    end2end=False,
-                    rotated=False,
-                )
-                # print('!!!!!!!!!!!!!!!tasks, loss, teacher_preds2\n\n', describe_var(teacher_preds))
             batch["teacher_preds"] = teacher_preds
 
-        # print("~~~~~~~~~~~~~", type(self))
         preds = self.forward(batch["img"]) if preds is None else preds
-        # print('!!!!!!!!!!!!!!!tasks, loss, preds\n\n', describe_var(preds))
         return self.criterion(preds, batch)
 
     def init_criterion(self):
