@@ -8,7 +8,7 @@ results = model.train(
     data="coco-pose.yaml",
     epochs=120,                  # 保持120個epochs
     imgsz=640,                   # 保持640尺寸
-    batch=128,                   # 增加批次大小至128
+    batch=64,                   # 增加批次大小至128
     cache="disk",                # 保持磁盤緩存
     device=0,
     workers=16,                  # 增加工作線程數量
@@ -29,5 +29,4 @@ results = model.train(
     name="train",
     exist_ok=True,
     multi_scale=True,            # 重新啟用多尺度訓練
-    scale=0.8,                   # 控制多尺度範圍約為512-768
 )
