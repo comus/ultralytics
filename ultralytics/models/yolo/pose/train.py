@@ -162,7 +162,9 @@ class PoseTrainer(yolo.detect.DetectionTrainer):
         pass
 
     def on_epoch_start(self, trainer):
-        pass
+        self.model.epoch = trainer.epoch
+        self.model.epochs = trainer.epochs
+        self.model.is_first_batch_in_epoch = True
 
     def on_epoch_end(self, trainer):
         pass
@@ -180,6 +182,7 @@ class PoseTrainer(yolo.detect.DetectionTrainer):
         pass
     
     def on_batch_end(self, trainer):
+        self.model.is_first_batch_in_epoch = False
         pass
 
     def get_model(self, cfg=None, weights=None, verbose=True):
