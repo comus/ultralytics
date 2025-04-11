@@ -120,31 +120,31 @@ class PoseTrainer(yolo.detect.DetectionTrainer):
             if isinstance(m, (torch.nn.BatchNorm2d, torch.nn.BatchNorm1d)):
                 m.eval()  # 只有BN層設為評估模式
 
-        # 列出有哪些層是訓練模式
-        print("============= 學生模型層 =============")
-        for n, m in self.model.named_modules():
-            if m.training:
-                print(f"!!!!!!!!!!!_model_train, m.training: {n}")
-            else:
-                print(f"!!!!!!!!!!!_model_train, m.eval: {n}")
+        # # 列出有哪些層是訓練模式
+        # print("============= 學生模型層 =============")
+        # for n, m in self.model.named_modules():
+        #     if m.training:
+        #         print(f"!!!!!!!!!!!_model_train, m.training: {n}")
+        #     else:
+        #         print(f"!!!!!!!!!!!_model_train, m.eval: {n}")
         
-        # 列出參數的 requires_grad 狀態
-        print("============= 學生模型參數 =============")
-        for n, p in self.model.named_parameters():
-            print(f"參數: {n}, requires_grad: {p.requires_grad}")
+        # # 列出參數的 requires_grad 狀態
+        # print("============= 學生模型參數 =============")
+        # for n, p in self.model.named_parameters():
+        #     print(f"參數: {n}, requires_grad: {p.requires_grad}")
             
-        if self.teacher is not None:
-            print("============= 教師模型層 =============")
-            for n, m in self.teacher.named_modules():
-                if m.training:
-                    print(f"!!!!!!!!!!!_model_train, m.training: {n}")
-                else:
-                    print(f"!!!!!!!!!!!_model_train, m.eval: {n}")
+        # if self.teacher is not None:
+        #     print("============= 教師模型層 =============")
+        #     for n, m in self.teacher.named_modules():
+        #         if m.training:
+        #             print(f"!!!!!!!!!!!_model_train, m.training: {n}")
+        #         else:
+        #             print(f"!!!!!!!!!!!_model_train, m.eval: {n}")
                     
-            # 列出教師模型參數的 requires_grad 狀態
-            print("============= 教師模型參數 =============")
-            for n, p in self.teacher.named_parameters():
-                print(f"參數: {n}, requires_grad: {p.requires_grad}")
+        #     # 列出教師模型參數的 requires_grad 狀態
+        #     print("============= 教師模型參數 =============")
+        #     for n, p in self.teacher.named_parameters():
+        #         print(f"參數: {n}, requires_grad: {p.requires_grad}")
 
     def preprocess_batch(self, batch):
         batch = super().preprocess_batch(batch)
