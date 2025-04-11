@@ -9,6 +9,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 from torch.nn.init import constant_, xavier_uniform_
 
+from ultralytics.utils.dev import describe_var, show_caller
 from ultralytics.utils.tal import TORCH_1_10, dist2bbox, dist2rbox, make_anchors
 from ultralytics.utils.torch_utils import fuse_conv_and_bn, smart_inference_mode
 
@@ -16,6 +17,17 @@ from .block import DFL, SAVPE, BNContrastiveHead, ContrastiveHead, Proto, Residu
 from .conv import Conv, DWConv
 from .transformer import MLP, DeformableTransformerDecoder, DeformableTransformerDecoderLayer
 from .utils import bias_init_with_prob, linear_init
+
+# import traceback
+
+# def show_caller():
+#     stack = traceback.extract_stack()
+#     # 移除最後一個元素，因為它是當前函數
+#     stack = stack[:-1]
+#     print("Call stack:")
+#     for frame in stack:
+#         filename, line_number, function_name, code = frame
+#         print(f"  File: {filename}, Line: {line_number}, Function: {function_name}, Code: {code}")
 
 __all__ = "Detect", "Segment", "Pose", "Classify", "OBB", "RTDETRDecoder", "v10Detect", "YOLOEDetect", "YOLOESegment"
 
@@ -66,13 +78,19 @@ class Detect(nn.Module):
     def forward(self, x):
         """Concatenates and returns predicted bounding boxes and class probabilities."""
         if self.end2end:
+            # print("!!!!!!!!!!!forward end2end")
             return self.forward_end2end(x)
 
+        # print("!!!!!!!!!!!forward not end2end")
         for i in range(self.nl):
             x[i] = torch.cat((self.cv2[i](x[i]), self.cv3[i](x[i])), 1)
         if self.training:  # Training path
+            # print("!!!!!!!!!!!forward training")
             return x
+        # print("!!!!!!!!!!!forward inference")
         y = self._inference(x)
+        # print("!!!!!!!!!!_inference", describe_var(y))
+        # show_caller()
         return y if self.export else (y, x)
 
     def forward_end2end(self, x):
@@ -254,11 +272,32 @@ class Pose(Detect):
         """Perform forward pass through YOLO model and return predictions."""
         bs = x[0].shape[0]  # batch size
         kpt = torch.cat([self.cv4[i](x[i]).view(bs, self.nk, -1) for i in range(self.nl)], -1)  # (bs, 17*3, h*w)
+        # print("!!!!!!!!!!!ccc x.length", len(x))
         x = Detect.forward(self, x)
+        # print("!!!!!!!!!!!x.length", len(x))
+        # print("!!!!!!!!!!!x[0].length", len(x[0]), x[0].shape)
+        # print("!!!!!!!!!!!x[1].length", len(x[1]))
+        # show_caller()
+        # print("!!!!!!!!!!!x[1][0].length", len(x[1][0]), x[1][0].shape)
+        # print("!!!!!!!!!!!x[1][1].length", len(x[1][1]), x[1][1].shape)
+        # print("!!!!!!!!!!!x[1][1][0].length", len(x[1][1][0]), x[1][1][0].shape)
+        # print("!!!!!!!!!!!x[1][1][1].length", len(x[1][1][1]), x[1][1][1].shape)
+        # print("!!!!!!!!!!!x[1][1][2].length", len(x[1][1][2]), x[1][1][2].shape)
+        # print("self.training!!!!!!!!!!!!!!!!", self.training)
         if self.training:
             return x, kpt
         pred_kpt = self.kpts_decode(bs, kpt)
-        return torch.cat([x, pred_kpt], 1) if self.export else (torch.cat([x[0], pred_kpt], 1), (x[1], kpt))
+        result = torch.cat([x, pred_kpt], 1) if self.export else (torch.cat([x[0], pred_kpt], 1), (x[1], kpt))
+        # print("!!!!!!!!!!!result.length", len(result))
+        # print("!!!!!!!!!!!result[0].length", len(result[0]), result[0].shape)
+        # print("!!!!!!!!!!!result[1].length", len(result[1]))
+        # print("!!!!!!!!!!!result[1][0].length", len(result[1][0]))
+        # print("!!!!!!!!!!!result[1][0][0].length", len(result[1][0][0]), result[1][0][0].shape)
+        # print("!!!!!!!!!!!result[1][0][1].length", len(result[1][0][1]), result[1][0][1].shape)
+        # print("!!!!!!!!!!!result[1][0][2].length", len(result[1][0][2]), result[1][0][2].shape)
+        # print("!!!!!!!!!!!result[1][1].length", len(result[1][1]))
+        # print("!!!!!!!!!!!result[1][1][0].length", len(result[1][1][0]), result[1][1][0].shape)
+        return result
 
     def kpts_decode(self, bs, kpts):
         """Decodes keypoints."""

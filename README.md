@@ -1,285 +1,274 @@
-<div align="center">
-  <p>
-    <a href="https://www.ultralytics.com/blog/ultralytics-yolo11-has-arrived-redefine-whats-possible-in-ai" target="_blank">
-      <img width="100%" src="https://raw.githubusercontent.com/ultralytics/assets/main/yolov8/banner-yolov8.png" alt="Ultralytics YOLO banner"></a>
-  </p>
+```
+      Epoch    GPU_mem   box_loss  pose_loss  kobj_loss   cls_loss   dfl_loss dpose_loss dkobj_loss  Instances       Size
+       1/25      9.83G     0.7987      2.215      1.082     0.5958       1.05      1.692      0.735        102        640: 100%|██████████| 885/885 [06:50<00:00,  2.15it/s]
+                 Class     Images  Instances      Box(P          R      mAP50  mAP50-95)     Pose(P          R      mAP50  mAP50-95): 100%|██████████| 19/19 [00:08<00:00,  2.30it/s]
+                   all       2346       6352      0.877      0.866      0.933      0.742      0.865      0.812       0.86       0.58
 
-[中文](https://docs.ultralytics.com/zh) | [한국어](https://docs.ultralytics.com/ko) | [日本語](https://docs.ultralytics.com/ja) | [Русский](https://docs.ultralytics.com/ru) | [Deutsch](https://docs.ultralytics.com/de) | [Français](https://docs.ultralytics.com/fr) | [Español](https://docs.ultralytics.com/es) | [Português](https://docs.ultralytics.com/pt) | [Türkçe](https://docs.ultralytics.com/tr) | [Tiếng Việt](https://docs.ultralytics.com/vi) | [العربية](https://docs.ultralytics.com/ar) <br>
+      Epoch    GPU_mem   box_loss  pose_loss  kobj_loss   cls_loss   dfl_loss dpose_loss dkobj_loss  Instances       Size
+       2/25      9.87G     0.7998      2.222      1.079     0.5985      1.051      1.665     0.6632        102        640: 100%|██████████| 885/885 [06:49<00:00,  2.16it/s]
+                 Class     Images  Instances      Box(P          R      mAP50  mAP50-95)     Pose(P          R      mAP50  mAP50-95): 100%|██████████| 19/19 [00:08<00:00,  2.32it/s]
+                   all       2346       6352      0.879      0.866      0.933      0.741      0.858      0.813       0.86      0.578
 
-<div>
-    <a href="https://github.com/ultralytics/ultralytics/actions/workflows/ci.yml"><img src="https://github.com/ultralytics/ultralytics/actions/workflows/ci.yml/badge.svg" alt="Ultralytics CI"></a>
-    <a href="https://pepy.tech/projects/ultralytics"><img src="https://static.pepy.tech/badge/ultralytics" alt="Ultralytics Downloads"></a>
-    <a href="https://zenodo.org/badge/latestdoi/264818686"><img src="https://zenodo.org/badge/264818686.svg" alt="Ultralytics YOLO Citation"></a>
-    <a href="https://discord.com/invite/ultralytics"><img alt="Ultralytics Discord" src="https://img.shields.io/discord/1089800235347353640?logo=discord&logoColor=white&label=Discord&color=blue"></a>
-    <a href="https://community.ultralytics.com/"><img alt="Ultralytics Forums" src="https://img.shields.io/discourse/users?server=https%3A%2F%2Fcommunity.ultralytics.com&logo=discourse&label=Forums&color=blue"></a>
-    <a href="https://reddit.com/r/ultralytics"><img alt="Ultralytics Reddit" src="https://img.shields.io/reddit/subreddit-subscribers/ultralytics?style=flat&logo=reddit&logoColor=white&label=Reddit&color=blue"></a>
-    <br>
-    <a href="https://console.paperspace.com/github/ultralytics/ultralytics"><img src="https://assets.paperspace.io/img/gradient-badge.svg" alt="Run Ultralytics on Gradient"></a>
-    <a href="https://colab.research.google.com/github/ultralytics/ultralytics/blob/main/examples/tutorial.ipynb"><img src="https://colab.research.google.com/assets/colab-badge.svg" alt="Open Ultralytics In Colab"></a>
-    <a href="https://www.kaggle.com/models/ultralytics/yolo11"><img src="https://kaggle.com/static/images/open-in-kaggle.svg" alt="Open Ultralytics In Kaggle"></a>
-    <a href="https://mybinder.org/v2/gh/ultralytics/ultralytics/HEAD?labpath=examples%2Ftutorial.ipynb"><img src="https://mybinder.org/badge_logo.svg" alt="Open Ultralytics In Binder"></a>
-</div>
-</div>
-<br>
+      Epoch    GPU_mem   box_loss  pose_loss  kobj_loss   cls_loss   dfl_loss dpose_loss dkobj_loss  Instances       Size
+       3/25      9.87G     0.7988      2.211      1.077     0.5966      1.051      1.645     0.6557        107        640: 100%|██████████| 885/885 [06:49<00:00,  2.16it/s]
+                 Class     Images  Instances      Box(P          R      mAP50  mAP50-95)     Pose(P          R      mAP50  mAP50-95): 100%|██████████| 19/19 [00:08<00:00,  2.33it/s]
+                   all       2346       6352      0.888      0.859      0.933      0.743      0.864      0.813      0.859      0.581
 
-[Ultralytics](https://www.ultralytics.com/) creates cutting-edge, state-of-the-art (SOTA) [YOLO models](https://www.ultralytics.com/yolo) built on years of foundational research in computer vision and AI. Constantly updated for performance and flexibility, our models are **fast**, **accurate**, and **easy to use**. They excel at [object detection](https://docs.ultralytics.com/tasks/detect/), [tracking](https://docs.ultralytics.com/modes/track/), [instance segmentation](https://docs.ultralytics.com/tasks/segment/), [image classification](https://docs.ultralytics.com/tasks/classify/), and [pose estimation](https://docs.ultralytics.com/tasks/pose/) tasks.
+      Epoch    GPU_mem   box_loss  pose_loss  kobj_loss   cls_loss   dfl_loss dpose_loss dkobj_loss  Instances       Size
+       4/25      9.87G     0.7995      2.213      1.077      0.597      1.052      1.645     0.6533        123        640: 100%|██████████| 885/885 [06:50<00:00,  2.16it/s]
+                 Class     Images  Instances      Box(P          R      mAP50  mAP50-95)     Pose(P          R      mAP50  mAP50-95): 100%|██████████| 19/19 [00:08<00:00,  2.34it/s]
+                   all       2346       6352      0.881      0.867      0.934      0.741      0.856      0.822      0.859       0.58
 
-Find detailed documentation in the [Ultralytics Docs](https://docs.ultralytics.com/). Get support via [GitHub Issues](https://github.com/ultralytics/ultralytics/issues/new/choose). Join discussions on [Discord](https://discord.com/invite/ultralytics), [Reddit](https://reddit.com/r/ultralytics), and the [Ultralytics Community Forums](https://community.ultralytics.com/)!
+      Epoch    GPU_mem   box_loss  pose_loss  kobj_loss   cls_loss   dfl_loss dpose_loss dkobj_loss  Instances       Size
+       5/25      9.87G     0.7996      2.212      1.077     0.5974      1.052      1.644     0.6527        134        640: 100%|██████████| 885/885 [06:49<00:00,  2.16it/s]
+                 Class     Images  Instances      Box(P          R      mAP50  mAP50-95)     Pose(P          R      mAP50  mAP50-95): 100%|██████████| 19/19 [00:08<00:00,  2.34it/s]
+                   all       2346       6352      0.878      0.868      0.934      0.742      0.863      0.811      0.861      0.584
 
-Request an Enterprise License for commercial use at [Ultralytics Licensing](https://www.ultralytics.com/license).
+      Epoch    GPU_mem   box_loss  pose_loss  kobj_loss   cls_loss   dfl_loss dpose_loss dkobj_loss  Instances       Size
+       6/25      9.87G     0.8002      2.219      1.075     0.5985      1.052      1.636     0.6499        137        640: 100%|██████████| 885/885 [06:51<00:00,  2.15it/s]
+                 Class     Images  Instances      Box(P          R      mAP50  mAP50-95)     Pose(P          R      mAP50  mAP50-95): 100%|██████████| 19/19 [00:08<00:00,  2.32it/s]
+                   all       2346       6352      0.874      0.874      0.935      0.744      0.855      0.819      0.861      0.589
 
-<a href="https://docs.ultralytics.com/models/yolo11/" target="_blank">
-  <img width="100%" src="https://raw.githubusercontent.com/ultralytics/assets/refs/heads/main/yolo/performance-comparison.png" alt="YOLO11 performance plots">
-</a>
+      Epoch    GPU_mem   box_loss  pose_loss  kobj_loss   cls_loss   dfl_loss dpose_loss dkobj_loss  Instances       Size
+       7/25      9.87G     0.7971      2.202      1.073     0.5949       1.05      1.629     0.6475        100        640: 100%|██████████| 885/885 [06:50<00:00,  2.16it/s]
+                 Class     Images  Instances      Box(P          R      mAP50  mAP50-95)     Pose(P          R      mAP50  mAP50-95): 100%|██████████| 19/19 [00:08<00:00,  2.34it/s]
+                   all       2346       6352      0.881      0.865      0.935      0.745      0.858      0.818      0.862       0.59
 
-<div align="center">
-  <a href="https://github.com/ultralytics"><img src="https://github.com/ultralytics/assets/raw/main/social/logo-social-github.png" width="2%" alt="Ultralytics GitHub"></a>
-  <img src="https://github.com/ultralytics/assets/raw/main/social/logo-transparent.png" width="2%" alt="space">
-  <a href="https://www.linkedin.com/company/ultralytics/"><img src="https://github.com/ultralytics/assets/raw/main/social/logo-social-linkedin.png" width="2%" alt="Ultralytics LinkedIn"></a>
-  <img src="https://github.com/ultralytics/assets/raw/main/social/logo-transparent.png" width="2%" alt="space">
-  <a href="https://twitter.com/ultralytics"><img src="https://github.com/ultralytics/assets/raw/main/social/logo-social-twitter.png" width="2%" alt="Ultralytics Twitter"></a>
-  <img src="https://github.com/ultralytics/assets/raw/main/social/logo-transparent.png" width="2%" alt="space">
-  <a href="https://youtube.com/ultralytics?sub_confirmation=1"><img src="https://github.com/ultralytics/assets/raw/main/social/logo-social-youtube.png" width="2%" alt="Ultralytics YouTube"></a>
-  <img src="https://github.com/ultralytics/assets/raw/main/social/logo-transparent.png" width="2%" alt="space">
-  <a href="https://www.tiktok.com/@ultralytics"><img src="https://github.com/ultralytics/assets/raw/main/social/logo-social-tiktok.png" width="2%" alt="Ultralytics TikTok"></a>
-  <img src="https://github.com/ultralytics/assets/raw/main/social/logo-transparent.png" width="2%" alt="space">
-  <a href="https://ultralytics.com/bilibili"><img src="https://github.com/ultralytics/assets/raw/main/social/logo-social-bilibili.png" width="2%" alt="Ultralytics BiliBili"></a>
-  <img src="https://github.com/ultralytics/assets/raw/main/social/logo-transparent.png" width="2%" alt="space">
-  <a href="https://discord.com/invite/ultralytics"><img src="https://github.com/ultralytics/assets/raw/main/social/logo-social-discord.png" width="2%" alt="Ultralytics Discord"></a>
-</div>
+      Epoch    GPU_mem   box_loss  pose_loss  kobj_loss   cls_loss   dfl_loss dpose_loss dkobj_loss  Instances       Size
+       8/25      9.87G     0.7962      2.204      1.073     0.5939       1.05      1.622     0.6464        120        640: 100%|██████████| 885/885 [06:49<00:00,  2.16it/s]
+                 Class     Images  Instances      Box(P          R      mAP50  mAP50-95)     Pose(P          R      mAP50  mAP50-95): 100%|██████████| 19/19 [00:08<00:00,  2.35it/s]
+                   all       2346       6352      0.881      0.867      0.935      0.743      0.858      0.819      0.861      0.589
 
-## 📄 Documentation
+      Epoch    GPU_mem   box_loss  pose_loss  kobj_loss   cls_loss   dfl_loss dpose_loss dkobj_loss  Instances       Size
+       9/25      9.87G     0.7955      2.213      1.075     0.5944      1.052      1.625     0.6481         89        640: 100%|██████████| 885/885 [06:52<00:00,  2.15it/s]
+                 Class     Images  Instances      Box(P          R      mAP50  mAP50-95)     Pose(P          R      mAP50  mAP50-95): 100%|██████████| 19/19 [00:08<00:00,  2.24it/s]
+                   all       2346       6352      0.875      0.869      0.933      0.744      0.858      0.813       0.86      0.591
 
-See below for quickstart installation and usage examples. For comprehensive guidance on training, validation, prediction, and deployment, refer to our full [Ultralytics Docs](https://docs.ultralytics.com/).
+      Epoch    GPU_mem   box_loss  pose_loss  kobj_loss   cls_loss   dfl_loss dpose_loss dkobj_loss  Instances       Size
+      10/25      9.87G      0.794      2.186      1.071     0.5931      1.049      1.609     0.6454         95        640: 100%|██████████| 885/885 [06:56<00:00,  2.13it/s]
+                 Class     Images  Instances      Box(P          R      mAP50  mAP50-95)     Pose(P          R      mAP50  mAP50-95): 100%|██████████| 19/19 [00:08<00:00,  2.23it/s]
+                   all       2346       6352      0.874      0.873      0.935      0.746      0.864       0.81      0.861      0.594
 
-<details open>
-<summary>Install</summary>
+      Epoch    GPU_mem   box_loss  pose_loss  kobj_loss   cls_loss   dfl_loss dpose_loss dkobj_loss  Instances       Size
+      11/25      9.87G      0.794      2.188       1.07     0.5905       1.05      1.611     0.6464        127        640: 100%|██████████| 885/885 [06:54<00:00,  2.13it/s]
+                 Class     Images  Instances      Box(P          R      mAP50  mAP50-95)     Pose(P          R      mAP50  mAP50-95): 100%|██████████| 19/19 [00:08<00:00,  2.25it/s]
+                   all       2346       6352      0.876      0.872      0.934      0.746       0.85       0.82       0.86      0.595
 
-Install the `ultralytics` package, including all [requirements](https://github.com/ultralytics/ultralytics/blob/main/pyproject.toml), in a [**Python>=3.8**](https://www.python.org/) environment with [**PyTorch>=1.8**](https://pytorch.org/get-started/locally/).
+      Epoch    GPU_mem   box_loss  pose_loss  kobj_loss   cls_loss   dfl_loss dpose_loss dkobj_loss  Instances       Size
+      12/25      9.87G     0.7929      2.193      1.072     0.5905      1.049       1.61     0.6466        166        640: 100%|██████████| 885/885 [06:52<00:00,  2.15it/s]
+                 Class     Images  Instances      Box(P          R      mAP50  mAP50-95)     Pose(P          R      mAP50  mAP50-95): 100%|██████████| 19/19 [00:08<00:00,  2.25it/s]
+                   all       2346       6352      0.879      0.869      0.935      0.746       0.86      0.812      0.859      0.596
 
-[![PyPI - Version](https://img.shields.io/pypi/v/ultralytics?logo=pypi&logoColor=white)](https://pypi.org/project/ultralytics/) [![Ultralytics Downloads](https://static.pepy.tech/badge/ultralytics)](https://www.pepy.tech/projects/ultralytics) [![PyPI - Python Version](https://img.shields.io/pypi/pyversions/ultralytics?logo=python&logoColor=gold)](https://pypi.org/project/ultralytics/)
+      Epoch    GPU_mem   box_loss  pose_loss  kobj_loss   cls_loss   dfl_loss dpose_loss dkobj_loss  Instances       Size
+      13/25      9.87G     0.7926      2.183       1.07     0.5877      1.048      1.604     0.6438        116        640: 100%|██████████| 885/885 [06:57<00:00,  2.12it/s]
+                 Class     Images  Instances      Box(P          R      mAP50  mAP50-95)     Pose(P          R      mAP50  mAP50-95): 100%|██████████| 19/19 [00:08<00:00,  2.25it/s]
+                   all       2346       6352       0.88      0.868      0.935      0.747      0.857      0.818      0.861      0.596
 
-```bash
-pip install ultralytics
+      Epoch    GPU_mem   box_loss  pose_loss  kobj_loss   cls_loss   dfl_loss dpose_loss dkobj_loss  Instances       Size
+      14/25      9.87G      0.788      2.177      1.066      0.585      1.045      1.591     0.6417        108        640: 100%|██████████| 885/885 [06:56<00:00,  2.13it/s]
+                 Class     Images  Instances      Box(P          R      mAP50  mAP50-95)     Pose(P          R      mAP50  mAP50-95): 100%|██████████| 19/19 [00:08<00:00,  2.26it/s]
+                   all       2346       6352      0.879       0.87      0.934      0.746      0.855      0.821      0.862      0.597
+
+      Epoch    GPU_mem   box_loss  pose_loss  kobj_loss   cls_loss   dfl_loss dpose_loss dkobj_loss  Instances       Size
+      15/25      9.87G     0.7858      2.171      1.068     0.5837      1.045      1.591     0.6436        124        640: 100%|██████████| 885/885 [06:56<00:00,  2.13it/s]
+                 Class     Images  Instances      Box(P          R      mAP50  mAP50-95)     Pose(P          R      mAP50  mAP50-95): 100%|██████████| 19/19 [00:08<00:00,  2.16it/s]
+                   all       2346       6352      0.881      0.869      0.935      0.746       0.86      0.815      0.861      0.596
+Closing dataloader mosaic
+
+      Epoch    GPU_mem   box_loss  pose_loss  kobj_loss   cls_loss   dfl_loss dpose_loss dkobj_loss  Instances       Size
+      16/25      9.87G     0.7044      1.689     0.9095     0.4715     0.9901      1.224     0.4854         39        640: 100%|██████████| 885/885 [06:52<00:00,  2.14it/s]
+                 Class     Images  Instances      Box(P          R      mAP50  mAP50-95)     Pose(P          R      mAP50  mAP50-95): 100%|██████████| 19/19 [00:08<00:00,  2.18it/s]
+                   all       2346       6352       0.88      0.869      0.935      0.747       0.86      0.817      0.861      0.597
+
+      Epoch    GPU_mem   box_loss  pose_loss  kobj_loss   cls_loss   dfl_loss dpose_loss dkobj_loss  Instances       Size
+      17/25      9.87G     0.7021       1.68     0.9051       0.47      0.989      1.215      0.485         71        640: 100%|██████████| 885/885 [06:53<00:00,  2.14it/s]
+                 Class     Images  Instances      Box(P          R      mAP50  mAP50-95)     Pose(P          R      mAP50  mAP50-95): 100%|██████████| 19/19 [00:08<00:00,  2.26it/s]
+                   all       2346       6352      0.879      0.869      0.935      0.748      0.861      0.816      0.861      0.598
+
+      Epoch    GPU_mem   box_loss  pose_loss  kobj_loss   cls_loss   dfl_loss dpose_loss dkobj_loss  Instances       Size
+      18/25      9.87G     0.6989      1.671     0.9046     0.4676     0.9877      1.209     0.4855         50        640: 100%|██████████| 885/885 [06:52<00:00,  2.14it/s]
+                 Class     Images  Instances      Box(P          R      mAP50  mAP50-95)     Pose(P          R      mAP50  mAP50-95): 100%|██████████| 19/19 [00:08<00:00,  2.23it/s]
+                   all       2346       6352      0.879      0.869      0.935      0.749       0.86      0.817      0.861      0.598
+
+      Epoch    GPU_mem   box_loss  pose_loss  kobj_loss   cls_loss   dfl_loss dpose_loss dkobj_loss  Instances       Size
+      19/25      9.87G     0.6984      1.663     0.9029     0.4656     0.9882      1.208     0.4861         49        640: 100%|██████████| 885/885 [06:52<00:00,  2.15it/s]
+                 Class     Images  Instances      Box(P          R      mAP50  mAP50-95)     Pose(P          R      mAP50  mAP50-95): 100%|██████████| 19/19 [00:08<00:00,  2.21it/s]
+                   all       2346       6352      0.879      0.869      0.935      0.748      0.857      0.822      0.861      0.598
+
+      Epoch    GPU_mem   box_loss  pose_loss  kobj_loss   cls_loss   dfl_loss dpose_loss dkobj_loss  Instances       Size
+      20/25      9.87G     0.6962      1.664     0.9019     0.4617     0.9857        1.2     0.4856         52        640: 100%|██████████| 885/885 [06:53<00:00,  2.14it/s]
+                 Class     Images  Instances      Box(P          R      mAP50  mAP50-95)     Pose(P          R      mAP50  mAP50-95): 100%|██████████| 19/19 [00:08<00:00,  2.15it/s]
+                   all       2346       6352      0.878      0.871      0.935      0.748      0.856      0.822      0.861      0.599
+
+      Epoch    GPU_mem   box_loss  pose_loss  kobj_loss   cls_loss   dfl_loss dpose_loss dkobj_loss  Instances       Size
+      21/25      9.87G     0.6945      1.661     0.9007     0.4616     0.9865      1.196     0.4851         63        640: 100%|██████████| 885/885 [06:54<00:00,  2.14it/s]
+                 Class     Images  Instances      Box(P          R      mAP50  mAP50-95)     Pose(P          R      mAP50  mAP50-95): 100%|██████████| 19/19 [00:08<00:00,  2.19it/s]
+                   all       2346       6352      0.878      0.871      0.935      0.748      0.855      0.822      0.861      0.599
+
+      Epoch    GPU_mem   box_loss  pose_loss  kobj_loss   cls_loss   dfl_loss dpose_loss dkobj_loss  Instances       Size
+      22/25      9.87G     0.6939      1.656     0.9011      0.461     0.9853      1.196     0.4858         76        640: 100%|██████████| 885/885 [06:53<00:00,  2.14it/s]
+                 Class     Images  Instances      Box(P          R      mAP50  mAP50-95)     Pose(P          R      mAP50  mAP50-95): 100%|██████████| 19/19 [00:08<00:00,  2.26it/s]
+                   all       2346       6352       0.88       0.87      0.935      0.748      0.854      0.823      0.861      0.599
+
+      Epoch    GPU_mem   box_loss  pose_loss  kobj_loss   cls_loss   dfl_loss dpose_loss dkobj_loss  Instances       Size
+      23/25      9.87G     0.6946      1.658     0.9016     0.4597     0.9861      1.197     0.4864         66        640: 100%|██████████| 885/885 [06:52<00:00,  2.15it/s]
+                 Class     Images  Instances      Box(P          R      mAP50  mAP50-95)     Pose(P          R      mAP50  mAP50-95): 100%|██████████| 19/19 [00:08<00:00,  2.27it/s]
+                   all       2346       6352      0.878       0.87      0.935      0.749      0.854      0.824      0.861      0.599
+
+      Epoch    GPU_mem   box_loss  pose_loss  kobj_loss   cls_loss   dfl_loss dpose_loss dkobj_loss  Instances       Size
+      24/25      9.87G     0.6934      1.654     0.9013     0.4591      0.986      1.189     0.4871         67        640: 100%|██████████| 885/885 [06:51<00:00,  2.15it/s]
+                 Class     Images  Instances      Box(P          R      mAP50  mAP50-95)     Pose(P          R      mAP50  mAP50-95): 100%|██████████| 19/19 [00:08<00:00,  2.25it/s]
+                   all       2346       6352      0.879      0.871      0.935      0.748      0.854      0.824      0.861      0.599
+      
+      Epoch    GPU_mem   box_loss  pose_loss  kobj_loss   cls_loss   dfl_loss dpose_loss dkobj_loss  Instances       Size
+      25/25      9.87G     0.6938      1.648     0.9008     0.4588     0.9853      1.195     0.4854         49        640: 100%|██████████| 885/885 [06:50<00:00,  2.15it/s]
+                 Class     Images  Instances      Box(P          R      mAP50  mAP50-95)     Pose(P          R      mAP50  mAP50-95): 100%|██████████| 19/19 [00:08<00:00,  2.27it/s]
+                   all       2346       6352      0.879      0.872      0.935      0.748      0.854      0.825      0.861      0.599
+
+25 epochs completed in 2.926 hours.
+Optimizer stripped from /root/autodl-tmp/ultralytics/runs/pose/train21/weights/last.pt, 20.2MB
+Optimizer stripped from /root/autodl-tmp/ultralytics/runs/pose/train21/weights/best.pt, 20.2MB
+
+Ultralytics 8.3.105 🚀 Python-3.11.11 torch-2.6.0+cu124 CUDA:0 (NVIDIA GeForce RTX 4090, 24111MiB)
+YOLO11s-pose summary (fused): 109 layers, 9,902,940 parameters, 0 gradients, 23.1 GFLOPs
+                 Class     Images  Instances      Box(P          R      mAP50  mAP50-95)     Pose(P          R      mAP50  mAP50-95): 100%|██████████| 19/19 [00:11<00:00,  1.59it/s]
+                   all       2346       6352      0.879      0.872      0.935      0.748      0.854      0.824      0.861        0.6
+Speed: 0.1ms preprocess, 0.6ms inference, 0.0ms loss, 0.5ms postprocess per image
+Saving /root/autodl-tmp/ultralytics/runs/pose/train21/predictions.json...
+
+Evaluating pycocotools mAP using /root/autodl-tmp/ultralytics/runs/pose/train21/predictions.json and /root/autodl-tmp/datasets/coco-pose/annotations/person_keypoints_val2017.json...
+loading annotations into memory...
+Done (t=0.44s)
+creating index...
+index created!
+Loading and preparing results...
+DONE (t=0.67s)
+creating index...
+index created!
+Running per image evaluation...
+Evaluate annotation type *bbox*
+DONE (t=4.65s).
+Accumulating evaluation results...
+DONE (t=0.36s).
+ Average Precision  (AP) @[ IoU=0.50:0.95 | area=   all | maxDets=100 ] = 0.568
+ Average Precision  (AP) @[ IoU=0.50      | area=   all | maxDets=100 ] = 0.740
+ Average Precision  (AP) @[ IoU=0.75      | area=   all | maxDets=100 ] = 0.629
+ Average Precision  (AP) @[ IoU=0.50:0.95 | area= small | maxDets=100 ] = 0.221
+ Average Precision  (AP) @[ IoU=0.50:0.95 | area=medium | maxDets=100 ] = 0.703
+ Average Precision  (AP) @[ IoU=0.50:0.95 | area= large | maxDets=100 ] = 0.823
+ Average Recall     (AR) @[ IoU=0.50:0.95 | area=   all | maxDets=  1 ] = 0.217
+ Average Recall     (AR) @[ IoU=0.50:0.95 | area=   all | maxDets= 10 ] = 0.578
+ Average Recall     (AR) @[ IoU=0.50:0.95 | area=   all | maxDets=100 ] = 0.639
+ Average Recall     (AR) @[ IoU=0.50:0.95 | area= small | maxDets=100 ] = 0.241
+ Average Recall     (AR) @[ IoU=0.50:0.95 | area=medium | maxDets=100 ] = 0.778
+ Average Recall     (AR) @[ IoU=0.50:0.95 | area= large | maxDets=100 ] = 0.878
+Running per image evaluation...
+Evaluate annotation type *keypoints*
+DONE (t=4.90s).
+Accumulating evaluation results...
+DONE (t=0.10s).
+ Average Precision  (AP) @[ IoU=0.50:0.95 | area=   all | maxDets= 20 ] = 0.586
+ Average Precision  (AP) @[ IoU=0.50      | area=   all | maxDets= 20 ] = 0.857
+ Average Precision  (AP) @[ IoU=0.75      | area=   all | maxDets= 20 ] = 0.648
+ Average Precision  (AP) @[ IoU=0.50:0.95 | area=medium | maxDets= 20 ] = 0.538
+ Average Precision  (AP) @[ IoU=0.50:0.95 | area= large | maxDets= 20 ] = 0.676
+ Average Recall     (AR) @[ IoU=0.50:0.95 | area=   all | maxDets= 20 ] = 0.658
+ Average Recall     (AR) @[ IoU=0.50      | area=   all | maxDets= 20 ] = 0.899
+ Average Recall     (AR) @[ IoU=0.75      | area=   all | maxDets= 20 ] = 0.724
+ Average Recall     (AR) @[ IoU=0.50:0.95 | area=medium | maxDets= 20 ] = 0.591
+ Average Recall     (AR) @[ IoU=0.50:0.95 | area= large | maxDets= 20 ] = 0.753
+Results saved to /root/autodl-tmp/ultralytics/runs/pose/train21
 ```
 
-For alternative installation methods, including [Conda](https://anaconda.org/conda-forge/ultralytics), [Docker](https://hub.docker.com/r/ultralytics/ultralytics), and building from source via Git, please consult the [Quickstart Guide](https://docs.ultralytics.com/quickstart/).
-
-[![Conda Version](https://img.shields.io/conda/vn/conda-forge/ultralytics?logo=condaforge)](https://anaconda.org/conda-forge/ultralytics) [![Docker Image Version](https://img.shields.io/docker/v/ultralytics/ultralytics?sort=semver&logo=docker)](https://hub.docker.com/r/ultralytics/ultralytics) [![Ultralytics Docker Pulls](https://img.shields.io/docker/pulls/ultralytics/ultralytics?logo=docker)](https://hub.docker.com/r/ultralytics/ultralytics)
-
-</details>
-
-<details open>
-<summary>Usage</summary>
-
-### CLI
-
-You can use Ultralytics YOLO directly from the Command Line Interface (CLI) with the `yolo` command:
-
-```bash
-# Predict using a pretrained YOLO model (e.g., YOLO11n) on an image
-yolo predict model=yolo11n.pt source='https://ultralytics.com/images/bus.jpg'
 ```
-
-The `yolo` command supports various tasks and modes, accepting additional arguments like `imgsz=640`. Explore the YOLO [CLI Docs](https://docs.ultralytics.com/usage/cli/) for more examples.
-
-### Python
-
-Ultralytics YOLO can also be integrated directly into your Python projects. It accepts the same [configuration arguments](https://docs.ultralytics.com/usage/cfg/) as the CLI:
-
-```python
 from ultralytics import YOLO
 
-# Load a pretrained YOLO11n model
-model = YOLO("yolo11n.pt")
+# Load the pretrained model
+model = YOLO("yolo11s-pose.pt")
 
-# Train the model on the COCO8 dataset for 100 epochs
-train_results = model.train(
-    data="coco8.yaml",  # Path to dataset configuration file
-    epochs=100,  # Number of training epochs
-    imgsz=640,  # Image size for training
-    device="cpu",  # Device to run on (e.g., 'cpu', 0, [0,1,2,3])
+# 极端保守策略：完全冻结特征提取器，仅训练最后的输出层
+results = model.train(
+  data="coco-pose.yaml",
+  teacher=YOLO("yolo11x-pose.pt").model,
+  epochs=25,              # 减少轮数，集中训练头部
+  imgsz=640,              # 标准图像尺寸
+  batch=64,               # 降回稍小的批量避免过度波动
+  save=True,
+  save_period=1,          # 每轮保存检查点
+  cache="disk",
+  lr0=0.00005,            # 极低的学习率
+  lrf=0.0005,             # 极低的最终学习率
+  warmup_epochs=0.0,      # 无需预热
+  patience=10,            # 快速早停
+  optimizer="AdamW",      # 适合微调的优化器
+  weight_decay=0.0,       # 禁用权重衰减，完全保留权重
+  cos_lr=True,            # 余弦调度
+  freeze=21,              # 冻结整个特征提取网络，只训练最后的Pose输出层(从模型结构可知)
+  augment=False,          # 关闭增强
+  val=True,               # 验证
+  plots=True,             # 性能图表
+  device=0,               # RTX 4090
+  workers=8,              # 减少工作线程
+  multi_scale=False,      # 关闭多尺度
+  amp=True,               # 混合精度
+  overlap_mask=True,      # 关键点重叠处理
+  kobj=2.0,               # 关键点损失权重
+  pose=12.0,               # 姿态损失权重
+  dpose=8.0,
+  dkobj=2.0,
 )
-
-# Evaluate the model's performance on the validation set
-metrics = model.val()
-
-# Perform object detection on an image
-results = model("path/to/image.jpg")  # Predict on an image
-results[0].show()  # Display results
-
-# Export the model to ONNX format for deployment
-path = model.export(format="onnx")  # Returns the path to the exported model
 ```
 
-Discover more examples in the YOLO [Python Docs](https://docs.ultralytics.com/usage/python/).
+```
+(yolo) [root@autodl-container-8ad2498c83-81a97822 ~/autodl-tmp/ultralytics] [TMX:final2]$ yolo val pose data=coco-pose.yaml device=0 model=yolo11s-pose.pt                                                    [1/7354]
+Ultralytics 8.3.101 🚀 Python-3.11.11 torch-2.6.0+cu124 CUDA:0 (NVIDIA GeForce RTX 4090, 24111MiB)
+YOLO11s-pose summary (fused): 109 layers, 9,902,940 parameters, 0 gradients, 23.1 GFLOPs
+val: Scanning /root/autodl-tmp/datasets/coco-pose/labels/val2017.cache... 2346 images, 0 backgrounds, 0 corrupt: 100%|██████████| 2346/2346 [00:00<?, ?it/s]
+                 Class     Images  Instances      Box(P          R      mAP50  mAP50-95)     Pose(P          R      mAP50  mAP50-95): 100%|██████████| 147/147 [00:13<00:00, 10.76it/s]
+                   all       2346       6352      0.885      0.868      0.935       0.75      0.862      0.821      0.863        0.6
+Speed: 0.1ms preprocess, 1.4ms inference, 0.0ms loss, 0.5ms postprocess per image
+Saving /root/autodl-tmp/ultralytics/runs/pose/val4/predictions.json...
 
-</details>
-
-## ✨ Models
-
-Ultralytics supports a wide range of YOLO models, from early versions like [YOLOv3](https://docs.ultralytics.com/models/yolov3/) to the latest [YOLO11](https://docs.ultralytics.com/models/yolo11/). The tables below showcase YOLO11 models pretrained on the [COCO](https://docs.ultralytics.com/datasets/detect/coco/) dataset for [Detection](https://docs.ultralytics.com/tasks/detect/), [Segmentation](https://docs.ultralytics.com/tasks/segment/), and [Pose Estimation](https://docs.ultralytics.com/tasks/pose/). Additionally, [Classification](https://docs.ultralytics.com/tasks/classify/) models pretrained on the [ImageNet](https://docs.ultralytics.com/datasets/classify/imagenet/) dataset are available. [Tracking](https://docs.ultralytics.com/modes/track/) mode is compatible with all Detection, Segmentation, and Pose models. All [Models](https://docs.ultralytics.com/models/) are automatically downloaded from the latest Ultralytics [release](https://github.com/ultralytics/assets/releases) upon first use.
-
-<a href="https://docs.ultralytics.com/tasks/" target="_blank">
-    <img width="100%" src="https://github.com/ultralytics/docs/releases/download/0/ultralytics-yolov8-tasks-banner.avif" alt="Ultralytics YOLO supported tasks">
-</a>
-<br>
-<br>
-
-<details open><summary>Detection (COCO)</summary>
-
-Explore the [Detection Docs](https://docs.ultralytics.com/tasks/detect/) for usage examples. These models are trained on the [COCO dataset](https://cocodataset.org/), featuring 80 object classes.
-
-| Model                                                                                | size<br><sup>(pixels) | mAP<sup>val<br>50-95 | Speed<br><sup>CPU ONNX<br>(ms) | Speed<br><sup>T4 TensorRT10<br>(ms) | params<br><sup>(M) | FLOPs<br><sup>(B) |
-| ------------------------------------------------------------------------------------ | --------------------- | -------------------- | ------------------------------ | ----------------------------------- | ------------------ | ----------------- |
-| [YOLO11n](https://github.com/ultralytics/assets/releases/download/v8.3.0/yolo11n.pt) | 640                   | 39.5                 | 56.1 ± 0.8                     | 1.5 ± 0.0                           | 2.6                | 6.5               |
-| [YOLO11s](https://github.com/ultralytics/assets/releases/download/v8.3.0/yolo11s.pt) | 640                   | 47.0                 | 90.0 ± 1.2                     | 2.5 ± 0.0                           | 9.4                | 21.5              |
-| [YOLO11m](https://github.com/ultralytics/assets/releases/download/v8.3.0/yolo11m.pt) | 640                   | 51.5                 | 183.2 ± 2.0                    | 4.7 ± 0.1                           | 20.1               | 68.0              |
-| [YOLO11l](https://github.com/ultralytics/assets/releases/download/v8.3.0/yolo11l.pt) | 640                   | 53.4                 | 238.6 ± 1.4                    | 6.2 ± 0.1                           | 25.3               | 86.9              |
-| [YOLO11x](https://github.com/ultralytics/assets/releases/download/v8.3.0/yolo11x.pt) | 640                   | 54.7                 | 462.8 ± 6.7                    | 11.3 ± 0.2                          | 56.9               | 194.9             |
-
-- **mAP<sup>val</sup>** values refer to single-model single-scale performance on the [COCO val2017](https://cocodataset.org/) dataset. See [YOLO Performance Metrics](https://docs.ultralytics.com/guides/yolo-performance-metrics/) for details. <br>Reproduce with `yolo val detect data=coco.yaml device=0`
-- **Speed** metrics are averaged over COCO val images using an [Amazon EC2 P4d](https://aws.amazon.com/ec2/instance-types/p4/) instance. CPU speeds measured with [ONNX](https://onnx.ai/) export. GPU speeds measured with [TensorRT](https://developer.nvidia.com/tensorrt) export. <br>Reproduce with `yolo val detect data=coco.yaml batch=1 device=0|cpu`
-
-</details>
-
-<details><summary>Segmentation (COCO)</summary>
-
-Refer to the [Segmentation Docs](https://docs.ultralytics.com/tasks/segment/) for usage examples. These models are trained on [COCO-Seg](https://docs.ultralytics.com/datasets/segment/coco/), including 80 classes.
-
-| Model                                                                                        | size<br><sup>(pixels) | mAP<sup>box<br>50-95 | mAP<sup>mask<br>50-95 | Speed<br><sup>CPU ONNX<br>(ms) | Speed<br><sup>T4 TensorRT10<br>(ms) | params<br><sup>(M) | FLOPs<br><sup>(B) |
-| -------------------------------------------------------------------------------------------- | --------------------- | -------------------- | --------------------- | ------------------------------ | ----------------------------------- | ------------------ | ----------------- |
-| [YOLO11n-seg](https://github.com/ultralytics/assets/releases/download/v8.3.0/yolo11n-seg.pt) | 640                   | 38.9                 | 32.0                  | 65.9 ± 1.1                     | 1.8 ± 0.0                           | 2.9                | 10.4              |
-| [YOLO11s-seg](https://github.com/ultralytics/assets/releases/download/v8.3.0/yolo11s-seg.pt) | 640                   | 46.6                 | 37.8                  | 117.6 ± 4.9                    | 2.9 ± 0.0                           | 10.1               | 35.5              |
-| [YOLO11m-seg](https://github.com/ultralytics/assets/releases/download/v8.3.0/yolo11m-seg.pt) | 640                   | 51.5                 | 41.5                  | 281.6 ± 1.2                    | 6.3 ± 0.1                           | 22.4               | 123.3             |
-| [YOLO11l-seg](https://github.com/ultralytics/assets/releases/download/v8.3.0/yolo11l-seg.pt) | 640                   | 53.4                 | 42.9                  | 344.2 ± 3.2                    | 7.8 ± 0.2                           | 27.6               | 142.2             |
-| [YOLO11x-seg](https://github.com/ultralytics/assets/releases/download/v8.3.0/yolo11x-seg.pt) | 640                   | 54.7                 | 43.8                  | 664.5 ± 3.2                    | 15.8 ± 0.7                          | 62.1               | 319.0             |
-
-- **mAP<sup>val</sup>** values are for single-model single-scale on the [COCO val2017](https://cocodataset.org/) dataset. See [YOLO Performance Metrics](https://docs.ultralytics.com/guides/yolo-performance-metrics/) for details. <br>Reproduce with `yolo val segment data=coco.yaml device=0`
-- **Speed** metrics are averaged over COCO val images using an [Amazon EC2 P4d](https://aws.amazon.com/ec2/instance-types/p4/) instance. CPU speeds measured with [ONNX](https://onnx.ai/) export. GPU speeds measured with [TensorRT](https://developer.nvidia.com/tensorrt) export. <br>Reproduce with `yolo val segment data=coco.yaml batch=1 device=0|cpu`
-
-</details>
-
-<details><summary>Classification (ImageNet)</summary>
-
-Consult the [Classification Docs](https://docs.ultralytics.com/tasks/classify/) for usage examples. These models are trained on [ImageNet](https://docs.ultralytics.com/datasets/classify/imagenet/), covering 1000 classes.
-
-| Model                                                                                        | size<br><sup>(pixels) | acc<br><sup>top1 | acc<br><sup>top5 | Speed<br><sup>CPU ONNX<br>(ms) | Speed<br><sup>T4 TensorRT10<br>(ms) | params<br><sup>(M) | FLOPs<br><sup>(B) at 224 |
-| -------------------------------------------------------------------------------------------- | --------------------- | ---------------- | ---------------- | ------------------------------ | ----------------------------------- | ------------------ | ------------------------ |
-| [YOLO11n-cls](https://github.com/ultralytics/assets/releases/download/v8.3.0/yolo11n-cls.pt) | 224                   | 70.0             | 89.4             | 5.0 ± 0.3                      | 1.1 ± 0.0                           | 1.6                | 0.5                      |
-| [YOLO11s-cls](https://github.com/ultralytics/assets/releases/download/v8.3.0/yolo11s-cls.pt) | 224                   | 75.4             | 92.7             | 7.9 ± 0.2                      | 1.3 ± 0.0                           | 5.5                | 1.6                      |
-| [YOLO11m-cls](https://github.com/ultralytics/assets/releases/download/v8.3.0/yolo11m-cls.pt) | 224                   | 77.3             | 93.9             | 17.2 ± 0.4                     | 2.0 ± 0.0                           | 10.4               | 5.0                      |
-| [YOLO11l-cls](https://github.com/ultralytics/assets/releases/download/v8.3.0/yolo11l-cls.pt) | 224                   | 78.3             | 94.3             | 23.2 ± 0.3                     | 2.8 ± 0.0                           | 12.9               | 6.2                      |
-| [YOLO11x-cls](https://github.com/ultralytics/assets/releases/download/v8.3.0/yolo11x-cls.pt) | 224                   | 79.5             | 94.9             | 41.4 ± 0.9                     | 3.8 ± 0.0                           | 28.4               | 13.7                     |
-
-- **acc** values represent model accuracy on the [ImageNet](https://www.image-net.org/) dataset validation set. <br>Reproduce with `yolo val classify data=path/to/ImageNet device=0`
-- **Speed** metrics are averaged over ImageNet val images using an [Amazon EC2 P4d](https://aws.amazon.com/ec2/instance-types/p4/) instance. CPU speeds measured with [ONNX](https://onnx.ai/) export. GPU speeds measured with [TensorRT](https://developer.nvidia.com/tensorrt) export. <br>Reproduce with `yolo val classify data=path/to/ImageNet batch=1 device=0|cpu`
-
-</details>
-
-<details><summary>Pose (COCO)</summary>
-
-See the [Pose Estimation Docs](https://docs.ultralytics.com/tasks/pose/) for usage examples. These models are trained on [COCO-Pose](https://docs.ultralytics.com/datasets/pose/coco/), focusing on the 'person' class.
-
-| Model                                                                                          | size<br><sup>(pixels) | mAP<sup>pose<br>50-95 | mAP<sup>pose<br>50 | Speed<br><sup>CPU ONNX<br>(ms) | Speed<br><sup>T4 TensorRT10<br>(ms) | params<br><sup>(M) | FLOPs<br><sup>(B) |
-| ---------------------------------------------------------------------------------------------- | --------------------- | --------------------- | ------------------ | ------------------------------ | ----------------------------------- | ------------------ | ----------------- |
-| [YOLO11n-pose](https://github.com/ultralytics/assets/releases/download/v8.3.0/yolo11n-pose.pt) | 640                   | 50.0                  | 81.0               | 52.4 ± 0.5                     | 1.7 ± 0.0                           | 2.9                | 7.6               |
-| [YOLO11s-pose](https://github.com/ultralytics/assets/releases/download/v8.3.0/yolo11s-pose.pt) | 640                   | 58.9                  | 86.3               | 90.5 ± 0.6                     | 2.6 ± 0.0                           | 9.9                | 23.2              |
-| [YOLO11m-pose](https://github.com/ultralytics/assets/releases/download/v8.3.0/yolo11m-pose.pt) | 640                   | 64.9                  | 89.4               | 187.3 ± 0.8                    | 4.9 ± 0.1                           | 20.9               | 71.7              |
-| [YOLO11l-pose](https://github.com/ultralytics/assets/releases/download/v8.3.0/yolo11l-pose.pt) | 640                   | 66.1                  | 89.9               | 247.7 ± 1.1                    | 6.4 ± 0.1                           | 26.2               | 90.7              |
-| [YOLO11x-pose](https://github.com/ultralytics/assets/releases/download/v8.3.0/yolo11x-pose.pt) | 640                   | 69.5                  | 91.1               | 488.0 ± 13.9                   | 12.1 ± 0.2                          | 58.8               | 203.3             |
-
-- **mAP<sup>val</sup>** values are for single-model single-scale on the [COCO Keypoints val2017](https://docs.ultralytics.com/datasets/pose/coco/) dataset. See [YOLO Performance Metrics](https://docs.ultralytics.com/guides/yolo-performance-metrics/) for details. <br>Reproduce with `yolo val pose data=coco-pose.yaml device=0`
-- **Speed** metrics are averaged over COCO val images using an [Amazon EC2 P4d](https://aws.amazon.com/ec2/instance-types/p4/) instance. CPU speeds measured with [ONNX](https://onnx.ai/) export. GPU speeds measured with [TensorRT](https://developer.nvidia.com/tensorrt) export. <br>Reproduce with `yolo val pose data=coco-pose.yaml batch=1 device=0|cpu`
-
-</details>
-
-<details><summary>Oriented Bounding Boxes (DOTAv1)</summary>
-
-Check the [OBB Docs](https://docs.ultralytics.com/tasks/obb/) for usage examples. These models are trained on [DOTAv1](https://docs.ultralytics.com/datasets/obb/dota-v2/#dota-v10/), including 15 classes.
-
-| Model                                                                                        | size<br><sup>(pixels) | mAP<sup>test<br>50 | Speed<br><sup>CPU ONNX<br>(ms) | Speed<br><sup>T4 TensorRT10<br>(ms) | params<br><sup>(M) | FLOPs<br><sup>(B) |
-| -------------------------------------------------------------------------------------------- | --------------------- | ------------------ | ------------------------------ | ----------------------------------- | ------------------ | ----------------- |
-| [YOLO11n-obb](https://github.com/ultralytics/assets/releases/download/v8.3.0/yolo11n-obb.pt) | 1024                  | 78.4               | 117.6 ± 0.8                    | 4.4 ± 0.0                           | 2.7                | 17.2              |
-| [YOLO11s-obb](https://github.com/ultralytics/assets/releases/download/v8.3.0/yolo11s-obb.pt) | 1024                  | 79.5               | 219.4 ± 4.0                    | 5.1 ± 0.0                           | 9.7                | 57.5              |
-| [YOLO11m-obb](https://github.com/ultralytics/assets/releases/download/v8.3.0/yolo11m-obb.pt) | 1024                  | 80.9               | 562.8 ± 2.9                    | 10.1 ± 0.4                          | 20.9               | 183.5             |
-| [YOLO11l-obb](https://github.com/ultralytics/assets/releases/download/v8.3.0/yolo11l-obb.pt) | 1024                  | 81.0               | 712.5 ± 5.0                    | 13.5 ± 0.6                          | 26.2               | 232.0             |
-| [YOLO11x-obb](https://github.com/ultralytics/assets/releases/download/v8.3.0/yolo11x-obb.pt) | 1024                  | 81.3               | 1408.6 ± 7.7                   | 28.6 ± 1.0                          | 58.8               | 520.2             |
-
-- **mAP<sup>test</sup>** values are for single-model multiscale performance on the [DOTAv1 test set](https://captain-whu.github.io/DOTA/dataset.html). <br>Reproduce by `yolo val obb data=DOTAv1.yaml device=0 split=test` and submit merged results to the [DOTA evaluation server](https://captain-whu.github.io/DOTA/evaluation.html).
-- **Speed** metrics are averaged over [DOTAv1 val images](https://docs.ultralytics.com/datasets/obb/dota-v2/#dota-v10) using an [Amazon EC2 P4d](https://aws.amazon.com/ec2/instance-types/p4/) instance. CPU speeds measured with [ONNX](https://onnx.ai/) export. GPU speeds measured with [TensorRT](https://developer.nvidia.com/tensorrt) export. <br>Reproduce by `yolo val obb data=DOTAv1.yaml batch=1 device=0|cpu`
-
-</details>
-
-## 🧩 Integrations
-
-Our key integrations with leading AI platforms extend the functionality of Ultralytics' offerings, enhancing tasks like dataset labeling, training, visualization, and model management. Discover how Ultralytics, in collaboration with partners like [Weights & Biases](https://docs.ultralytics.com/integrations/weights-biases/), [Comet ML](https://docs.ultralytics.com/integrations/comet/), [Roboflow](https://docs.ultralytics.com/integrations/roboflow/), and [Intel OpenVINO](https://docs.ultralytics.com/integrations/openvino/), can optimize your AI workflow. Explore more at [Ultralytics Integrations](https://docs.ultralytics.com/integrations/).
-
-<a href="https://docs.ultralytics.com/integrations/" target="_blank">
-    <img width="100%" src="https://github.com/ultralytics/assets/raw/main/yolov8/banner-integrations.png" alt="Ultralytics active learning integrations">
-</a>
-<br>
-<br>
-
-<div align="center">
-  <a href="https://www.ultralytics.com/hub">
-    <img src="https://github.com/ultralytics/assets/raw/main/partners/logo-ultralytics-hub.png" width="10%" alt="Ultralytics HUB logo"></a>
-  <img src="https://github.com/ultralytics/assets/raw/main/social/logo-transparent.png" width="15%" height="0" alt="space">
-  <a href="https://docs.ultralytics.com/integrations/weights-biases/">
-    <img src="https://github.com/ultralytics/assets/raw/main/partners/logo-wb.png" width="10%" alt="Weights & Biases logo"></a>
-  <img src="https://github.com/ultralytics/assets/raw/main/social/logo-transparent.png" width="15%" height="0" alt="space">
-  <a href="https://docs.ultralytics.com/integrations/comet/">
-    <img src="https://github.com/ultralytics/assets/raw/main/partners/logo-comet.png" width="10%" alt="Comet ML logo"></a>
-  <img src="https://github.com/ultralytics/assets/raw/main/social/logo-transparent.png" width="15%" height="0" alt="space">
-  <a href="https://docs.ultralytics.com/integrations/neural-magic/">
-    <img src="https://github.com/ultralytics/assets/raw/main/partners/logo-neuralmagic.png" width="10%" alt="Neural Magic logo"></a>
-</div>
-
-|                                                       Ultralytics HUB 🌟                                                        |                                                          Weights & Biases                                                           |                                                                              Comet                                                                              |                                                        Neural Magic                                                         |
-| :-----------------------------------------------------------------------------------------------------------------------------: | :---------------------------------------------------------------------------------------------------------------------------------: | :-------------------------------------------------------------------------------------------------------------------------------------------------------------: | :-------------------------------------------------------------------------------------------------------------------------: |
-| Streamline YOLO workflows: Label, train, and deploy effortlessly with [Ultralytics HUB](https://hub.ultralytics.com/). Try now! | Track experiments, hyperparameters, and results with [Weights & Biases](https://docs.ultralytics.com/integrations/weights-biases/). | Free forever, [Comet ML](https://docs.ultralytics.com/integrations/comet/) lets you save YOLO models, resume training, and interactively visualize predictions. | Run YOLO inference up to 6x faster with [Neural Magic DeepSparse](https://docs.ultralytics.com/integrations/neural-magic/). |
-
-## 🌟 Ultralytics HUB
-
-Experience seamless AI with [Ultralytics HUB](https://hub.ultralytics.com/), the all-in-one platform for data visualization, training YOLO models, and deployment—no coding required. Transform images into actionable insights and bring your AI visions to life effortlessly using our cutting-edge platform and user-friendly [Ultralytics App](https://www.ultralytics.com/app-install). Start your journey for **Free** today!
-
-<a href="https://www.ultralytics.com/hub" target="_blank">
-<img width="100%" src="https://github.com/ultralytics/assets/raw/main/im/ultralytics-hub.png" alt="Ultralytics HUB preview image"></a>
-
-## 🤝 Contribute
-
-We thrive on community collaboration! Ultralytics YOLO wouldn't be the SOTA framework it is without contributions from developers like you. Please see our [Contributing Guide](https://docs.ultralytics.com/help/contributing/) to get started. We also welcome your feedback—share your experience by completing our [Survey](https://www.ultralytics.com/survey?utm_source=github&utm_medium=social&utm_campaign=Survey). A huge **Thank You** 🙏 to everyone who contributes!
-
-<!-- SVG image from https://opencollective.com/ultralytics/contributors.svg?width=1280 -->
-
-[![Ultralytics open-source contributors](https://raw.githubusercontent.com/ultralytics/assets/main/im/image-contributors.png)](https://github.com/ultralytics/ultralytics/graphs/contributors)
-
-We look forward to your contributions to help make the Ultralytics ecosystem even better!
-
-## 📜 License
-
-Ultralytics offers two licensing options to suit different needs:
-
-- **AGPL-3.0 License**: This [OSI-approved](https://opensource.org/license) open-source license is perfect for students, researchers, and enthusiasts. It encourages open collaboration and knowledge sharing. See the [LICENSE](https://github.com/ultralytics/ultralytics/blob/main/LICENSE) file for full details.
-- **Ultralytics Enterprise License**: Designed for commercial use, this license allows for the seamless integration of Ultralytics software and AI models into commercial products and services, bypassing the open-source requirements of AGPL-3.0. If your use case involves commercial deployment, please contact us via [Ultralytics Licensing](https://www.ultralytics.com/license).
-
-## 📞 Contact
-
-For bug reports and feature requests related to Ultralytics software, please visit [GitHub Issues](https://github.com/ultralytics/ultralytics/issues). For questions, discussions, and community support, join our active communities on [Discord](https://discord.com/invite/ultralytics), [Reddit](https://www.reddit.com/r/ultralytics/), and the [Ultralytics Community Forums](https://community.ultralytics.com/). We're here to help with all things Ultralytics!
-
-<br>
-<div align="center">
-  <a href="https://github.com/ultralytics"><img src="https://github.com/ultralytics/assets/raw/main/social/logo-social-github.png" width="3%" alt="Ultralytics GitHub"></a>
-  <img src="https://github.com/ultralytics/assets/raw/main/social/logo-transparent.png" width="3%" alt="space">
-  <a href="https://www.linkedin.com/company/ultralytics/"><img src="https://github.com/ultralytics/assets/raw/main/social/logo-social-linkedin.png" width="3%" alt="Ultralytics LinkedIn"></a>
-  <img src="https://github.com/ultralytics/assets/raw/main/social/logo-transparent.png" width="3%" alt="space">
-  <a href="https://twitter.com/ultralytics"><img src="https://github.com/ultralytics/assets/raw/main/social/logo-social-twitter.png" width="3%" alt="Ultralytics Twitter"></a>
-  <img src="https://github.com/ultralytics/assets/raw/main/social/logo-transparent.png" width="3%" alt="space">
-  <a href="https://youtube.com/ultralytics?sub_confirmation=1"><img src="https://github.com/ultralytics/assets/raw/main/social/logo-social-youtube.png" width="3%" alt="Ultralytics YouTube"></a>
-  <img src="https://github.com/ultralytics/assets/raw/main/social/logo-transparent.png" width="3%" alt="space">
-  <a href="https://www.tiktok.com/@ultralytics"><img src="https://github.com/ultralytics/assets/raw/main/social/logo-social-tiktok.png" width="3%" alt="Ultralytics TikTok"></a>
-  <img src="https://github.com/ultralytics/assets/raw/main/social/logo-transparent.png" width="3%" alt="space">
-  <a href="https://ultralytics.com/bilibili"><img src="https://github.com/ultralytics/assets/raw/main/social/logo-social-bilibili.png" width="3%" alt="Ultralytics BiliBili"></a>
-  <img src="https://github.com/ultralytics/assets/raw/main/social/logo-transparent.png" width="3%" alt="space">
-  <a href="https://discord.com/invite/ultralytics"><img src="https://github.com/ultralytics/assets/raw/main/social/logo-social-discord.png" width="3%" alt="Ultralytics Discord"></a>
-</div>
+Evaluating pycocotools mAP using /root/autodl-tmp/ultralytics/runs/pose/val4/predictions.json and /root/autodl-tmp/datasets/coco-pose/annotations/person_keypoints_val2017.json...
+loading annotations into memory...
+Done (t=0.17s)
+creating index...
+index created!
+Loading and preparing results...
+DONE (t=1.00s)
+creating index...
+index created!
+Running per image evaluation...
+Evaluate annotation type *bbox*
+DONE (t=5.27s).
+Accumulating evaluation results...
+DONE (t=0.40s).
+ Average Precision  (AP) @[ IoU=0.50:0.95 | area=   all | maxDets=100 ] = 0.570
+ Average Precision  (AP) @[ IoU=0.50      | area=   all | maxDets=100 ] = 0.742
+ Average Precision  (AP) @[ IoU=0.75      | area=   all | maxDets=100 ] = 0.633
+ Average Precision  (AP) @[ IoU=0.50:0.95 | area= small | maxDets=100 ] = 0.227
+ Average Precision  (AP) @[ IoU=0.50:0.95 | area=medium | maxDets=100 ] = 0.703
+ Average Precision  (AP) @[ IoU=0.50:0.95 | area= large | maxDets=100 ] = 0.827
+ Average Recall     (AR) @[ IoU=0.50:0.95 | area=   all | maxDets=  1 ] = 0.217
+ Average Recall     (AR) @[ IoU=0.50:0.95 | area=   all | maxDets= 10 ] = 0.581
+ Average Recall     (AR) @[ IoU=0.50:0.95 | area=   all | maxDets=100 ] = 0.646
+ Average Recall     (AR) @[ IoU=0.50:0.95 | area= small | maxDets=100 ] = 0.256
+ Average Recall     (AR) @[ IoU=0.50:0.95 | area=medium | maxDets=100 ] = 0.780
+ Average Recall     (AR) @[ IoU=0.50:0.95 | area= large | maxDets=100 ] = 0.883
+Running per image evaluation...
+Evaluate annotation type *keypoints*
+DONE (t=5.20s).
+Accumulating evaluation results...
+DONE (t=0.12s).
+ Average Precision  (AP) @[ IoU=0.50:0.95 | area=   all | maxDets= 20 ] = 0.589
+ Average Precision  (AP) @[ IoU=0.50      | area=   all | maxDets= 20 ] = 0.863
+ Average Precision  (AP) @[ IoU=0.75      | area=   all | maxDets= 20 ] = 0.648
+ Average Precision  (AP) @[ IoU=0.50:0.95 | area=medium | maxDets= 20 ] = 0.540
+ Average Precision  (AP) @[ IoU=0.50:0.95 | area= large | maxDets= 20 ] = 0.680
+ Average Recall     (AR) @[ IoU=0.50:0.95 | area=   all | maxDets= 20 ] = 0.661
+ Average Recall     (AR) @[ IoU=0.50      | area=   all | maxDets= 20 ] = 0.905
+ Average Recall     (AR) @[ IoU=0.75      | area=   all | maxDets= 20 ] = 0.723
+ Average Recall     (AR) @[ IoU=0.50:0.95 | area=medium | maxDets= 20 ] = 0.593
+ Average Recall     (AR) @[ IoU=0.50:0.95 | area= large | maxDets= 20 ] = 0.756
+Results saved to /root/autodl-tmp/ultralytics/runs/pose/val4
+```
