@@ -475,12 +475,12 @@ class v8PoseLoss(v8DetectionLoss):
         total_loss = feat_weight * feat_loss + pred_weight * pred_loss
 
         # 輸出損失值
-        print("\n--- Loss Values ---")
-        print(f"feat loss: {feat_loss.item():.4f}")
-        print(f"coord loss: {coord_loss.item():.4f}")
-        print(f"conf loss: {conf_loss.item():.4f}")
-        print(f"pred loss: {pred_loss.item():.4f}")
-        print(f"total loss: {total_loss.item():.4f}")
+        # print("\n--- Loss Values ---")
+        # print(f"feat loss: {feat_loss.item():.4f}")
+        # print(f"coord loss: {coord_loss.item():.4f}")
+        # print(f"conf loss: {conf_loss.item():.4f}")
+        # print(f"pred loss: {pred_loss.item():.4f}")
+        # print(f"total loss: {total_loss.item():.4f}")
         
         return total_loss
 
