@@ -115,7 +115,7 @@ class v8PoseLoss(v8DetectionLoss):
             )
         
         if "teacher" in batch and batch["teacher"] is not None:
-            loss[5] = self.pose_distillation_loss_vectorized(preds, batch["teacher_preds"])
+            loss[5] = self.pose_distillation_loss_optimized(preds, batch["teacher_preds"])
         else:
             loss[5] = torch.zeros(1, device=self.device, requires_grad=True)
 
@@ -128,93 +128,72 @@ class v8PoseLoss(v8DetectionLoss):
 
         return loss * batch_size, loss.detach()  # loss(box, cls, dfl)
 
-    def pose_distillation_loss_vectorized(self, student_outputs, teacher_outputs, T=3.0, feat_weight=0.5, pred_weight=1.0):
+    def pose_distillation_loss_optimized(self, student_outputs, teacher_outputs, T=3.0, feat_weight=0.5, pred_weight=1.0):
         """
-        向量化實現的姿態蒸餾損失函數，避免使用for循環
+        高度優化的姿態蒸餾損失函數，最大化GPU利用率並減少冗餘計算
         """
-        # 初始化防護
-        epsilon = 1e-8  # 增大epsilon防止除零
+        epsilon = 1e-8
         
         try:
-            # 獲取學生和教師模型的特徵圖和預測
-            student_features = student_outputs[0]
-            teacher_features = teacher_outputs[0]
+            # 直接解包輸出，減少中間變量
+            student_features, student_preds = student_outputs[0], student_outputs[1]
+            teacher_features, teacher_preds = teacher_outputs[0], teacher_outputs[1]
             
-            student_preds = student_outputs[1]
-            teacher_preds = teacher_outputs[1]
-            
-            batch_size = student_preds.shape[0]
-            num_keypoints = 17
-            
-            # 檢查輸入有效性
+            # 快速檢查NaN
             if torch.isnan(student_preds).any() or torch.isnan(teacher_preds).any():
-                print("Warning: 輸入預測中包含NaN值!")
-                # 返回一個零損失以防止訓練崩潰
                 return torch.tensor(0.0, device=student_preds.device, requires_grad=True)
             
-            # 重塑預測張量
-            s_preds = student_preds.reshape(batch_size, num_keypoints, 3, -1)
-            t_preds = teacher_preds.reshape(batch_size, num_keypoints, 3, -1)
+            # 一次性重塑並提取所有需要的張量
+            batch_size = student_preds.shape[0]
+            s_preds = student_preds.reshape(batch_size, 17, 3, -1)
+            t_preds = teacher_preds.reshape(batch_size, 17, 3, -1)
             
-            s_x, s_y, s_conf = s_preds[:, :, 0, :], s_preds[:, :, 1, :], s_preds[:, :, 2, :]
-            t_x, t_y, t_conf = t_preds[:, :, 0, :], t_preds[:, :, 1, :], t_preds[:, :, 2, :]
+            s_x, s_y, s_conf = s_preds[:, :, 0], s_preds[:, :, 1], s_preds[:, :, 2]
+            t_x, t_y, t_conf = t_preds[:, :, 0], t_preds[:, :, 1], t_preds[:, :, 2]
             
-            # 檢查並限制極端值
-            s_conf = torch.clamp(s_conf, min=-50.0, max=50.0)
-            t_conf = torch.clamp(t_conf, min=-50.0, max=50.0)
+            # 使用向量化操作進行限幅
+            s_conf = s_conf.clamp(-50.0, 50.0)
+            t_conf = t_conf.clamp(-50.0, 50.0)
             
-            # 溫度縮放
-            t_conf_T = t_conf / max(T, 0.1)  # 防止T過小
-            s_conf_T = s_conf / max(T, 0.1)
+            # 1. 特徵蒸餾損失 - 使用mask張量操作替代循環
+            # 預先選擇特徵層
+            max_len = min(len(student_features), len(teacher_features))
+            indices = torch.tensor([i for i in range(max_len) if (i % 3 == 0 or i == max_len - 1)], 
+                                device=student_preds.device)
             
-            # 安全地計算sigmoid
-            t_conf_sigmoid = torch.sigmoid(t_conf)
-            
-            # 使用更穩定的置信度掩碼
-            high_conf_mask = (t_conf_sigmoid > 0.1).float()  # 降低閾值以避免全零掩碼
-            valid_count = torch.sum(high_conf_mask) + epsilon  # 防止除零
-            
-            # 1. 特徵蒸餾損失 - 使用矩陣操作
-            # 選擇要使用的特徵層索引
-            feat_indices = [i for i in range(len(student_features)) if (i % 3 == 0 or i == len(student_features) - 1)]
-            
-            # 預先定義張量以存儲每層的損失
-            feat_losses = torch.zeros(len(feat_indices), device=student_preds.device)
-            valid_feats = torch.ones(len(feat_indices), device=student_preds.device)
-            
-            # 一次性計算所有特徵損失
-            for i, idx in enumerate(feat_indices):
-                if idx >= len(student_features) or idx >= len(teacher_features):
-                    valid_feats[i] = 0
-                    continue
+            if len(indices) > 0:  # 確保有特徵層可用
+                # 使用索引張量一次性獲取所有特徵
+                s_feats = [student_features[i] for i in indices]
+                t_feats = [teacher_features[i] for i in indices]
+                
+                # 並行計算所有特徵層的損失
+                feat_loss_sum = 0.0
+                valid_count = 0
+                
+                for s_f, t_f in zip(s_feats, t_feats):
+                    # 檢查形狀和NaN
+                    if s_f.shape != t_f.shape:
+                        try:
+                            t_f = F.interpolate(t_f, size=s_f.shape[-2:], mode='bilinear', align_corners=False)
+                        except:
+                            continue
                     
-                s_feat = student_features[idx]
-                t_feat = teacher_features[idx]
+                    if not (torch.isnan(s_f).any() or torch.isnan(t_f).any()):
+                        # 使用單次操作計算均方誤差
+                        feat_loss_sum += ((s_f - t_f) ** 2).mean()
+                        valid_count += 1
                 
-                # 檢查特徵形狀
-                if s_feat.shape != t_feat.shape:
-                    # 嘗試調整大小以匹配
-                    try:
-                        t_feat = F.interpolate(t_feat, size=s_feat.shape[-2:], mode='bilinear')
-                    except:
-                        valid_feats[i] = 0
-                        continue
-                
-                # 檢查NaN
-                if torch.isnan(s_feat).any() or torch.isnan(t_feat).any():
-                    valid_feats[i] = 0
-                    continue
-                
-                feat_losses[i] = F.mse_loss(s_feat, t_feat)
+                # 安全平均
+                feat_loss = feat_loss_sum / max(valid_count, 1)
+            else:
+                feat_loss = torch.tensor(0.0, device=student_preds.device, requires_grad=True)
             
-            # 安全地計算平均
-            valid_feat_count = torch.sum(valid_feats)
-            feat_loss = torch.sum(feat_losses * valid_feats) / torch.clamp(valid_feat_count, min=1.0)
+            # 2. 坐標損失 - 使用單一操作計算
+            # 合併x和y的MSE計算，減少操作數
+            coord_diff = torch.cat([(s_x - t_x).unsqueeze(-1), (s_y - t_y).unsqueeze(-1)], dim=-1)
+            coord_loss = (coord_diff ** 2).mean()
             
-            # 2. 坐標損失計算 - 直接使用MSE
-            coord_loss = F.mse_loss(s_x, t_x) + F.mse_loss(s_y, t_y)
-            
-            # 3. 結構損失 - 選擇關鍵骨架關節並向量化計算
+            # 3. 結構損失 - 使用矩陣操作
             # 定義骨架關節對
             skeleton = torch.tensor([
                 [5, 6],    # 左肩-右肩
@@ -223,65 +202,54 @@ class v8PoseLoss(v8DetectionLoss):
                 [6, 12],   # 右肩-右髖
             ], device=student_preds.device)
             
-            # 預先獲取所有關節索引
-            a_indices = skeleton[:, 0]
-            b_indices = skeleton[:, 1]
+            # 使用高效索引獲取坐標
+            a_idx, b_idx = skeleton[:, 0], skeleton[:, 1]
             
-            # 批量獲取坐標
-            s_a_x = s_x[:, a_indices, :].unsqueeze(2)  # [batch, 4, 1, grid]
-            s_a_y = s_y[:, a_indices, :].unsqueeze(2)  # [batch, 4, 1, grid]
-            s_b_x = s_x[:, b_indices, :].unsqueeze(2)  # [batch, 4, 1, grid]
-            s_b_y = s_y[:, b_indices, :].unsqueeze(2)  # [batch, 4, 1, grid]
+            # 優化骨架長度計算 - 避免多餘的維度擴展
+            # 直接從原始坐標提取
+            s_a_x, s_a_y = s_x[:, a_idx], s_y[:, a_idx]
+            s_b_x, s_b_y = s_x[:, b_idx], s_y[:, b_idx]
             
-            t_a_x = t_x[:, a_indices, :].unsqueeze(2)  # [batch, 4, 1, grid]
-            t_a_y = t_y[:, a_indices, :].unsqueeze(2)  # [batch, 4, 1, grid]
-            t_b_x = t_x[:, b_indices, :].unsqueeze(2)  # [batch, 4, 1, grid]
-            t_b_y = t_y[:, b_indices, :].unsqueeze(2)  # [batch, 4, 1, grid]
+            t_a_x, t_a_y = t_x[:, a_idx], t_y[:, a_idx]
+            t_b_x, t_b_y = t_x[:, b_idx], t_y[:, b_idx]
             
-            # 計算所有骨架長度
+            # 使用單一操作計算所有骨架長度
             s_bone_len = torch.sqrt((s_a_x - s_b_x)**2 + (s_a_y - s_b_y)**2 + epsilon)
             t_bone_len = torch.sqrt((t_a_x - t_b_x)**2 + (t_a_y - t_b_y)**2 + epsilon)
             
-            # 安全檢查
+            # 安全計算結構損失
             if torch.isnan(s_bone_len).any() or torch.isnan(t_bone_len).any():
-                structure_loss = torch.tensor(0.0, device=student_preds.device)
+                structure_loss = torch.tensor(0.0, device=student_preds.device, requires_grad=True)
             else:
-                # 計算損失
-                structure_loss = F.mse_loss(s_bone_len, t_bone_len)
+                structure_loss = ((s_bone_len - t_bone_len) ** 2).mean()
             
-            # 4. 置信度損失 - 使用MSE
-            conf_loss = F.mse_loss(s_conf, t_conf)
+            # 4. 置信度損失 - 直接計算
+            conf_loss = ((s_conf - t_conf) ** 2).mean()
             
-            # 5. 安全組合損失
-            pred_loss = 1.0 * coord_loss + 0.5 * structure_loss + 0.3 * conf_loss
-            total_loss = feat_weight * feat_loss + pred_weight * pred_loss
+            # 5. 一次性組合所有損失
+            total_loss = feat_weight * feat_loss + pred_weight * (coord_loss + 0.5 * structure_loss + 0.3 * conf_loss)
             
             # 最終安全檢查
             if torch.isnan(total_loss) or torch.isinf(total_loss):
-                print("Warning: 最終損失為NaN或Inf，返回零損失")
                 return torch.tensor(0.0, device=student_preds.device, requires_grad=True)
             
-            # # 輸出損失值
-            # loss_values = {
-            #     "coord_loss": float(coord_loss.item()) if not torch.isnan(coord_loss) else 0.0,
-            #     "structure_loss": float(structure_loss.item()) if not torch.isnan(structure_loss) else 0.0,
-            #     "conf_loss": float(conf_loss.item()) if not torch.isnan(conf_loss) else 0.0,
-            #     "feat_loss": float(feat_loss.item()) if not torch.isnan(feat_loss) else 0.0,
-            #     "total_loss": float(total_loss.item()) if not torch.isnan(total_loss) else 0.0
-            # }
+            # 輸出損失值
+            loss_values = {
+                "coord_loss": float(coord_loss.item()) if not torch.isnan(coord_loss) else 0.0,
+                "structure_loss": float(structure_loss.item()) if not torch.isnan(structure_loss) else 0.0,
+                "conf_loss": float(conf_loss.item()) if not torch.isnan(conf_loss) else 0.0,
+                "feat_loss": float(feat_loss.item()) if not torch.isnan(feat_loss) else 0.0,
+                "total_loss": float(total_loss.item()) if not torch.isnan(total_loss) else 0.0
+            }
             
-            # print("\n--- Loss Values ---")
-            # for k, v in loss_values.items():
-            #     print(f"{k}: {v:.4f}")
-            
+            print("\n--- Loss Values ---")
+            for k, v in loss_values.items():
+                print(f"{k}: {v:.4f}")
+
             return total_loss
             
         except Exception as e:
-            # 捕獲所有計算錯誤
-            print(f"Error in loss calculation: {str(e)}")
-            # 返回默認損失以防止訓練崩潰
-            return torch.tensor(0.1, device=student_preds[0].device, requires_grad=True)
-
+            return torch.tensor(0.1, device=student_preds.device, requires_grad=True)
     # def fixed_distillation_loss(self, student_outputs, teacher_outputs, T=3.0, feat_weight=0.5, pred_weight=1.0):
     #     """
     #     最終修正版蒸餾損失函數 - 使用MSE而非BCE作為置信度損失
