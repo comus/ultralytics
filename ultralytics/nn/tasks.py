@@ -70,9 +70,7 @@ from ultralytics.nn.modules import (
     v10Detect,
 )
 from ultralytics.utils import DEFAULT_CFG_DICT, DEFAULT_CFG_KEYS, LOGGER, colorstr, emojis, yaml_load
-from ultralytics.utils import ops
 from ultralytics.utils.checks import check_requirements, check_suffix, check_yaml
-from ultralytics.utils.dev import describe_var, show_caller
 from ultralytics.utils.loss import (
     E2EDetectLoss,
     v8ClassificationLoss,
@@ -120,25 +118,6 @@ class BaseModel(torch.nn.Module):
         if isinstance(x, dict):  # for cases of training and validating while training.
             return self.loss(x, *args, **kwargs)
         
-        # print("\n\n!!!!!!!!!!!!!!!tasks, BaseModel, forward called\n\n")
-        # show_caller()
-
-        # print("!!!!!!!!!!!!!!!tasks, BaseModel, forward x\n\n", describe_var(x), "\n\n")
-        # x = torch.Tensor(shape=[1, 3, 640, 640], dtype=torch.float32): tensor([[[[0.4471, 0.4471, 0.4471,  ..., 0.4471, 0.4471, 0.4471],
-        # Calculate statistics on flattened tensor
-        # flat_x = x.flatten()
-        # mean_val = torch.mean(flat_x).item()
-        # max_val = torch.max(flat_x).item() 
-        # min_val = torch.min(flat_x).item()
-        
-        # print(f"Flattened tensor statistics:")
-        # print(f"Mean: {mean_val:.4f}")
-        # print(f"Max: {max_val:.4f}") 
-        # print(f"Min: {min_val:.4f}")
-
-        # print("!!!!!!!!!!!!!!!tasks, BaseModel, forward args\n\n", describe_var(args), "\n\n")
-        # print("!!!!!!!!!!!!!!!tasks, BaseModel, forward kwargs\n\n", describe_var(kwargs), "\n\n")
-        
         return self.predict(x, *args, **kwargs)
 
     def predict(self, x, profile=False, visualize=False, augment=False, embed=None):
@@ -172,50 +151,13 @@ class BaseModel(torch.nn.Module):
         Returns:
             (torch.Tensor): The last output of the model.
         """
-        # print("\n\n")
-        # print("!!!!!!!!!!!!!!!tasks, _predict_once called")
-        # print("!!!!!!!!!!!!!!!tasks, _predict_once args\n\n", profile, visualize, embed)
-        # show_caller()
-        # print("\n\n")
-        # print("!!!!!!!!!!!!!!!tasks, _predict_once x\n\n", describe_var(x), "\n\n")
-        # print("!!!!!!!!!!!_predict_once x length", len(x))
-        # print("!!!!!!!!!!!_predict_once x[0]", x[0].shape)
         y, dt, embeddings = [], [], []  # outputs
         for m in self.model:
-            # print("!!!!!!!!!!!_predict_once m")
             if m.f != -1:  # if not from previous layer
-                # print("!!!!!!!!!!!_predict_once m.f")
                 x = y[m.f] if isinstance(m.f, int) else [x if j == -1 else y[j] for j in m.f]  # from earlier layers
             if profile:
-                # print("!!!!!!!!!!!_predict_once profile")
                 self._profile_one_layer(m, x, dt)
-            # # print("!!!!!!!!!!!aaa x.length", len(x))
-            # # print("!!!!!!!!!!!!!!!tasks, _predict_once x2\n\n", describe_var(x))
-            # print("        !!!!!!!!!!!!!!!tasks, _predict_once x loop(before)\n\n", describe_var(x, indent_size=8), "\n")
-            # # print("        !!!!!!!!!!!!!!!tasks, _predict_once x loop(before) m:", m)
-            # if isinstance(x, torch.Tensor):
-            #     flat_x = x.flatten()
-            #     mean_val = torch.mean(flat_x).item()
-            #     max_val = torch.max(flat_x).item() 
-            #     min_val = torch.min(flat_x).item()
-                
-            #     print(f"                Flattened tensor statistics:")
-            #     print(f"                Mean: {mean_val:.4f}")
-            #     print(f"                Max: {max_val:.4f}") 
-            #     print(f"                Min: {min_val:.4f}")
             x = m(x)  # run
-            # print("        !!!!!!!!!!!!!!!tasks, _predict_once x loop(after)\n\n", describe_var(x, indent_size=8), "\n")
-            # if isinstance(x, torch.Tensor):
-            #     flat_x = x.flatten()
-            #     mean_val = torch.mean(flat_x).item()
-            #     max_val = torch.max(flat_x).item() 
-            #     min_val = torch.min(flat_x).item()
-                    
-            #     print(f"                Flattened tensor statistics:")
-            #     print(f"                Mean: {mean_val:.4f}")
-            #     print(f"                Max: {max_val:.4f}") 
-            #     print(f"                Min: {min_val:.4f}")
-            # print("!!!!!!!!!!!bbb x.length", len(x))
             y.append(x if m.i in self.save else None)  # save output
             if visualize:
                 feature_visualization(x, m.type, m.i, save_dir=visualize)
@@ -223,20 +165,6 @@ class BaseModel(torch.nn.Module):
                 embeddings.append(torch.nn.functional.adaptive_avg_pool2d(x, (1, 1)).squeeze(-1).squeeze(-1))  # flatten
                 if m.i == max(embed):
                     return torch.unbind(torch.cat(embeddings, 1), dim=0)
-                
-        # print("!!!!!!!!!!!!!!!tasks, _predict_once x2\n\n", describe_var(x))
-        # print("!!!!!!!!!!!_predict_once2 x length", len(x))
-        # print("!!!!!!!!!!!_predict_once2 x[0] len", len(x[0]))
-        # print("!!!!!!!!!!!_predict_once x[1].length", len(x[1]))
-        # print("!!!!!!!!!!!_predict_once x[1][0].length", len(x[1][0]))
-        # print("!!!!!!!!!!!x[1][0][0]", len(x[1][0][0]), x[1][0][0].shape)
-        # print("!!!!!!!!!!!x[1][0][1]", len(x[1][0][1]), x[1][0][1].shape)
-        # print("!!!!!!!!!!!x[1][0][2]", len(x[1][0][2]), x[1][0][2].shape)
-        # print("!!!!!!!!!!!x[1][1].length", len(x[1][1]))
-        # print("!!!!!!!!!!!x[1][1][0]", len(x[1][1][0]), x[1][1][0].shape)
-
-        # print('!!!!!!!!!!!!!!!_predict_once x\n\n', describe_var(x))
-
         return x
 
     def _predict_augment(self, x):
