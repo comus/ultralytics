@@ -124,7 +124,7 @@ class v8PoseLoss(v8DetectionLoss):
         loss[2] *= self.hyp.kobj  # kobj gain
         loss[3] *= self.hyp.cls  # cls gain
         loss[4] *= self.hyp.dfl  # dfl gain
-        loss[5] *= 1.0
+        loss[5] *= 4.0
 
         return loss * batch_size, loss.detach()  # loss(box, cls, dfl)
 
