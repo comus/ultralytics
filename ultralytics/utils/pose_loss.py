@@ -1,4 +1,5 @@
 from datetime import datetime
+import math
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -114,7 +115,7 @@ class v8PoseLoss(v8DetectionLoss):
             )
         
         if "teacher" in batch and batch["teacher"] is not None:
-            loss[5] = self.distillation_loss(preds, batch["teacher_preds"])
+            loss[5] = self.pose_distillation_loss(preds, batch["teacher_preds"])
         else:
             loss[5] = torch.zeros(1, device=self.device, requires_grad=True)
 
@@ -126,6 +127,435 @@ class v8PoseLoss(v8DetectionLoss):
         loss[5] *= 1.0
 
         return loss * batch_size, loss.detach()  # loss(box, cls, dfl)
+    
+    def pose_distillation_loss(self, student_outputs, teacher_outputs, T=3.0, feat_weight=0.5, pred_weight=1.0):
+        """
+        專為姿態估計任務優化的蒸餾損失函數
+        
+        特點:
+        1. 姿態結構優先 - 加強骨架結構一致性
+        2. 精度導向 - 聚焦高置信度關鍵點
+        3. 使用溫度參數 - 軟化教師知識
+        4. 向量化計算 - 提高效率
+        5. 過濾噪聲標籤 - 只學習高置信度預測
+        """
+        # 獲取學生和教師模型的特徵圖和預測
+        student_features = student_outputs[0]
+        teacher_features = teacher_outputs[0]
+        
+        student_preds = student_outputs[1]
+        teacher_preds = teacher_outputs[1]
+        
+        batch_size = student_preds.shape[0]
+        num_keypoints = 17
+        
+        # 重塑預測張量 - 使用向量化操作
+        s_preds = student_preds.reshape(batch_size, num_keypoints, 3, -1)
+        t_preds = teacher_preds.reshape(batch_size, num_keypoints, 3, -1)
+        
+        s_x, s_y, s_conf = s_preds[:, :, 0, :], s_preds[:, :, 1, :], s_preds[:, :, 2, :]
+        t_x, t_y, t_conf = t_preds[:, :, 0, :], t_preds[:, :, 1, :], t_preds[:, :, 2, :]
+        
+        # 溫度縮放 - 應用於教師模型的logits
+        t_conf_T = t_conf / T
+        
+        # 計算置信度掩碼 - 用於過濾噪聲標籤
+        t_conf_sigmoid = torch.sigmoid(t_conf)
+        high_conf_mask = (t_conf_sigmoid > 0.5).float()  # 只保留高置信度預測
+        valid_count = torch.sum(high_conf_mask) + 1e-6  # 防止除零
+        
+        # 1. 特徵蒸餾損失 - 使用向量化操作選擇層
+        # 選擇關鍵層而不是所有層
+        feat_loss = 0.0
+        feat_indices = [0, len(student_features)//4, len(student_features)//2, 
+                    3*len(student_features)//4, -1]  # 均勻採樣特徵層
+        
+        selected_features = [(student_features[i], teacher_features[i]) for i in feat_indices 
+                            if i < len(student_features)]
+        
+        # 使用向量化操作計算特徵損失
+        for s_feat, t_feat in selected_features:
+            # 對大特徵圖進行下採樣以提高效率
+            if s_feat.numel() > 1000000:
+                s_feat = F.avg_pool2d(s_feat, 2)
+                t_feat = F.avg_pool2d(t_feat, 2)
+            feat_loss += F.mse_loss(s_feat, t_feat)
+        
+        feat_loss = feat_loss / len(selected_features)
+        
+        # 2. 高精度坐標損失 - 基於教師置信度的加權損失
+        # 加權計算，重點關注高置信度關鍵點
+        weighted_x_loss = torch.sum(((s_x - t_x) ** 2) * high_conf_mask) / valid_count
+        weighted_y_loss = torch.sum(((s_y - t_y) ** 2) * high_conf_mask) / valid_count
+        coord_loss = weighted_x_loss + weighted_y_loss
+        
+        # 3. 姿態結構優先 - 人體骨架結構保持
+        # 定義人體骨架 - 關鍵連接
+        skeleton = torch.tensor([
+            # 軀幹
+            [5, 6],    # 左肩-右肩
+            [5, 11],   # 左肩-左髖
+            [6, 12],   # 右肩-右髖
+            [11, 12],  # 左髖-右髖
+            
+            # 手臂
+            [5, 7],    # 左肩-左肘
+            [7, 9],    # 左肘-左腕
+            [6, 8],    # 右肩-右肘
+            [8, 10],   # 右肘-右腕
+            
+            # 腿部
+            [11, 13],  # 左髖-左膝
+            [13, 15],  # 左膝-左踝
+            [12, 14],  # 右髖-右膝
+            [14, 16],  # 右膝-右踝
+            
+            # 面部
+            [0, 1],    # 鼻-左眼
+            [0, 2],    # 鼻-右眼
+            [1, 3],    # 左眼-左耳
+            [2, 4]     # 右眼-右耳
+        ], device=student_preds.device)
+        
+        # 向量化計算所有骨架部分
+        # 準備索引用於批量計算
+        a_indices = skeleton[:, 0]
+        b_indices = skeleton[:, 1]
+        
+        # 提取相應的坐標 - 使用高級索引
+        s_x_a = s_x[:, a_indices.long(), :]  # [batch, num_bones, num_anchors]
+        s_y_a = s_y[:, a_indices.long(), :]
+        s_x_b = s_x[:, b_indices.long(), :]
+        s_y_b = s_y[:, b_indices.long(), :]
+        
+        t_x_a = t_x[:, a_indices.long(), :]
+        t_y_a = t_y[:, a_indices.long(), :]
+        t_x_b = t_x[:, b_indices.long(), :]
+        t_y_b = t_y[:, b_indices.long(), :]
+        
+        # 計算骨架長度 - 歐氏距離
+        s_bone_lengths = torch.sqrt((s_x_a - s_x_b)**2 + (s_y_a - s_y_b)**2)  # [batch, num_bones, num_anchors]
+        t_bone_lengths = torch.sqrt((t_x_a - t_x_b)**2 + (t_y_a - t_y_b)**2)
+        
+        # 計算骨架置信度掩碼 - 確保兩端關鍵點都有高置信度
+        t_conf_a = t_conf[:, a_indices.long(), :]
+        t_conf_b = t_conf[:, b_indices.long(), :]
+        t_conf_sigmoid_a = torch.sigmoid(t_conf_a)
+        t_conf_sigmoid_b = torch.sigmoid(t_conf_b)
+        
+        # 只關注教師模型有信心的骨架
+        bone_conf_mask = (t_conf_sigmoid_a > 0.5) & (t_conf_sigmoid_b > 0.5)
+        bone_conf_mask = bone_conf_mask.float()
+        valid_bones = torch.sum(bone_conf_mask) + 1e-6
+        
+        # 計算加權骨架損失
+        structure_loss = torch.sum(((s_bone_lengths - t_bone_lengths) ** 2) * bone_conf_mask) / valid_bones
+        
+        # 4. 置信度蒸餾 - 使用溫度參數
+        # 將溫度參數應用於logits
+        s_conf_T = s_conf / T
+        
+        # 使用溫度軟化的KL散度
+        # 轉換為概率分布
+        p_s = torch.sigmoid(s_conf_T)
+        p_t = torch.sigmoid(t_conf_T)
+        
+        # 計算KL散度: p_t * log(p_t/p_s) + (1-p_t) * log((1-p_t)/(1-p_s))
+        epsilon = 1e-12  # 避免數值問題
+        kl_pos = p_t * torch.log((p_t + epsilon) / (p_s + epsilon))
+        kl_neg = (1 - p_t) * torch.log((1 - p_t + epsilon) / (1 - p_s + epsilon))
+        
+        # 只對高置信度預測應用KL散度
+        weighted_kl = (kl_pos + kl_neg) * high_conf_mask
+        conf_loss = torch.sum(weighted_kl) / valid_count * (T**2)  # 乘以T^2是蒸餾理論中的常見做法
+        
+        # 5. 組合損失 - 根據重要性加權
+        # 姿態結構優先，坐標精度次之，特徵和置信度最後
+        pred_loss = 1.5 * coord_loss + 2.0 * structure_loss + 0.5 * conf_loss
+        total_loss = feat_weight * feat_loss + pred_weight * pred_loss
+        
+        # 輸出損失值
+        loss_values = {
+            "coord_loss": coord_loss.item(),
+            "structure_loss": structure_loss.item(),
+            "conf_loss": conf_loss.item(),
+            "feat_loss": feat_loss.item(),
+            "total_loss": total_loss.item()
+        }
+        
+        # print("\n--- Loss Values ---")
+        # for k, v in loss_values.items():
+        #     print(f"{k}: {v:.4f}")
+        
+        return total_loss
+    
+    # def fixed_distillation_loss(self, student_outputs, teacher_outputs, T=3.0, feat_weight=0.5, pred_weight=1.0):
+    #     """
+    #     最終修正版蒸餾損失函數 - 使用MSE而非BCE作為置信度損失
+    #     """
+    #     # 獲取學生和教師模型的特徵圖和預測
+    #     student_features = student_outputs[0]
+    #     teacher_features = teacher_outputs[0]
+        
+    #     student_preds = student_outputs[1]
+    #     teacher_preds = teacher_outputs[1]
+        
+    #     batch_size = student_preds.shape[0]
+    #     num_keypoints = 17
+        
+    #     # 重塑預測張量
+    #     s_preds = student_preds.reshape(batch_size, num_keypoints, 3, -1)
+    #     t_preds = teacher_preds.reshape(batch_size, num_keypoints, 3, -1)
+        
+    #     # 提取x、y座標和置信度
+    #     s_x = s_preds[:, :, 0, :]
+    #     s_y = s_preds[:, :, 1, :]
+    #     s_conf = s_preds[:, :, 2, :]
+        
+    #     t_x = t_preds[:, :, 0, :]
+    #     t_y = t_preds[:, :, 1, :]
+    #     t_conf = t_preds[:, :, 2, :]
+        
+    #     # 1. 特徵蒸餾損失
+    #     feat_loss = 0.0
+    #     for s_feat, t_feat in zip(student_features, teacher_features):
+    #         feat_loss += F.mse_loss(s_feat, t_feat)
+    #     feat_loss = feat_loss / len(student_features)
+        
+    #     # 2. 坐標損失
+    #     coord_loss = F.mse_loss(s_x, t_x) + F.mse_loss(s_y, t_y)
+        
+    #     # 3. 結構損失
+    #     skeleton = torch.tensor([
+    #         [5, 6], [11, 12], [5, 11], [6, 12]
+    #     ], device=student_preds.device)
+        
+    #     structure_loss = 0.0
+    #     for (a, b) in skeleton:
+    #         s_bone_len = torch.sqrt((s_x[:, a, :] - s_x[:, b, :])**2 + (s_y[:, a, :] - s_y[:, b, :])**2)
+    #         t_bone_len = torch.sqrt((t_x[:, a, :] - t_x[:, b, :])**2 + (t_y[:, a, :] - t_y[:, b, :])**2)
+    #         structure_loss += F.mse_loss(s_bone_len, t_bone_len)
+        
+    #     structure_loss = structure_loss / len(skeleton)
+        
+    #     # 4. 修正的置信度損失 - 使用MSE而非BCE
+    #     # 對於相同的輸入，MSE始終為零
+    #     conf_loss = F.mse_loss(s_conf, t_conf)
+        
+    #     # 5. 組合損失
+    #     pred_loss = coord_loss + 0.5 * structure_loss + 0.3 * conf_loss
+    #     total_loss = feat_weight * feat_loss + pred_weight * pred_loss
+        
+    #     # 輸出損失值
+    #     loss_values = {
+    #         "coord_loss": coord_loss.item(),
+    #         "structure_loss": structure_loss.item(),
+    #         "conf_loss": conf_loss.item(),
+    #         "feat_loss": feat_loss.item(),
+    #         "total_loss": total_loss.item()
+    #     }
+        
+    #     print("\n--- Loss Values ---")
+    #     for k, v in loss_values.items():
+    #         print(f"{k}: {v:.4f}")
+        
+    #     return total_loss
+    
+    # def debug_confidence_loss_detailed(self, student_outputs, teacher_outputs):
+    #     """
+    #     更詳細的置信度損失調試
+    #     """
+    #     # 獲取置信度值
+    #     student_preds = student_outputs[1]
+    #     teacher_preds = teacher_outputs[1]
+        
+    #     batch_size = student_preds.shape[0]
+    #     num_keypoints = 17
+        
+    #     s_preds = student_preds.reshape(batch_size, num_keypoints, 3, -1)
+    #     t_preds = teacher_preds.reshape(batch_size, num_keypoints, 3, -1)
+        
+    #     s_conf = s_preds[:, :, 2, :]  # [B, 17, A]
+    #     t_conf = t_preds[:, :, 2, :]  # [B, 17, A]
+        
+    #     # 1. 基本檢查
+    #     print("基本檢查:")
+    #     are_equal = torch.allclose(s_conf, t_conf)
+    #     print(f"  學生和教師置信度是否相等: {are_equal}")
+        
+    #     # 2. 轉換為概率空間
+    #     s_prob = torch.sigmoid(s_conf)
+    #     t_prob = torch.sigmoid(t_conf)
+        
+    #     are_probs_equal = torch.allclose(s_prob, t_prob)
+    #     print(f"  學生和教師概率是否相等: {are_probs_equal}")
+        
+    #     # 3. 檢查值的分布
+    #     print("\n值分布:")
+    #     s_conf_flat = s_conf.flatten()
+    #     t_conf_flat = t_conf.flatten()
+        
+    #     # 基本統計
+    #     print(f"  學生置信度: min={s_conf_flat.min().item():.4f}, max={s_conf_flat.max().item():.4f}, mean={s_conf_flat.mean().item():.4f}")
+    #     print(f"  教師置信度: min={t_conf_flat.min().item():.4f}, max={t_conf_flat.max().item():.4f}, mean={t_conf_flat.mean().item():.4f}")
+        
+    #     # 4. 計算不同的損失值
+    #     print("\n不同損失計算:")
+        
+    #     # PyTorch BCE實現
+    #     bce_loss = F.binary_cross_entropy_with_logits(s_conf, t_conf)
+    #     print(f"  PyTorch BCE損失: {bce_loss.item():.6f}")
+        
+    #     # 手動BCE實現1 - 使用sigmoid後的概率
+    #     epsilon = 1e-12
+    #     manual_bce_1 = -torch.mean(t_prob * torch.log(s_prob + epsilon) + (1 - t_prob) * torch.log(1 - s_prob + epsilon))
+    #     print(f"  手動BCE損失1 (概率空間): {manual_bce_1.item():.6f}")
+        
+    #     # 手動BCE實現2 - 使用logits直接計算
+    #     max_val = torch.clamp(s_conf, min=None, max=20)
+    #     log_sum_exp = max_val + torch.log(torch.exp(-max_val) + torch.exp(t_conf - max_val))
+    #     manual_bce_2 = torch.mean(log_sum_exp - s_conf * t_conf)
+    #     print(f"  手動BCE損失2 (logits空間): {manual_bce_2.item():.6f}")
+        
+    #     # MSE損失比較
+    #     mse_loss = F.mse_loss(s_conf, t_conf)
+    #     print(f"  MSE損失: {mse_loss.item():.6f}")
+        
+    #     # 5. 逐元素BCE計算
+    #     # 抽樣一些元素進行詳細檢查
+    #     print("\n抽樣元素BCE計算:")
+        
+    #     # 隨機選擇5個元素
+    #     indices = torch.randint(0, s_conf.numel(), (5,))
+        
+    #     for i, idx in enumerate(indices):
+    #         # 獲取扁平索引對應的多維索引
+    #         batch_idx = idx // (num_keypoints * s_conf.shape[-1])
+    #         remainder = idx % (num_keypoints * s_conf.shape[-1])
+    #         kp_idx = remainder // s_conf.shape[-1]
+    #         anchor_idx = remainder % s_conf.shape[-1]
+            
+    #         s_val = s_conf[batch_idx, kp_idx, anchor_idx].item()
+    #         t_val = t_conf[batch_idx, kp_idx, anchor_idx].item()
+            
+    #         s_p = s_prob[batch_idx, kp_idx, anchor_idx].item()
+    #         t_p = t_prob[batch_idx, kp_idx, anchor_idx].item()
+            
+    #         # 計算該元素的BCE
+    #         elem_bce = -(t_p * math.log(s_p + epsilon) + (1 - t_p) * math.log(1 - s_p + epsilon))
+            
+    #         print(f"  元素 {i+1}:")
+    #         print(f"    位置: batch={batch_idx}, keypoint={kp_idx}, anchor={anchor_idx}")
+    #         print(f"    學生logit={s_val:.6f}, 概率={s_p:.6f}")
+    #         print(f"    教師logit={t_val:.6f}, 概率={t_p:.6f}")
+    #         print(f"    元素BCE={elem_bce:.6f}")
+        
+    #     # 6. 探索PyTorch BCE實現
+    #     print("\nPyTorch BCE實現探索:")
+        
+    #     # 嘗試使用BCEWithLogitsLoss類
+    #     bce_with_logits = torch.nn.BCEWithLogitsLoss()
+    #     bce_class_loss = bce_with_logits(s_conf, t_conf)
+    #     print(f"  使用BCEWithLogitsLoss類: {bce_class_loss.item():.6f}")
+        
+    #     # 嘗試單獨batch元素
+    #     batch_losses = []
+    #     for b in range(min(batch_size, 3)):  # 只取前3個批次
+    #         batch_loss = F.binary_cross_entropy_with_logits(s_conf[b], t_conf[b])
+    #         batch_losses.append(batch_loss.item())
+    #         print(f"  批次 {b} BCE損失: {batch_loss.item():.6f}")
+        
+    #     return {
+    #         "torch_bce": bce_loss.item(),
+    #         "manual_bce_1": manual_bce_1.item(),
+    #         "manual_bce_2": manual_bce_2.item(),
+    #         "mse": mse_loss.item()
+    #     }
+    
+    # def debug_confidence_loss(self, student_outputs, teacher_outputs):
+    #     """
+    #     調試置信度損失計算
+    #     """
+    #     # 獲取學生和教師模型的預測
+    #     student_preds = student_outputs[1]  # [batch_size, 51, num_anchors]
+    #     teacher_preds = teacher_outputs[1]  # [batch_size, 51, num_anchors]
+        
+    #     batch_size = student_preds.shape[0]
+    #     num_keypoints = 17
+        
+    #     # 重塑預測張量
+    #     s_preds = student_preds.reshape(batch_size, num_keypoints, 3, -1)  # [B, 17, 3, A]
+    #     t_preds = teacher_preds.reshape(batch_size, num_keypoints, 3, -1)  # [B, 17, 3, A]
+        
+    #     # 提取置信度
+    #     s_conf = s_preds[:, :, 2, :]  # [B, 17, A]
+    #     t_conf = t_preds[:, :, 2, :]  # [B, 17, A]
+        
+    #     # 檢查學生和教師置信度是否真的相同
+    #     exact_match = torch.all(s_conf == t_conf).item()
+    #     print(f"Exact confidence match: {exact_match}")
+        
+    #     # 檢查差異
+    #     conf_diff = torch.abs(s_conf - t_conf)
+    #     max_diff = torch.max(conf_diff).item()
+    #     mean_diff = torch.mean(conf_diff).item()
+    #     print(f"Max confidence difference: {max_diff:.6f}")
+    #     print(f"Mean confidence difference: {mean_diff:.6f}")
+        
+    #     # 計算不同的損失函數值
+    #     bce_loss = F.binary_cross_entropy_with_logits(s_conf, t_conf).item()
+    #     print(f"BCE loss: {bce_loss:.6f}")
+        
+    #     mse_loss = F.mse_loss(s_conf, t_conf).item()
+    #     print(f"MSE loss: {mse_loss:.6f}")
+        
+    #     # 檢查sigmoid後的差異
+    #     s_sigmoid = torch.sigmoid(s_conf)
+    #     t_sigmoid = torch.sigmoid(t_conf)
+    #     sigmoid_diff = torch.abs(s_sigmoid - t_sigmoid)
+    #     max_sigmoid_diff = torch.max(sigmoid_diff).item()
+    #     mean_sigmoid_diff = torch.mean(sigmoid_diff).item()
+    #     print(f"Max sigmoid difference: {max_sigmoid_diff:.6f}")
+    #     print(f"Mean sigmoid difference: {mean_sigmoid_diff:.6f}")
+        
+    #     # 檢查是否有任何NaN或Inf值
+    #     has_nan_s = torch.isnan(s_conf).any().item()
+    #     has_inf_s = torch.isinf(s_conf).any().item()
+    #     has_nan_t = torch.isnan(t_conf).any().item()
+    #     has_inf_t = torch.isinf(t_conf).any().item()
+    #     print(f"Student conf has NaN: {has_nan_s}, has Inf: {has_inf_s}")
+    #     print(f"Teacher conf has NaN: {has_nan_t}, has Inf: {has_inf_t}")
+        
+    #     # 檢查兩個模型輸出是否使用的是同一張量對象
+    #     same_object = (id(s_conf) == id(t_conf))
+    #     print(f"Same tensor object: {same_object}")
+        
+    #     # 檢查極端值
+    #     s_min, s_max = torch.min(s_conf).item(), torch.max(s_conf).item()
+    #     t_min, t_max = torch.min(t_conf).item(), torch.max(t_conf).item()
+    #     print(f"Student conf range: [{s_min:.2f}, {s_max:.2f}]")
+    #     print(f"Teacher conf range: [{t_min:.2f}, {t_max:.2f}]")
+        
+    #     # 檢查分布差異
+    #     s_mean, s_std = torch.mean(s_conf).item(), torch.std(s_conf).item()
+    #     t_mean, t_std = torch.mean(t_conf).item(), torch.std(t_conf).item()
+    #     print(f"Student conf stats: mean={s_mean:.4f}, std={s_std:.4f}")
+    #     print(f"Teacher conf stats: mean={t_mean:.4f}, std={t_std:.4f}")
+        
+    #     # 計算KL散度
+    #     s_log_softmax = F.log_softmax(s_conf.reshape(-1, s_conf.shape[-1]), dim=-1)
+    #     t_softmax = F.softmax(t_conf.reshape(-1, t_conf.shape[-1]), dim=-1)
+    #     kl_loss = F.kl_div(s_log_softmax, t_softmax, reduction='batchmean').item()
+    #     print(f"KL divergence loss: {kl_loss:.6f}")
+        
+    #     # 返回不同損失計算方法的結果
+    #     loss_values = {
+    #         "BCE Loss": bce_loss,
+    #         "MSE Loss": mse_loss,
+    #         "KL Loss": kl_loss
+    #     }
+        
+    #     return loss_values
 
     # def distillation_loss(self, student_outputs, teacher_outputs, T=2.0):
     #     """
@@ -650,19 +1080,116 @@ class v8PoseLoss(v8DetectionLoss):
         
     #     return total_loss
 
-    def distillation_loss(self, student_outputs, teacher_outputs, T=3.0, feat_weight=0.5, pred_weight=1.0):
-        """
-        YOLO-Pose蒸餾損失函數 - 高效率版本
+    # def distillation_loss(self, student_outputs, teacher_outputs, T=3.0, feat_weight=0.5, pred_weight=1.0):
+    #     """
+    #     YOLO-Pose蒸餾損失函數 - 高效率版本
         
-        參數:
-            student_outputs: 學生模型輸出，格式為(特徵圖列表, 預測張量)
-            teacher_outputs: 教師模型輸出，格式為(特徵圖列表, 預測張量)
-            T: 溫度參數
-            feat_weight: 特徵蒸餾權重
-            pred_weight: 預測蒸餾權重
+    #     參數:
+    #         student_outputs: 學生模型輸出，格式為(特徵圖列表, 預測張量)
+    #         teacher_outputs: 教師模型輸出，格式為(特徵圖列表, 預測張量)
+    #         T: 溫度參數
+    #         feat_weight: 特徵蒸餾權重
+    #         pred_weight: 預測蒸餾權重
             
-        返回:
-            total_loss: 總蒸餾損失
+    #     返回:
+    #         total_loss: 總蒸餾損失
+    #     """
+    #     # 獲取學生和教師模型的特徵圖和預測
+    #     student_features = student_outputs[0]
+    #     teacher_features = teacher_outputs[0]
+        
+    #     student_preds = student_outputs[1]  # [batch_size, 51, num_anchors]
+    #     teacher_preds = teacher_outputs[1]  # [batch_size, 51, num_anchors]
+        
+    #     batch_size = student_preds.shape[0]
+    #     num_keypoints = 17
+        
+    #     # 1. 特徵圖蒸餾損失 - 加速版本
+    #     # 只選擇一部分重要層進行蒸餾，而不是所有層
+    #     feat_loss = 0.0
+    #     selected_features = [0, -3, -2, -1]  # 只選最重要的幾層：首層和最後幾層
+    #     for idx in selected_features:
+    #         s_feat = student_features[idx]
+    #         t_feat = teacher_features[idx]
+    #         # 降低特徵圖分辨率以加速計算
+    #         if s_feat.numel() > 1000000:  # 如果特徵元素數量太多
+    #             s_feat = F.avg_pool2d(s_feat, kernel_size=2)
+    #             t_feat = F.avg_pool2d(t_feat, kernel_size=2)
+    #         feat_loss += F.mse_loss(s_feat, t_feat)
+    #     feat_loss = feat_loss / len(selected_features)
+        
+    #     # 2. 關鍵點預測蒸餾損失 - 高效率版本
+        
+    #     # 重塑預測張量以加速計算
+    #     # 重新整理張量形狀，使關鍵點通道在最後一維
+    #     s_preds = student_preds.reshape(batch_size, num_keypoints, 3, -1)  # [B, 17, 3, A]
+    #     t_preds = teacher_preds.reshape(batch_size, num_keypoints, 3, -1)  # [B, 17, 3, A]
+        
+    #     # 提取x、y座標和置信度
+    #     s_x = s_preds[:, :, 0, :]  # [B, 17, A]
+    #     s_y = s_preds[:, :, 1, :]  # [B, 17, A]
+    #     s_conf = s_preds[:, :, 2, :]  # [B, 17, A]
+        
+    #     t_x = t_preds[:, :, 0, :]  # [B, 17, A]
+    #     t_y = t_preds[:, :, 1, :]  # [B, 17, A]
+    #     t_conf = t_preds[:, :, 2, :]  # [B, 17, A]
+        
+    #     # 2.1 計算坐標損失 - 向量化版本
+    #     # 使用平滑L1損失計算坐標差異
+    #     coord_loss = (F.smooth_l1_loss(s_x, t_x) + F.smooth_l1_loss(s_y, t_y)) / 2
+        
+    #     # 2.2 計算置信度損失 - 高效率版本
+    #     # 使用均方誤差替代KL散度，顯著提高效率
+    #     conf_loss = F.mse_loss(s_conf / T, t_conf / T) * (T**2)
+        
+    #     # 2.3 計算結構損失 - 高效率版本
+    #     # 預定義骨架連接，每行代表一對關鍵點索引
+    #     skeleton = torch.tensor([
+    #         [5, 6],    # 左右肩
+    #         [11, 12],  # 左右髖
+    #         [5, 11],   # 左肩到左髖
+    #         [6, 12]    # 右肩到右髖
+    #     ], device=student_preds.device)
+        
+    #     # 批量計算所有骨架部分的長度
+    #     s_lengths = torch.zeros((batch_size, len(skeleton)), device=student_preds.device)
+    #     t_lengths = torch.zeros((batch_size, len(skeleton)), device=student_preds.device)
+        
+    #     for i, (a, b) in enumerate(skeleton):
+    #         # 計算歐式距離
+    #         s_lengths[:, i] = torch.sqrt(((s_x[:, a, :] - s_x[:, b, :])**2 + 
+    #                                     (s_y[:, a, :] - s_y[:, b, :])**2).mean(dim=1))
+    #         t_lengths[:, i] = torch.sqrt(((t_x[:, a, :] - t_x[:, b, :])**2 + 
+    #                                     (t_y[:, a, :] - t_y[:, b, :])**2).mean(dim=1))
+        
+    #     # 計算比例一致性，而不是絕對距離
+    #     structure_loss = F.mse_loss(s_lengths, t_lengths)
+        
+    #     # 3. 根據教師置信度選擇性地加權損失 - 向量化版本
+    #     # 計算教師模型的平均置信度
+    #     t_conf_sigmoid = torch.sigmoid(t_conf)  # [B, 17, A]
+        
+    #     # 計算加權係數 - 無需循環
+    #     # 使用教師置信度作為權重，但避免過高權重
+    #     weight_mask = torch.clamp(t_conf_sigmoid, min=0.1, max=0.9)  # [B, 17, A]
+        
+    #     # 計算加權坐標損失 - 完全向量化
+    #     weighted_x_loss = ((s_x - t_x)**2 * weight_mask).mean()
+    #     weighted_y_loss = ((s_y - t_y)**2 * weight_mask).mean()
+    #     weighted_coord_loss = (weighted_x_loss + weighted_y_loss) / 2
+        
+    #     # 組合損失 - 簡化權重以提高計算效率
+    #     coord_loss = 0.7 * coord_loss + 0.3 * weighted_coord_loss  # 混合普通和加權坐標損失
+    #     pred_loss = coord_loss + 0.8 * conf_loss + 0.5 * structure_loss
+        
+    #     # 總損失
+    #     total_loss = feat_weight * feat_loss + pred_weight * pred_loss
+        
+    #     return total_loss
+
+    def distillation_loss_fixed(self, student_outputs, teacher_outputs, T=3.0, feat_weight=0.5, pred_weight=1.0):
+        """
+        修正版蒸餾損失函數 - 解決同模型蒸餾問題
         """
         # 獲取學生和教師模型的特徵圖和預測
         student_features = student_outputs[0]
@@ -674,24 +1201,7 @@ class v8PoseLoss(v8DetectionLoss):
         batch_size = student_preds.shape[0]
         num_keypoints = 17
         
-        # 1. 特徵圖蒸餾損失 - 加速版本
-        # 只選擇一部分重要層進行蒸餾，而不是所有層
-        feat_loss = 0.0
-        selected_features = [0, -3, -2, -1]  # 只選最重要的幾層：首層和最後幾層
-        for idx in selected_features:
-            s_feat = student_features[idx]
-            t_feat = teacher_features[idx]
-            # 降低特徵圖分辨率以加速計算
-            if s_feat.numel() > 1000000:  # 如果特徵元素數量太多
-                s_feat = F.avg_pool2d(s_feat, kernel_size=2)
-                t_feat = F.avg_pool2d(t_feat, kernel_size=2)
-            feat_loss += F.mse_loss(s_feat, t_feat)
-        feat_loss = feat_loss / len(selected_features)
-        
-        # 2. 關鍵點預測蒸餾損失 - 高效率版本
-        
-        # 重塑預測張量以加速計算
-        # 重新整理張量形狀，使關鍵點通道在最後一維
+        # 重塑預測張量
         s_preds = student_preds.reshape(batch_size, num_keypoints, 3, -1)  # [B, 17, 3, A]
         t_preds = teacher_preds.reshape(batch_size, num_keypoints, 3, -1)  # [B, 17, 3, A]
         
@@ -704,16 +1214,17 @@ class v8PoseLoss(v8DetectionLoss):
         t_y = t_preds[:, :, 1, :]  # [B, 17, A]
         t_conf = t_preds[:, :, 2, :]  # [B, 17, A]
         
-        # 2.1 計算坐標損失 - 向量化版本
-        # 使用平滑L1損失計算坐標差異
-        coord_loss = (F.smooth_l1_loss(s_x, t_x) + F.smooth_l1_loss(s_y, t_y)) / 2
+        # 1. 特徵蒸餾損失 - 向量化操作
+        feat_loss = 0.0
+        for s_feat, t_feat in zip(student_features, teacher_features):
+            feat_loss += F.mse_loss(s_feat, t_feat)
+        feat_loss = feat_loss / len(student_features)
         
-        # 2.2 計算置信度損失 - 高效率版本
-        # 使用均方誤差替代KL散度，顯著提高效率
-        conf_loss = F.mse_loss(s_conf / T, t_conf / T) * (T**2)
+        # 2. 坐標損失 - 簡單MSE
+        coord_loss = F.mse_loss(s_x, t_x) + F.mse_loss(s_y, t_y)
         
-        # 2.3 計算結構損失 - 高效率版本
-        # 預定義骨架連接，每行代表一對關鍵點索引
+        # 3. 結構損失 - 計算骨架結構一致性
+        # 定義關鍵點對
         skeleton = torch.tensor([
             [5, 6],    # 左右肩
             [11, 12],  # 左右髖
@@ -721,40 +1232,38 @@ class v8PoseLoss(v8DetectionLoss):
             [6, 12]    # 右肩到右髖
         ], device=student_preds.device)
         
-        # 批量計算所有骨架部分的長度
-        s_lengths = torch.zeros((batch_size, len(skeleton)), device=student_preds.device)
-        t_lengths = torch.zeros((batch_size, len(skeleton)), device=student_preds.device)
+        structure_loss = 0.0
+        for (a, b) in skeleton:
+            # 計算骨骼長度
+            s_bone_len = torch.sqrt((s_x[:, a, :] - s_x[:, b, :])**2 + (s_y[:, a, :] - s_y[:, b, :])**2)
+            t_bone_len = torch.sqrt((t_x[:, a, :] - t_x[:, b, :])**2 + (t_y[:, a, :] - t_y[:, b, :])**2)
+            
+            # 比較長度
+            structure_loss += F.mse_loss(s_bone_len, t_bone_len)
         
-        for i, (a, b) in enumerate(skeleton):
-            # 計算歐式距離
-            s_lengths[:, i] = torch.sqrt(((s_x[:, a, :] - s_x[:, b, :])**2 + 
-                                        (s_y[:, a, :] - s_y[:, b, :])**2).mean(dim=1))
-            t_lengths[:, i] = torch.sqrt(((t_x[:, a, :] - t_x[:, b, :])**2 + 
-                                        (t_y[:, a, :] - t_y[:, b, :])**2).mean(dim=1))
+        structure_loss = structure_loss / len(skeleton)
         
-        # 計算比例一致性，而不是絕對距離
-        structure_loss = F.mse_loss(s_lengths, t_lengths)
+        # 4. 修正的置信度損失 - 使用BCE損失而非KL散度
+        # 修正為直接使用BCE，避免溫度縮放問題
+        conf_loss = F.binary_cross_entropy_with_logits(s_conf, torch.sigmoid(t_conf))
         
-        # 3. 根據教師置信度選擇性地加權損失 - 向量化版本
-        # 計算教師模型的平均置信度
-        t_conf_sigmoid = torch.sigmoid(t_conf)  # [B, 17, A]
-        
-        # 計算加權係數 - 無需循環
-        # 使用教師置信度作為權重，但避免過高權重
-        weight_mask = torch.clamp(t_conf_sigmoid, min=0.1, max=0.9)  # [B, 17, A]
-        
-        # 計算加權坐標損失 - 完全向量化
-        weighted_x_loss = ((s_x - t_x)**2 * weight_mask).mean()
-        weighted_y_loss = ((s_y - t_y)**2 * weight_mask).mean()
-        weighted_coord_loss = (weighted_x_loss + weighted_y_loss) / 2
-        
-        # 組合損失 - 簡化權重以提高計算效率
-        coord_loss = 0.7 * coord_loss + 0.3 * weighted_coord_loss  # 混合普通和加權坐標損失
-        pred_loss = coord_loss + 0.8 * conf_loss + 0.5 * structure_loss
-        
-        # 總損失
+        # 5. 組合損失 - 調整權重
+        pred_loss = coord_loss + 0.5 * structure_loss + 0.3 * conf_loss
         total_loss = feat_weight * feat_loss + pred_weight * pred_loss
         
+        # 輸出損失值
+        loss_values = {
+            "coord_loss": coord_loss.item(),
+            "structure_loss": structure_loss.item(),
+            "conf_loss": conf_loss.item(),
+            "feat_loss": feat_loss.item(),
+            "total_loss": total_loss.item()
+        }
+        
+        print("\n--- Loss Values ---")
+        for k, v in loss_values.items():
+            print(f"{k}: {v:.4f}")
+
         return total_loss
 
     @staticmethod
