@@ -283,7 +283,7 @@ class Pose(Detect):
         # print("!!!!!!!!!!!x[1][1][0].length", len(x[1][1][0]), x[1][1][0].shape)
         # print("!!!!!!!!!!!x[1][1][1].length", len(x[1][1][1]), x[1][1][1].shape)
         # print("!!!!!!!!!!!x[1][1][2].length", len(x[1][1][2]), x[1][1][2].shape)
-        print("self.training!!!!!!!!!!!!!!!!", self.training)
+        # print("self.training!!!!!!!!!!!!!!!!", self.training)
         if self.training:
             return x, kpt
         pred_kpt = self.kpts_decode(bs, kpt)

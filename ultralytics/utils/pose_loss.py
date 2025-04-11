@@ -455,30 +455,30 @@ class v8PoseLoss(v8DetectionLoss):
             # )
 
 
-            if "teacher" in batch and batch["teacher"] is not None:
-                # 可视化图像、边界框和关键点
-                # print(f"gt_kpts: {describe_var(gt_kpts)}")
-                target_keypoints = torch.cat([gt_kpts[..., :2] * stride_tensor.view(1, -1, 1, 1), gt_kpts[..., 2:]], dim=-1)
-                # print(f"keypoints: {describe_var(keypoints)}")
-                student_pred_kpts = torch.cat([pred_kpts[..., :2] * stride_tensor.view(1, -1, 1, 1), pred_kpts[..., 2:]], dim=-1)
-                # print(f"student_pred_kpts: {describe_var(student_pred_kpts)}")
-                teacher_pred_kpts = torch.cat([gt_kpts2[..., :2] * stride_tensor.view(1, -1, 1, 1), gt_kpts2[..., 2:]], dim=-1)
-                # print(f"teacher_pred_kpts: {describe_var(teacher_pred_kpts)}")
-                self.visualize_batch(
-                    images=batch["img"].detach(),
-                    target_bboxes=target_bboxes.detach() * stride_tensor,
-                    keypoints=target_keypoints,
-                    keypoint_mask=gt_kpt_mask,
-                    orig_img=batch.get("orig_img", None),
-                    student_pred_bboxes=pred_bboxes.detach() * stride_tensor,
-                    student_pred_kpts=student_pred_kpts,
-                    teacher_pred_bboxes=target_bboxes2.detach() * stride_tensor,
-                    teacher_pred_kpts=teacher_pred_kpts,
-                    stride_tensor=stride_tensor.detach(),
-                    fg_mask=fg_mask.detach(),
-                    imgsz=imgsz.detach(),
-                    fg_mask2=fg_mask2.detach(),
-                )
+            # if "teacher" in batch and batch["teacher"] is not None:
+            #     # 可视化图像、边界框和关键点
+            #     # print(f"gt_kpts: {describe_var(gt_kpts)}")
+            #     target_keypoints = torch.cat([gt_kpts[..., :2] * stride_tensor.view(1, -1, 1, 1), gt_kpts[..., 2:]], dim=-1)
+            #     # print(f"keypoints: {describe_var(keypoints)}")
+            #     student_pred_kpts = torch.cat([pred_kpts[..., :2] * stride_tensor.view(1, -1, 1, 1), pred_kpts[..., 2:]], dim=-1)
+            #     # print(f"student_pred_kpts: {describe_var(student_pred_kpts)}")
+            #     teacher_pred_kpts = torch.cat([gt_kpts2[..., :2] * stride_tensor.view(1, -1, 1, 1), gt_kpts2[..., 2:]], dim=-1)
+            #     # print(f"teacher_pred_kpts: {describe_var(teacher_pred_kpts)}")
+            #     self.visualize_batch(
+            #         images=batch["img"].detach(),
+            #         target_bboxes=target_bboxes.detach() * stride_tensor,
+            #         keypoints=target_keypoints,
+            #         keypoint_mask=gt_kpt_mask,
+            #         orig_img=batch.get("orig_img", None),
+            #         student_pred_bboxes=pred_bboxes.detach() * stride_tensor,
+            #         student_pred_kpts=student_pred_kpts,
+            #         teacher_pred_bboxes=target_bboxes2.detach() * stride_tensor,
+            #         teacher_pred_kpts=teacher_pred_kpts,
+            #         stride_tensor=stride_tensor.detach(),
+            #         fg_mask=fg_mask.detach(),
+            #         imgsz=imgsz.detach(),
+            #         fg_mask2=fg_mask2.detach(),
+            #     )
 
         if "teacher" in batch and batch["teacher"] is not None:
             loss[5] = dpose
@@ -555,9 +555,9 @@ class v8PoseLoss(v8DetectionLoss):
         # 批次索引處理
         # 目的: 將批次索引展平為一維向量，並獲取批次大小
         # 說明: batch_idx 記錄每組關鍵點屬於哪個批次，這一步是為了後續處理做準備
-        print(f"batch_idx: {batch_idx}, shape: {batch_idx.shape}")
+        # print(f"batch_idx: {batch_idx}, shape: {batch_idx.shape}")
         batch_idx = batch_idx.flatten()
-        print(f"batch_idx2: {batch_idx}")
+        # print(f"batch_idx2: {batch_idx}")
         batch_size = len(masks)
 
         # Find the maximum number of keypoints in a single image
@@ -616,14 +616,14 @@ class v8PoseLoss(v8DetectionLoss):
         # 說明:
         #   - 只處理前兩個通道 (x, y)，不處理可見性通道
         #   - stride_tensor.view(1, -1, 1, 1) 重塑步長張量以便於廣播
-        print(f"selected_keypoints1: {describe_var(selected_keypoints)}")
+        # print(f"selected_keypoints1: {describe_var(selected_keypoints)}")
         selected_keypoints[..., :2] /= stride_tensor.view(1, -1, 1, 1)
 
-        print(f"selected_keypoints2: {describe_var(selected_keypoints)}")
+        # print(f"selected_keypoints2: {describe_var(selected_keypoints)}")
         scaled_gt_keypoints = selected_keypoints.detach()
-        print(f"scaled_gt_keypoints: {describe_var(scaled_gt_keypoints)}")
+        # print(f"scaled_gt_keypoints: {describe_var(scaled_gt_keypoints)}")
         target_kpt_mask = scaled_gt_keypoints[..., 2] != 0 if scaled_gt_keypoints.shape[-1] == 3 else torch.full_like(scaled_gt_keypoints[..., 0], True)
-        print(f"target_kpt_mask: {describe_var(target_kpt_mask)}")
+        # print(f"target_kpt_mask: {describe_var(target_kpt_mask)}")
         # target_kpts = scaled_gt_keypoints[target_kpt_mask]
         # print(f"target_kpts: {describe_var(target_kpts)}")
 
@@ -641,12 +641,12 @@ class v8PoseLoss(v8DetectionLoss):
             area = xyxy2xywh(target_bboxes[masks])[:, 2:].prod(1, keepdim=True)
             # 選擇前景掩碼為真的預測關鍵點
             pred_kpt = pred_kpts[masks]
-            print("gt_kpt", describe_var(gt_kpt))
+            # print("gt_kpt", describe_var(gt_kpt))
             # 創建關鍵點掩碼:
             # 如果關鍵點有可見性信息 (第3通道)，則只考慮可見的關鍵點 (可見性!=0)
             # 否則所有關鍵點都視為可見
             kpt_mask = gt_kpt[..., 2] != 0 if gt_kpt.shape[-1] == 3 else torch.full_like(gt_kpt[..., 0], True)
-            print("kpt_mask", describe_var(kpt_mask))
+            # print("kpt_mask", describe_var(kpt_mask))
             # 位置損失計算:
             # 使用 OKS (Object Keypoint Similarity) 計算姿態損失
             # 考慮面積進行標準化，較大的物體允許有較大的絕對誤差
