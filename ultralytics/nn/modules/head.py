@@ -257,7 +257,7 @@ class Pose(Detect):
         x = Detect.forward(self, x)
         if self.training:
             return x, kpt
-        pred_kpt = self.kpts_decode(bs, kpt)	        pred_kpt = self.kpts_decode(bs, kpt)
+        pred_kpt = self.kpts_decode(bs, kpt)
         return torch.cat([x, pred_kpt], 1) if self.export else (torch.cat([x[0], pred_kpt], 1), (x[1], kpt))
 
     def kpts_decode(self, bs, kpts):

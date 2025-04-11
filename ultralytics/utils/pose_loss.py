@@ -48,7 +48,7 @@ class v8PoseLoss(v8DetectionLoss):
 
     def __call__(self, preds, batch):
         """Calculate the total loss and detach it for pose estimation."""
-        loss = torch.zeros(5, device=self.device)  # box, cls, dfl, kpt_location, kpt_visibility
+        loss = torch.zeros(6, device=self.device)  # box, cls, dfl, kpt_location, kpt_visibility
         feats, pred_kpts = preds if isinstance(preds[0], list) else preds[1]
         pred_distri, pred_scores = torch.cat([xi.view(feats[0].shape[0], self.no, -1) for xi in feats], 2).split(
             (self.reg_max * 4, self.nc), 1
@@ -103,12 +103,18 @@ class v8PoseLoss(v8DetectionLoss):
             loss[1], loss[2] = self.calculate_keypoints_loss(
                 fg_mask, target_gt_idx, keypoints, batch_idx, stride_tensor, target_bboxes, pred_kpts
             )
+        
+        if "teacher" in batch and batch["teacher"] is not None:
+            loss[5] = torch.zeros(1, device=self.device, requires_grad=True)
+        else:
+            loss[5] = torch.zeros(1, device=self.device, requires_grad=True)
 
         loss[0] *= self.hyp.box  # box gain
         loss[1] *= self.hyp.pose  # pose gain
         loss[2] *= self.hyp.kobj  # kobj gain
         loss[3] *= self.hyp.cls  # cls gain
         loss[4] *= self.hyp.dfl  # dfl gain
+        loss[5] *= 1.0
 
         return loss * batch_size, loss.detach()  # loss(box, cls, dfl)
 
