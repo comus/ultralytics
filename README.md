@@ -69,11 +69,41 @@ https://poe.com/s/1jVchmCmAfe9msarZt8l
 
 # 方向一，先訓練另一小模型，再蒸餾大模型到小模型
 
-train_base.py
+我先依照不同模型架構，訓練出兩個模型
+
+建立模型 yaml 的方法我也是問 AI 的
+
+https://poe.com/s/gMxZfYKFOLfz7iQEr7vo
+
+## train_lite.py
+
+- 模型架構：自己看 lite.yaml
+- 訓練參數：看 train_lite.py
+
+## train_base.py
+
+- 模型架構：自己看 base.yaml
+- 訓練參數：看 train_base.py
 
 # 方向二，在訓練小模型時，使用蒸餾
 
-train_base_distill.py
+這兩個模型訓練過程，我會使用蒸餾損失函數，將大模型蒸餾到小模型
+
+## train_lite_distill.py
+
+- 模型架構：自己看 lite.yaml
+- 訓練參數：看 train_lite_distill.py
+
+## train_base_distill.py
+
+- 模型架構：自己看 base.yaml
+- 訓練參數：看 train_base_distill.py
+
+
+# 方向三，先純蒸餾新模型，再訓練小模型
+
+
+
 
 
 
