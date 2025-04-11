@@ -48,6 +48,15 @@ class v8PoseLoss(v8DetectionLoss):
 
     def __call__(self, preds, batch):
         """Calculate the total loss and detach it for pose estimation."""
+        # print("\n" * 10, "=" * 100, "\n")
+
+        # print("preds", describe_var(preds, max_depth=10, max_items=100))
+
+        # print("batch", describe_var(batch, max_depth=10, max_items=100))
+
+        # if "teacher" in batch and batch["teacher"] is not None:
+        #     print("teacher_preds", describe_var(batch["teacher_preds"]))
+
         loss = torch.zeros(6, device=self.device)  # box, cls, dfl, kpt_location, kpt_visibility
         feats, pred_kpts = preds if isinstance(preds[0], list) else preds[1]
         pred_distri, pred_scores = torch.cat([xi.view(feats[0].shape[0], self.no, -1) for xi in feats], 2).split(
@@ -105,7 +114,7 @@ class v8PoseLoss(v8DetectionLoss):
             )
         
         if "teacher" in batch and batch["teacher"] is not None:
-            loss[5] = torch.zeros(1, device=self.device, requires_grad=True)
+            loss[5], _ = self.distillation_loss(preds, batch["teacher_preds"])
         else:
             loss[5] = torch.zeros(1, device=self.device, requires_grad=True)
 
@@ -117,6 +126,254 @@ class v8PoseLoss(v8DetectionLoss):
         loss[5] *= 1.0
 
         return loss * batch_size, loss.detach()  # loss(box, cls, dfl)
+
+    # def distillation_loss(self, student_outputs, teacher_outputs, T=2.0):
+    #     """
+    #     蒸餾損失函數，帶有詳細日誌輸出
+    #     """
+    #     # 記錄輸入結構
+    #     print("\n=== Distillation Loss Function Debug ===")
+        
+    #     # 檢查student_outputs和teacher_outputs的結構
+    #     print(f"student_outputs type: {type(student_outputs)}, length: {len(student_outputs)}")
+    #     print(f"teacher_outputs type: {type(teacher_outputs)}, length: {len(teacher_outputs)}")
+        
+    #     # 獲取特徵圖和預測
+    #     student_features = student_outputs[0]
+    #     teacher_features = teacher_outputs[0]
+    #     student_preds = student_outputs[1]
+    #     teacher_preds = teacher_outputs[1]
+        
+    #     # 檢查特徵圖結構
+    #     print("\n--- Feature Maps Structure ---")
+    #     print(f"Number of feature maps: {len(student_features)}")
+    #     for i, feat in enumerate(student_features):
+    #         print(f"Feature map {i} shape: {feat.shape}")
+        
+    #     # 檢查預測張量結構
+    #     print("\n--- Prediction Tensor Structure ---")
+    #     print(f"Student preds shape: {student_preds.shape}")
+    #     print(f"Teacher preds shape: {teacher_preds.shape}")
+        
+    #     # 檢查通道分配
+    #     print("\n--- Channel Value Distribution ---")
+
+    #     for i in range(51):
+    #         print(f"channel{i} - shape: {student_preds[:, i, :].shape}")
+    #         print(f"channel{i} - min: {student_preds[:, i, :].min().item():.4f}, max: {student_preds[:, i, :].max().item():.4f}, mean: {student_preds[:, i, :].mean().item():.4f}")
+        
+    #     # 檢查邊界框部分（假設前4個通道）
+    #     box_channels = student_preds[:, :4, :]
+    #     print(f"Box channels (first 4) - shape: {box_channels.shape}")
+    #     print(f"Box channels - min: {box_channels.min().item():.4f}, max: {box_channels.max().item():.4f}, mean: {box_channels.mean().item():.4f}")
+        
+    #     # 檢查置信度部分（假設第5個通道）
+    #     conf_channel = student_preds[:, 4, :]
+    #     print(f"Conf channel (5th) - shape: {conf_channel.shape}")
+    #     print(f"Conf channel - min: {conf_channel.min().item():.4f}, max: {conf_channel.max().item():.4f}, mean: {conf_channel.mean().item():.4f}")
+    #     print(f"Conf channel - values above 0.5: {(conf_channel > 0.5).sum().item()}")
+    #     print(f"Conf channel - histogram: {torch.histc(conf_channel, bins=5, min=-1, max=1)}")
+        
+    #     # 檢查可能的關鍵點部分
+    #     kpt_channels = student_preds[:, 5:, :]
+    #     print(f"Keypoint channels (rest) - shape: {kpt_channels.shape}")
+    #     print(f"Keypoint channels - min: {kpt_channels.min().item():.4f}, max: {kpt_channels.max().item():.4f}, mean: {kpt_channels.mean().item():.4f}")
+        
+    #     # 檢查3個通道為一組的模式（如果是關鍵點x,y,v）
+    #     if (kpt_channels.shape[1] % 3 == 0):
+    #         num_keypoints = kpt_channels.shape[1] // 3
+    #         print(f"\nAssuming {num_keypoints} keypoints with (x,y,v) format")
+            
+    #         # 檢查每個關鍵點組的摘要統計
+    #         for i in range(num_keypoints):
+    #             kpt_group = kpt_channels[:, i*3:(i+1)*3, :]
+    #             print(f"Keypoint {i} - shape: {kpt_group.shape}, mean: {kpt_group.mean().item():.4f}")
+                
+    #             # 抽樣檢查前10個預測的關鍵點值
+    #             sample_idx = 0
+    #             print(f"  Sample values (batch={sample_idx}, first 3 predictions):")
+    #             for j in range(min(3, kpt_group.shape[2])):
+    #                 print(f"    Pred {j}: {kpt_group[sample_idx, :, j].tolist()}")
+        
+    #     # 特徵圖蒸餾
+    #     feat_loss = 0
+    #     for s_feat, t_feat in zip(student_features, teacher_features):
+    #         feat_loss += F.mse_loss(s_feat, t_feat)
+    #     feat_loss = feat_loss / len(student_features)
+        
+    #     # 邊界框損失 (前4個通道)
+    #     box_loss = F.smooth_l1_loss(student_preds[:, :4, :], teacher_preds[:, :4, :])
+        
+    #     # 關鍵點損失 (第5-55通道)
+    #     kpt_loss = F.mse_loss(student_preds[:, 5:, :], teacher_preds[:, 5:, :])
+        
+    #     # 置信度損失 (第4通道)
+    #     conf_loss = 0
+    #     batch_size = student_preds.shape[0]
+    #     for i in range(batch_size):
+    #         s_conf = student_preds[i, 4, :] / T
+    #         t_conf = teacher_preds[i, 4, :] / T
+            
+    #         s_conf_log = F.log_softmax(s_conf, dim=0)
+    #         t_conf_soft = F.softmax(t_conf, dim=0)
+            
+    #         conf_loss += F.kl_div(s_conf_log, t_conf_soft, reduction='sum') * (T**2) / student_preds.shape[2]
+        
+    #     conf_loss = conf_loss / batch_size
+        
+    #     # 總預測損失
+    #     pred_loss = box_loss + 1.5 * kpt_loss + 2.0 * conf_loss
+        
+    #     # 總損失
+    #     total_loss = 0.5 * feat_loss + 1.0 * pred_loss
+        
+    #     # 輸出損失值
+    #     print("\n--- Loss Values ---")
+    #     print(f"Feature map loss: {feat_loss.item():.4f}")
+    #     print(f"Box loss: {box_loss.item():.4f}")
+    #     print(f"Keypoint loss: {kpt_loss.item():.4f}")
+    #     print(f"Confidence loss: {conf_loss.item():.4f}")
+    #     print(f"Total loss: {total_loss.item():.4f}")
+        
+    #     return total_loss
+
+    def distillation_loss(self, student_outputs, teacher_outputs, T=2.0, feat_weight=0.5, pred_weight=1.0):
+        """
+        YOLO-Pose蒸餾損失函數，專為全關鍵點輸出設計
+        
+        參數:
+            student_outputs: 學生模型輸出，格式為(特徵圖列表, 預測張量)
+            teacher_outputs: 教師模型輸出，格式為(特徵圖列表, 預測張量)
+            T: 溫度參數
+            feat_weight: 特徵蒸餾權重
+            pred_weight: 預測蒸餾權重
+            
+        返回:
+            total_loss: 總蒸餾損失
+        """
+        # 獲取學生和教師模型的特徵圖和預測
+        student_features = student_outputs[0]
+        teacher_features = teacher_outputs[0]
+        
+        student_preds = student_outputs[1]  # [batch_size, 51, num_anchors]
+        teacher_preds = teacher_outputs[1]  # [batch_size, 51, num_anchors]
+        
+        # 1. 特徵圖蒸餾損失
+        feat_loss = 0
+        for s_feat, t_feat in zip(student_features, teacher_features):
+            feat_loss += F.mse_loss(s_feat, t_feat)
+        feat_loss = feat_loss / len(student_features)
+        
+        # 2. 關鍵點預測蒸餾損失
+        num_keypoints = 17
+        
+        # 2.1 關鍵點坐標損失 (x和y座標)
+        coord_loss = 0
+        for i in range(num_keypoints):
+            # 每個關鍵點的x和y座標索引
+            x_idx = i * 3
+            y_idx = i * 3 + 1
+            
+            # 使用平滑L1損失進行坐標蒸餾
+            x_loss = F.smooth_l1_loss(student_preds[:, x_idx, :], teacher_preds[:, x_idx, :])
+            y_loss = F.smooth_l1_loss(student_preds[:, y_idx, :], teacher_preds[:, y_idx, :])
+            
+            coord_loss += x_loss + y_loss
+        
+        coord_loss = coord_loss / (2 * num_keypoints)  # 平均到每個坐標
+        
+        # 2.2 關鍵點置信度損失
+        conf_loss = 0
+        batch_size = student_preds.shape[0]
+        
+        for i in range(num_keypoints):
+            conf_idx = i * 3 + 2  # 置信度索引
+            
+            # 使用KL散度進行置信度蒸餾
+            for b in range(batch_size):
+                s_conf = student_preds[b, conf_idx, :] / T
+                t_conf = teacher_preds[b, conf_idx, :] / T
+                
+                # 軟化後的置信度分佈
+                s_conf_log = F.log_softmax(s_conf, dim=0)
+                t_conf_soft = F.softmax(t_conf, dim=0)
+                
+                # KL散度損失
+                kl_loss = F.kl_div(
+                    s_conf_log, 
+                    t_conf_soft, 
+                    reduction='sum'
+                ) * (T**2) / student_preds.shape[2]
+                
+                conf_loss += kl_loss
+        
+        conf_loss = conf_loss / (batch_size * num_keypoints)  # 平均到每個關鍵點的每個批次
+        
+        # 2.3 關注高置信度區域的特殊蒸餾
+        # 獲取教師模型中所有關鍵點的平均置信度
+        teacher_conf_mean = torch.zeros((batch_size, student_preds.shape[2]), device=student_preds.device)
+        
+        for i in range(num_keypoints):
+            conf_idx = i * 3 + 2
+            teacher_conf_mean += teacher_preds[:, conf_idx, :]
+        
+        teacher_conf_mean = teacher_conf_mean / num_keypoints
+        high_conf_mask = teacher_conf_mean > 0  # 只關注正置信度區域
+        
+        if torch.any(high_conf_mask):
+            # 計算高置信度區域的位置蒸餾損失
+            weighted_coord_loss = 0
+            count = 0
+            
+            for b in range(batch_size):
+                batch_mask = high_conf_mask[b]
+                
+                if torch.any(batch_mask):
+                    for i in range(num_keypoints):
+                        x_idx = i * 3
+                        y_idx = i * 3 + 1
+                        conf_idx = i * 3 + 2
+                        
+                        # 獲取此關鍵點的置信度作為權重
+                        weights = torch.sigmoid(teacher_preds[b, conf_idx, batch_mask])
+                        
+                        # 計算加權L1損失
+                        x_diff = torch.abs(student_preds[b, x_idx, batch_mask] - teacher_preds[b, x_idx, batch_mask])
+                        y_diff = torch.abs(student_preds[b, y_idx, batch_mask] - teacher_preds[b, y_idx, batch_mask])
+                        
+                        weighted_x_loss = (weights * x_diff).sum() / (weights.sum() + 1e-8)
+                        weighted_y_loss = (weights * y_diff).sum() / (weights.sum() + 1e-8)
+                        
+                        weighted_coord_loss += weighted_x_loss + weighted_y_loss
+                        count += 2
+            
+            if count > 0:
+                weighted_coord_loss = weighted_coord_loss / count
+                # 加入加權損失
+                coord_loss = 0.5 * coord_loss + 0.5 * weighted_coord_loss
+        
+        # 組合損失
+        pred_loss = 1.5 * coord_loss + 2.0 * conf_loss
+        
+        # 組合特徵損失和預測損失
+        total_loss = feat_weight * feat_loss + pred_weight * pred_loss
+
+        # # 輸出損失值
+        # print("\n--- Loss Values ---")
+        # print(f"feat loss: {feat_loss.item():.4f}")
+        # print(f"coord loss: {coord_loss.item():.4f}")
+        # print(f"conf loss: {conf_loss.item():.4f}")
+        # print(f"pred loss: {pred_loss.item():.4f}")
+        # print(f"total loss: {total_loss.item():.4f}")
+        
+        return total_loss, {
+            'feat_loss': feat_loss.item(),
+            'coord_loss': coord_loss.item(),
+            'conf_loss': conf_loss.item(),
+            'pred_loss': pred_loss.item(),
+            'total_loss': total_loss.item()
+        }
+
 
     @staticmethod
     def kpts_decode(anchor_points, pred_kpts):

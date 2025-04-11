@@ -6,7 +6,7 @@ model = YOLO("yolo11n-pose.pt")
 # 极端保守策略：完全冻结特征提取器，仅训练最后的输出层
 results = model.train(
   data="coco8-pose.yaml",
-  teacher=YOLO("yolo11n-pose.pt").model,
+  teacher=YOLO("yolo11x-pose.pt").model,
   epochs=1,              # 减少轮数，集中训练头部
   imgsz=640,              # 标准图像尺寸
   batch=64,               # 降回稍小的批量避免过度波动

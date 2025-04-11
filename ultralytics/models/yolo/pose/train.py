@@ -111,9 +111,9 @@ class PoseTrainer(yolo.detect.DetectionTrainer):
 
         # 測試完要刪除以下代碼
 
-        # 凍結學生模型參數
-        for k, v in self.model.named_parameters():
-            v.requires_grad = False
+        # # 凍結學生模型參數
+        # for k, v in self.model.named_parameters():
+        #     v.requires_grad = False
 
         # 凍結BN層，讓它們的統計數據(running_mean, running_var)不會更新
         for m in self.model.modules():
