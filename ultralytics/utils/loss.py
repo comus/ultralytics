@@ -93,94 +93,18 @@ class BboxLoss(nn.Module):
 
     def forward(self, pred_dist, pred_bboxes, anchor_points, target_bboxes, target_scores, target_scores_sum, fg_mask):
         """Compute IoU and DFL losses for bounding boxes."""
-        
-        # # 添加日誌：顯示前景掩碼和預測框數量
-        # print("\n" + "="*50)
-        # print(f"前景掩碼(fg_mask) 形狀: {fg_mask.shape}, 正樣本數量: {fg_mask.sum().item()}")
-        # print(f"總預測框數量: {pred_bboxes.shape[0] * pred_bboxes.shape[1]}")
-        # print(f"目標框數量: {target_bboxes.shape[0] * target_bboxes.shape[1]}")
-
-        # # 目標框的值
-        # print(f"目標框: {target_bboxes}")
-        
-        # # 顯示正樣本比例
-        # positive_ratio = fg_mask.sum().item() / (pred_bboxes.shape[0] * pred_bboxes.shape[1])
-        # print(f"正樣本比例: {positive_ratio:.2%}")
-        
-        # 計算前景物體的預測邊界框與目標邊界框之間的IoU值
-        # 使用 CIoU=True 參數，表示使用完整IoU損失，考慮中心點距離和長寬比例
-        # 損失為 1.0 - iou，即IoU越高，損失越低
-        # 根據目標分數加權，更重要的物體(分數高)有更大的權重
-        # 最後除以目標分數總和進行歸一化
         weight = target_scores.sum(-1)[fg_mask].unsqueeze(-1)
-        
-        # # 添加日誌：顯示權重信息
-        # print(f"權重形狀: {weight.shape}, 權重平均值: {weight.mean().item():.4f}")
-        
-        # # 獲取前景預測框和對應的目標框
-        # fg_pred_boxes = pred_bboxes[fg_mask]
-        # fg_target_boxes = target_bboxes[fg_mask]
-
-        # # 輸出前景預測框數量
-        # print(f"前景預測框數量: {fg_pred_boxes.shape[0]}")
-        # print(f"前景目標框數量: {fg_target_boxes.shape[0]}")
-        
-        # # 添加日誌：顯示前景預測框和目標框
-        # if fg_mask.sum() > 0:
-        #     print("\n前景預測框和目標框對比(前5個):")
-        #     num_to_show = min(100, fg_pred_boxes.shape[0])
-        #     for i in range(num_to_show):
-        #         print(f"預測框 {i}: {fg_pred_boxes[i].detach().cpu().numpy().round(3)}")
-        #         print(f"目標框 {i}: {fg_target_boxes[i].detach().cpu().numpy().round(3)}")
-                
-        # 計算IoU
         iou = bbox_iou(pred_bboxes[fg_mask], target_bboxes[fg_mask], xywh=False, CIoU=True)
-        
-        # # 添加日誌：顯示IoU信息
-        # if fg_mask.sum() > 0:
-        #     print(f"\nIoU形狀: {iou.shape}, IoU平均值: {iou.mean().item():.4f}")
-        #     print(f"IoU最大值: {iou.max().item():.4f}, IoU最小值: {iou.min().item():.4f}")
-        #     print("前5個IoU值:", iou[:5].detach().cpu().numpy().round(4))
-        
         loss_iou = ((1.0 - iou) * weight).sum() / target_scores_sum
-        
-        # # 添加日誌：顯示IoU損失
-        # print(f"IoU損失: {loss_iou.item():.4f}, 使用CIoU計算")
 
-        # 只計算fg_mask為True的預測框與對應真實框之間的IoU損失
-        # 使用權重確保更重要的預測有更大影響
-
-        # DFL loss (Distribution Focal Loss)
-        # DFL是一種用於精確回歸邊界框位置的高級損失函數
-        # 將目標邊界框轉換為左上右下(ltrb)距離分佈
-        # 比較預測的分佈和目標分佈
-        # 同樣根據目標分數加權
+        # DFL loss
         if self.dfl_loss:
-            # 將目標框轉換為距離表示
             target_ltrb = bbox2dist(anchor_points, target_bboxes, self.dfl_loss.reg_max - 1)
-            
-            # # 添加日誌：顯示距離表示信息
-            # print(f"\nDFL: 距離表示形狀: {target_ltrb.shape}")
-            
-            # # 計算DFL損失
-            # pred_dist_fg = pred_dist[fg_mask].view(-1, self.dfl_loss.reg_max)
-            # target_ltrb_fg = target_ltrb[fg_mask]
-            
-            # # 添加日誌：顯示DFL輸入信息
-            # print(f"DFL輸入 - 預測分佈形狀: {pred_dist_fg.shape}, 目標距離形狀: {target_ltrb_fg.shape}")
-            
             loss_dfl = self.dfl_loss(pred_dist[fg_mask].view(-1, self.dfl_loss.reg_max), target_ltrb[fg_mask]) * weight
             loss_dfl = loss_dfl.sum() / target_scores_sum
-            
-            # # 添加日誌：顯示DFL損失
-            # print(f"DFL損失: {loss_dfl.item():.4f}")
         else:
-            # 如果不使用DFL (reg_max <= 1)，則損失為0
             loss_dfl = torch.tensor(0.0).to(pred_dist.device)
 
-        #     print("不使用DFL損失(reg_max <= 1)")
-        
-        # print("="*50)
         return loss_iou, loss_dfl
 
 
