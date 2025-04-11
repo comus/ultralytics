@@ -1,3 +1,4 @@
+from datetime import datetime
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -236,10 +237,16 @@ class v8PoseLoss(v8DetectionLoss):
         # 這段代碼在處理訓練數據中的標籤(Ground Truth)，整理成模型需要的格式
         # 獲取當前批次中的樣本數量
         batch_size = pred_scores.shape[0]
+        # print(f"batch_size: {describe_var(batch_size)}")
         # 獲取每個標籤對應的批次索引，並重塑為列向量
         batch_idx = batch["batch_idx"].view(-1, 1)
+        # print(f"batch_idx: {describe_var(batch_idx)}")
+        if "teacher" in batch and batch["teacher"] is not None:
+            batch_idx2 = self.create_batch_idx_tensor(teacher_preds)
+            # print(f"batch_idx2: {describe_var(batch_idx2)}")
         # 將批次索引、類別標籤和邊界框信息合併成一個完整的標籤張量
         # 格式為：[批次索引, 類別標籤, 邊界框座標]
+        # print(f"batch['bboxes']: {describe_var(batch['bboxes'])}")
         targets = torch.cat((batch_idx, batch["cls"].view(-1, 1), batch["bboxes"]), 1)
         # 對標籤數據進行預處理，移動到指定設備(GPU/CPU)
         # scale_tensor=imgsz[[1, 0, 1, 0]] 調整邊界框座標比例，使其與輸入圖像尺寸匹配
@@ -257,6 +264,9 @@ class v8PoseLoss(v8DetectionLoss):
         mask_gt = gt_bboxes.sum(2, keepdim=True).gt_(0.0)
         
         # print("targets1: ", describe_var(targets), targets)
+        # print("gt_labels: ", describe_var(gt_labels), gt_labels)
+        # print("gt_bboxes: ", describe_var(gt_bboxes), gt_bboxes)
+        # print("mask_gt: ", describe_var(mask_gt), mask_gt)
 
         if "teacher" in batch and batch["teacher"] is not None: 
             targets2 = self.preprocess2(teacher_preds)
@@ -310,6 +320,9 @@ class v8PoseLoss(v8DetectionLoss):
             mask_gt,
         )
 
+        # print("target_labels", describe_var(target_labels))
+        # print("target_bboxes", describe_var(target_bboxes))
+
         if "teacher" in batch and batch["teacher"] is not None:
             _, target_bboxes2, target_scores2, fg_mask2, target_gt_idx2 = self.assigner(
                 pred_scores.detach().sigmoid(),
@@ -317,7 +330,7 @@ class v8PoseLoss(v8DetectionLoss):
                 anchor_points * stride_tensor,
                 gt_labels2,
                 gt_bboxes2,
-            mask_gt2,
+                mask_gt2,
             )
 
         # if "teacher" in batch and batch["teacher"] is not None:
@@ -424,8 +437,15 @@ class v8PoseLoss(v8DetectionLoss):
             # 將關鍵點的y座標(索引1)乘以圖像高度(imgsz[0])
             # 這樣做是將歸一化的關鍵點座標[0-1]轉換為實際像素座標
             keypoints = batch["keypoints"].to(self.device).float().clone()
+            # print(f"keypoints shape: {keypoints.shape}", keypoints)
             keypoints[..., 0] *= imgsz[1]
             keypoints[..., 1] *= imgsz[0]
+            # print(f"keypoints shape: {keypoints.shape}", keypoints)
+
+            if "teacher" in batch and batch["teacher"] is not None:
+                keypoints2 = self.extract_keypoints(teacher_preds)
+                # print(f"keypoints2 shape: {keypoints2.shape}", keypoints2)
+
 
             # 計算關鍵點損失
             # 計算關鍵點位置的損失(loss[1])和關鍵點可見性的損失(loss[2])
@@ -437,18 +457,48 @@ class v8PoseLoss(v8DetectionLoss):
             #   - stride_tensor：步長張量
             #   - target_bboxes：目標邊界框
             #   - pred_kpts：預測的關鍵點
+
+            # # 顯示 target_gt_idx shape=[3, 8400]) 存起來，用時間做檔案名
+            # if "teacher" in batch and batch["teacher"] is not None:
+            #     now = datetime.now().strftime("%Y%m%d_%H%M%S")
+            #     with open(f"target_gt_idx2_{now}.txt", "w") as f:
+            #         for i in range(target_gt_idx2.shape[0]):
+            #             for j in range(target_gt_idx2.shape[1]):
+            #                 f.write(f"{target_gt_idx2[i, j]} ")
+            #             f.write("\n")
+
             loss[1], loss[2], gt_kpts, gt_kpt_mask = self.calculate_keypoints_loss(
                 fg_mask, target_gt_idx, keypoints, batch_idx, stride_tensor, target_bboxes, pred_kpts
             )
-            # print(f"loss[1]: {describe_var(loss[1])}")
-            # print(f"loss[2]: {describe_var(loss[2])}")
+
+            
+
+            
+            # print(f"gt_kpts: {describe_var(gt_kpts)}")
+            # print(f"gt_kpt_mask: {describe_var(gt_kpt_mask)}")
+
+            # # 將 gt_kpt_mask tensor([3, 8400, 17]) 寫到 .txt
+            # with open("gt_kpt_mask.txt", "w") as f:
+            #     for i in range(gt_kpt_mask.shape[0]):
+            #         for j in range(gt_kpt_mask.shape[1]):
+            #             for k in range(gt_kpt_mask.shape[2]):
+            #                 f.write(f"{gt_kpt_mask[i, j, k]} ")
+            #         f.write("\n")
 
             if "teacher" in batch and batch["teacher"] is not None:
                 dpose, dkobj, gt_kpts2, gt_kpt_mask2 = self.calculate_keypoints_loss(
-                    fg_mask2, target_gt_idx2, keypoints, batch_idx, stride_tensor, target_bboxes2, pred_kpts
+                    fg_mask2, target_gt_idx2, keypoints2, batch_idx2, stride_tensor, target_bboxes2, pred_kpts
                 )
-                # print(f"dpose: {describe_var(dpose)}")
-                # print(f"dkobj: {describe_var(dkobj)}")
+                # print(f"gt_kpts2: {describe_var(gt_kpts2)}")
+                # print(f"gt_kpt_mask2: {describe_var(gt_kpt_mask2)}")
+
+                # # 將 gt_kpt_mask2 tensor([3, 8400, 17]) 寫到 .txt
+                # with open("gt_kpt_mask2.txt", "w") as f:
+                #     for i in range(gt_kpt_mask2.shape[0]):
+                #         for j in range(gt_kpt_mask2.shape[1]):
+                #             for k in range(gt_kpt_mask2.shape[2]):
+                #                 f.write(f"{gt_kpt_mask2[i, j, k]} ")
+                #         f.write("\n")
 
             # gt_kpts, gt_kpt_mask = self.calculate_distill_keypoints_loss(
             #     teacher_fg_mask, target_gt_idx, keypoints, batch_idx, stride_tensor, target_bboxes, pred_kpts
@@ -474,6 +524,7 @@ class v8PoseLoss(v8DetectionLoss):
             #         student_pred_kpts=student_pred_kpts,
             #         teacher_pred_bboxes=target_bboxes2.detach() * stride_tensor,
             #         teacher_pred_kpts=teacher_pred_kpts,
+            #         teacher_keypoint_mask=gt_kpt_mask2,
             #         stride_tensor=stride_tensor.detach(),
             #         fg_mask=fg_mask.detach(),
             #         imgsz=imgsz.detach(),
@@ -496,6 +547,28 @@ class v8PoseLoss(v8DetectionLoss):
         loss[6] *= self.hyp.dkobj  # dkobj gain
 
         return loss * batch_size, loss.detach()  # loss(box, cls, dfl)
+    
+    def extract_keypoints(self,tensor_list):
+        # Create a list to hold all extracted data
+        all_keypoints = []
+        
+        # Process each tensor in the list
+        for tensor in tensor_list:
+            # Get the last 51 elements from each row and reshape to [n, 17, 3]
+            keypoints = tensor[:, -51:].reshape(-1, 17, 3)
+            all_keypoints.append(keypoints)
+        
+        # Concatenate all tensors along the first dimension
+        return torch.cat(all_keypoints, dim=0)
+    
+    def create_batch_idx_tensor(self, tensor_list):
+        batch_indices = []
+        for i, tensor in enumerate(tensor_list):
+            # For each tensor, add 'i' repeated 'tensor.shape[0]' times
+            batch_indices.extend([i] * tensor.shape[0])
+        
+        # Convert to tensor and reshape to [N, 1]
+        return torch.tensor(batch_indices, dtype=torch.float32).view(-1, 1)
 
     def preprocess2(self, tensors_list):
         # Find the batch size (number of tensors in the list)
@@ -552,6 +625,10 @@ class v8PoseLoss(v8DetectionLoss):
             kpts_obj_loss (torch.Tensor): The keypoints object loss.
         """
 
+        # print("calculate_keypoints_loss called")
+
+        # print(f"keypoints: {describe_var(keypoints)}")
+
         # 批次索引處理
         # 目的: 將批次索引展平為一維向量，並獲取批次大小
         # 說明: batch_idx 記錄每組關鍵點屬於哪個批次，這一步是為了後續處理做準備
@@ -577,6 +654,7 @@ class v8PoseLoss(v8DetectionLoss):
         batched_keypoints = torch.zeros(
             (batch_size, max_kpts, keypoints.shape[1], keypoints.shape[2]), device=keypoints.device
         )
+        # print(f"batched_keypoints: {describe_var(batched_keypoints)}")
 
         # TODO: any idea how to vectorize this?
         # Fill batched_keypoints with keypoints based on batch_idx
@@ -589,6 +667,8 @@ class v8PoseLoss(v8DetectionLoss):
         for i in range(batch_size):
             keypoints_i = keypoints[batch_idx == i]
             batched_keypoints[i, : keypoints_i.shape[0]] = keypoints_i
+
+        # print(f"batched_keypoints2: {describe_var(batched_keypoints)}")
 
         # Expand dimensions of target_gt_idx to match the shape of batched_keypoints
         # 擴展 target_gt_idx 維度
@@ -606,6 +686,12 @@ class v8PoseLoss(v8DetectionLoss):
         #   - target_gt_idx_expanded.expand(...) 將索引擴展為與 batched_keypoints 相同的維度
         #   - gather(1, ...) 根據第1維（錨點維度）的索引選擇對應的關鍵點
         #   - 這一步確保每個前景錨點都與正確的真實關鍵點對應
+        # # torch.Size([2, 12, 17, 3])
+        # print(f"batched_keypoints.shape: {batched_keypoints.shape}", batched_keypoints)
+        # # torch.Size([2, 8400, 1, 1])
+        # print(f"target_gt_idx_expanded.shape: {target_gt_idx_expanded.shape}", target_gt_idx_expanded) 
+        # # torch.Size([2, 8400, 1, 1])
+        # print(f"keypoints.shape: {keypoints.shape}", keypoints)
         selected_keypoints = batched_keypoints.gather(
             1, target_gt_idx_expanded.expand(-1, -1, keypoints.shape[1], keypoints.shape[2])
         )
@@ -617,12 +703,13 @@ class v8PoseLoss(v8DetectionLoss):
         #   - 只處理前兩個通道 (x, y)，不處理可見性通道
         #   - stride_tensor.view(1, -1, 1, 1) 重塑步長張量以便於廣播
         # print(f"selected_keypoints1: {describe_var(selected_keypoints)}")
+        # print(f"stride_tensor.view(1, -1, 1, 1): {describe_var(stride_tensor.view(1, -1, 1, 1))}")
         selected_keypoints[..., :2] /= stride_tensor.view(1, -1, 1, 1)
 
         # print(f"selected_keypoints2: {describe_var(selected_keypoints)}")
         scaled_gt_keypoints = selected_keypoints.detach()
-        # print(f"scaled_gt_keypoints: {describe_var(scaled_gt_keypoints)}")
-        target_kpt_mask = scaled_gt_keypoints[..., 2] != 0 if scaled_gt_keypoints.shape[-1] == 3 else torch.full_like(scaled_gt_keypoints[..., 0], True)
+        # print(f"scaled_gt_keypoints: {describe_var(scaled_gt_keypoints.to(self.device))}")
+        target_kpt_mask = scaled_gt_keypoints[..., 2] > 0.25 if scaled_gt_keypoints.shape[-1] == 3 else torch.full_like(scaled_gt_keypoints[..., 0], True)
         # print(f"target_kpt_mask: {describe_var(target_kpt_mask)}")
         # target_kpts = scaled_gt_keypoints[target_kpt_mask]
         # print(f"target_kpts: {describe_var(target_kpts)}")
@@ -684,6 +771,7 @@ class v8PoseLoss(v8DetectionLoss):
         imgsz=None,
         fg_mask=None,
         fg_mask2=None,
+        teacher_keypoint_mask=None,
     ):
         """
         可视化批次中的图像、边界框和关键点
@@ -749,17 +837,20 @@ class v8PoseLoss(v8DetectionLoss):
             batch_fg_mask = fg_mask[idx]
 
             batch_target_bboxes = target_bboxes[idx]
-            batch_fg_pred_bboxes = batch_target_bboxes[batch_fg_mask]
+            batch_fg_target_bboxes = batch_target_bboxes[batch_fg_mask]
+            batch_target_keypoints = keypoints[idx]
+            # print(f"batch_target_keypoints: {describe_var(batch_target_keypoints)}")
+            # print(f"keypoint_mask: {describe_var(keypoint_mask)}")
+            batch_fg_target_keypoints = batch_target_keypoints[batch_fg_mask]
+            # print(f"batch_fg_target_keypoints: {describe_var(batch_fg_target_keypoints)}")
 
-            batch_pred_bboxes = student_pred_bboxes[idx]
-            batch_fg_pred_boxes = batch_pred_bboxes[batch_fg_mask]
-
-            batch_keypoints = keypoints[idx]
-            batch_fg_keypoints = batch_keypoints[batch_fg_mask]
-            # print(f"batch_fg_keypoints{idx}: {describe_var(batch_fg_keypoints)}", batch_fg_keypoints)
-
+            # student
+            batch_student_pred_bboxes = student_pred_bboxes[idx]
+            batch_fg_student_pred_bboxes = batch_student_pred_bboxes[batch_fg_mask]
             batch_student_pred_kpts = student_pred_kpts[idx]
             batch_fg_student_pred_kpts = batch_student_pred_kpts[batch_fg_mask]
+            
+            # print(f"batch_fg_keypoints{idx}: {describe_var(batch_fg_keypoints)}", batch_fg_keypoints)
             
             # ------------------------------------------------------------
 
@@ -767,149 +858,94 @@ class v8PoseLoss(v8DetectionLoss):
 
             batch_teacher_pred_bboxes = teacher_pred_bboxes[idx]
             batch_fg_teacher_pred_bboxes = batch_teacher_pred_bboxes[batch_teacher_fg_mask]
-
             batch_teacher_pred_kpts = teacher_pred_kpts[idx]
             batch_fg_teacher_pred_kpts = batch_teacher_pred_kpts[batch_teacher_fg_mask]
 
+            if batch_fg_target_bboxes is not None and len(batch_fg_target_bboxes) > 0:
+                for i, bbox in enumerate(batch_fg_target_bboxes):
+                    try:
+                        # 获取预测框 (xyxy格式)
+                        bbox_data = bbox.detach().cpu().numpy()
+                        
+                        # 只处理4维坐标 (x1, y1, x2, y2)
+                        if len(bbox_data) >= 4:
+                            x1, y1, x2, y2 = bbox_data[:4]
+                            
+                            # 计算宽高
+                            w = x2 - x1
+                            h = y2 - y1
+                            
+                            # 绘制矩形
+                            rect = patches.Rectangle(
+                                (x1, y1), w, h, 
+                                linewidth=2, edgecolor='g', facecolor='none', linestyle='--'
+                            )
+                            ax.add_patch(rect)
+                            ax.text(
+                                x1, y1, f"GT {i}", 
+                                color='white', fontsize=10,
+                                bbox=dict(facecolor='green', alpha=0.5)
+                            )
+                            
+                            print(f"  绘制目標预测框: 左上角=({x1:.1f}, {y1:.1f}), 宽高=({w:.1f}, {h:.1f})")
+                    except Exception as e:
+                        print(f"  绘制目標预测框时出错: {e}")
 
-            # # 绘制真实边界框 - 以batch_idx为索引筛选对应图像的边界框
-            # if hasattr(bboxes, 'shape') and len(bboxes) > 0:
-            #     img_bboxes = bboxes[bboxes[:, 0] == idx] if bboxes.shape[1] > 4 else bboxes  # 处理不同格式
-            #     print(f"图像 {idx} 中有 {len(img_bboxes)} 个真实边界框")
-                
-            #     for i, bbox in enumerate(img_bboxes):
-            #         try:
-            #             # 解析边界框: [batch_idx, class, x, y, w, h] 或 [x, y, w, h]
-            #             if bbox.shape[0] > 4:  # [batch_idx, class, x, y, w, h]
-            #                 cls_id = int(bbox[1].item())
-            #                 x, y, w, h = bbox[2:6].cpu().numpy()
-            #             else:  # [x, y, w, h]
-            #                 cls_id = 0  # 默认类别
-            #                 x, y, w, h = bbox.cpu().numpy()
-                        
-            #             # 转换为像素坐标
-            #             x1, y1 = x * img_w - w * img_w / 2, y * img_h - h * img_h / 2
-            #             w_px, h_px = w * img_w, h * img_h
-                        
-            #             # 绘制矩形
-            #             rect = patches.Rectangle(
-            #                 (x1, y1), w_px, h_px, 
-            #                 linewidth=2, edgecolor='g', facecolor='none'
-            #             )
-            #             ax.add_patch(rect)
-            #             ax.text(
-            #                 x1, y1, f"GT cls:{cls_id}", 
-            #                 color='white', fontsize=10,
-            #                 bbox=dict(facecolor='green', alpha=0.5)
-            #             )
-                        
-            #             print(f"  绘制真实边界框: 左上角=({x1:.1f}, {y1:.1f}), 宽高=({w_px:.1f}, {h_px:.1f})")
-                        
-            #             # 绘制关键点（如果存在）
-            #             if keypoints is not None:
-            #                 # 找到对应的关键点
-            #                 if keypoints.shape[0] > i:
-            #                     kpts = keypoints[i]
-            #                     if isinstance(kpts, torch.Tensor):
-            #                         kpts = kpts.detach().cpu().numpy()
-                                
-            #                     # 转换关键点坐标到像素坐标
-            #                     kpts_px = kpts.copy()
-            #                     kpts_px[:, 0] *= img_w
-            #                     kpts_px[:, 1] *= img_h
-                                
-            #                     self._draw_keypoints(ax, kpts_px, keypoint_connections, 
-            #                                         1, 1, scale=False, color=keypoint_colors['gt'])
-            #                     print(f"  绘制真实边界框的关键点")
-            #         except Exception as e:
-            #             print(f"  绘制真实边界框时出错: {e}")
-
-            
-            # if batch_fg_pred_bboxes is not None and len(batch_fg_pred_bboxes) > 0:
-            #     for i, bbox in enumerate(batch_fg_pred_bboxes):
-            #         try:
-            #             # 获取预测框 (xyxy格式)
-            #             bbox_data = bbox.detach().cpu().numpy()
-                        
-            #             # 只处理4维坐标 (x1, y1, x2, y2)
-            #             if len(bbox_data) >= 4:
-            #                 x1, y1, x2, y2 = bbox_data[:4]
+                for i, kpt in enumerate(batch_fg_target_keypoints):
+                    try:
+                        kpt_data = kpt.detach().cpu().numpy()
+                        # x, y, v = kpt_data[:3]
                             
-            #                 # 计算宽高
-            #                 w = x2 - x1
-            #                 h = y2 - y1
-                            
-            #                 # 绘制矩形
-            #                 rect = patches.Rectangle(
-            #                     (x1, y1), w, h, 
-            #                     linewidth=2, edgecolor='g', facecolor='none', linestyle='--'
-            #                 )
-            #                 ax.add_patch(rect)
-            #                 ax.text(
-            #                     x1, y1, f"GT {i}", 
-            #                     color='white', fontsize=10,
-            #                     bbox=dict(facecolor='green', alpha=0.5)
-            #                 )
-                            
-            #                 print(f"  绘制目標预测框: 左上角=({x1:.1f}, {y1:.1f}), 宽高=({w:.1f}, {h:.1f})")
-            #         except Exception as e:
-            #             print(f"  绘制目標预测框时出错: {e}")
-
-            #     for i, kpt in enumerate(batch_fg_keypoints):
-            #         try:
-            #             kpt_data = kpt.detach().cpu().numpy()
-            #             # x, y, v = kpt_data[:3]
-                            
-            #             self._draw_keypoints(ax, kpt_data, keypoint_connections, 
-            #                                 1, 1, scale=False, color=keypoint_colors['gt'])
-            #             print(f"  绘制目標预测框的关键点")
-            #         except Exception as e:
-            #             print(f"  绘制目標预测框的关键点时出错: {e}")
+                        self._draw_keypoints(ax, kpt_data, keypoint_connections, 
+                                            1, 1, scale=False, color=keypoint_colors['gt'])
+                        print(f"  绘制目標预测框的关键点")
+                    except Exception as e:
+                        print(f"  绘制目標预测框的关键点时出错: {e}")
 
  
 
 
-            # # 绘制学生模型预测框
-            # if batch_fg_pred_boxes is not None and len(batch_fg_pred_boxes) > 0:
-            #     for i, bbox in enumerate(batch_fg_pred_boxes):
-            #         try:
-            #             # 获取预测框 (xyxy格式)
-            #             bbox_data = bbox.detach().cpu().numpy()
+            # 绘制学生模型预测框
+            if batch_fg_student_pred_bboxes is not None and len(batch_fg_student_pred_bboxes) > 0:
+                for i, bbox in enumerate(batch_fg_student_pred_bboxes):
+                    try:
+                        # 获取预测框 (xyxy格式)
+                        bbox_data = bbox.detach().cpu().numpy()
                         
-            #             # 只处理4维坐标 (x1, y1, x2, y2)
-            #             if len(bbox_data) >= 4:
-            #                 x1, y1, x2, y2 = bbox_data[:4]
+                        # 只处理4维坐标 (x1, y1, x2, y2)
+                        if len(bbox_data) >= 4:
+                            x1, y1, x2, y2 = bbox_data[:4]
                             
-            #                 # 计算宽高
-            #                 w = x2 - x1
-            #                 h = y2 - y1
+                            # 计算宽高
+                            w = x2 - x1
+                            h = y2 - y1
                             
-            #                 # 绘制矩形
-            #                 rect = patches.Rectangle(
-            #                     (x1, y1), w, h, 
-            #                     linewidth=2, edgecolor='b', facecolor='none', linestyle='--'
-            #                 )
-            #                 ax.add_patch(rect)
-            #                 ax.text(
-            #                     x1, y1, f"Student {i}", 
-            #                     color='white', fontsize=10,
-            #                     bbox=dict(facecolor='blue', alpha=0.5)
-            #                 )
+                            # 绘制矩形
+                            rect = patches.Rectangle(
+                                (x1, y1), w, h, 
+                                linewidth=2, edgecolor='b', facecolor='none', linestyle='--'
+                            )
+                            ax.add_patch(rect)
+                            ax.text(
+                                x1, y1, f"Student {i}", 
+                                color='white', fontsize=10,
+                                bbox=dict(facecolor='blue', alpha=0.5)
+                            )
                             
-            #                 print(f"  绘制学生预测框: 左上角=({x1:.1f}, {y1:.1f}), 宽高=({w:.1f}, {h:.1f})")
-            #         except Exception as e:
-            #             print(f"  绘制学生预测框时出错: {e}")
+                            print(f"  绘制学生预测框: 左上角=({x1:.1f}, {y1:.1f}), 宽高=({w:.1f}, {h:.1f})")
+                    except Exception as e:
+                        print(f"  绘制学生预测框时出错: {e}")
 
-            #     for i, kpt in enumerate(batch_fg_student_pred_kpts):
-            #         try:
-            #             kpt_data = kpt.detach().cpu().numpy()
-            #             # x, y, v = kpt_data[:3]
+                for i, kpt in enumerate(batch_fg_student_pred_kpts):
+                    try:
+                        kpt_data = kpt.detach().cpu().numpy()
+                        # x, y, v = kpt_data[:3]
                             
-            #             self._draw_keypoints(ax, kpt_data, keypoint_connections, 
-            #                                 1, 1, scale=False, color=keypoint_colors['student'])
-            #             print(f"  绘制学生预测框的关键点")
-            #         except Exception as e:
-            #             print(f"  绘制学生预测框的关键点时出错: {e}")
+                        self._draw_keypoints(ax, kpt_data, keypoint_connections, 
+                                            1, 1, scale=False, color=keypoint_colors['student'])
+                        print(f"  绘制学生预测框的关键点")
+                    except Exception as e:
+                        print(f"  绘制学生预测框的关键点时出错: {e}")
 
 
 
@@ -966,7 +1002,7 @@ class v8PoseLoss(v8DetectionLoss):
             
             # 保存图像
             plt.axis('off')
-            plt.tight_layout()
+            # plt.tight_layout()
             plt.savefig(output_dir / f'batch_img_{idx}.jpg', bbox_inches='tight', pad_inches=0.1, dpi=200)
             plt.close()
             
