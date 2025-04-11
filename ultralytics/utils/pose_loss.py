@@ -233,18 +233,18 @@ class v8PoseLoss(v8DetectionLoss):
             if torch.isnan(total_loss) or torch.isinf(total_loss):
                 return torch.tensor(0.0, device=student_preds.device, requires_grad=True)
             
-            # 輸出損失值
-            loss_values = {
-                "coord_loss": float(coord_loss.item()) if not torch.isnan(coord_loss) else 0.0,
-                "structure_loss": float(structure_loss.item()) if not torch.isnan(structure_loss) else 0.0,
-                "conf_loss": float(conf_loss.item()) if not torch.isnan(conf_loss) else 0.0,
-                "feat_loss": float(feat_loss.item()) if not torch.isnan(feat_loss) else 0.0,
-                "total_loss": float(total_loss.item()) if not torch.isnan(total_loss) else 0.0
-            }
+            # # 輸出損失值
+            # loss_values = {
+            #     "coord_loss": float(coord_loss.item()) if not torch.isnan(coord_loss) else 0.0,
+            #     "structure_loss": float(structure_loss.item()) if not torch.isnan(structure_loss) else 0.0,
+            #     "conf_loss": float(conf_loss.item()) if not torch.isnan(conf_loss) else 0.0,
+            #     "feat_loss": float(feat_loss.item()) if not torch.isnan(feat_loss) else 0.0,
+            #     "total_loss": float(total_loss.item()) if not torch.isnan(total_loss) else 0.0
+            # }
             
-            print("\n--- Loss Values ---")
-            for k, v in loss_values.items():
-                print(f"{k}: {v:.4f}")
+            # print("\n--- Loss Values ---")
+            # for k, v in loss_values.items():
+            #     print(f"{k}: {v:.4f}")
 
             return total_loss
             
