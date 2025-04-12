@@ -359,7 +359,7 @@ class C3x(C3):
 class RepC3(nn.Module):
     """Rep C3."""
 
-    def __init__(self, c1, c2, n=3, e=1.0):
+    def __init__(self, c1, c2, n=3, e=1.0, *args):
         """
         Initialize CSP Bottleneck with a single convolution.
 
@@ -369,6 +369,7 @@ class RepC3(nn.Module):
             n (int): Number of RepConv blocks.
             e (float): Expansion ratio.
         """
+        print(f"RepC3 parameters: {c1}, {c2}, {n}, {e}")
         super().__init__()
         c_ = int(c2 * e)  # hidden channels
         self.cv1 = Conv(c1, c_, 1, 1)
