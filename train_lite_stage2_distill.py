@@ -54,7 +54,7 @@ results = model.train(
     exist_ok=True,
     
     # BN層設置
-    teacher=YOLO("yolo11x-pose.pt").model,
+    teacher=YOLO("yolo11n-pose.pt").model,
     distill=0.3,
     freezeAllBN=True,
 )
