@@ -95,6 +95,8 @@ https://poe.com/s/gMxZfYKFOLfz7iQEr7vo
 
 ```
 git clone https://github.com/comus/ultralytics
+git checkout base
+
 cd ultralytics
 conda create -n yolo python=3.11
 conda activate yolo
@@ -105,8 +107,9 @@ pip install torch torchvision
 python predict.py
 ```
 
+我其實沒有改很多東西，以下是我從官方修改了什麼
 
-
+https://github.com/comus/ultralytics/pull/6/files
 
 
 ---
