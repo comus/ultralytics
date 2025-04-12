@@ -36,7 +36,7 @@ results = model.train(
     dfl=1.5,               # 目标置信度损失权重
 
 
-    teacher=YOLO("yolo11x-pose.pt").model,
-    distill=24.0,
+    teacher=YOLO("yolo11m-pose.pt").model,
+    distill=20.0,
     freezeAllBN=False,
 )
