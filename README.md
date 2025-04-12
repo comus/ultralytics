@@ -10,6 +10,9 @@ pycocotools 評估 yolo11n-pose.pt 的精度是 (pose) mAP50=0.806, mAP50-95=0.5
 
 https://docs.ultralytics.com/tasks/pose/#models
 
+<details>
+<summary>官方模型驗證</summary>
+
 ```
 Evaluating pycocotools mAP using /root/autodl-tmp/ultralytics/runs/pose/val5/predictions.json and /root/autodl-tmp/datasets/coco-pose/annotations/person_keypoints_val2017.json...
 loading annotations into memory...
@@ -54,6 +57,8 @@ DONE (t=0.15s).
  Average Recall     (AR) @[ IoU=0.50:0.95 | area= large | maxDets= 20 ] = 0.689
 Results saved to /root/autodl-tmp/ultralytics/runs/pose/val5
 ```
+
+</details>
 
 經過無數次嘗試，蒸餾大模型到小模型，最後的結果是 yolo11n-pose 的精度沒有任何改變，或至還跌了少少
 
@@ -114,9 +119,8 @@ https://github.com/comus/ultralytics/pull/6/files
 
 ---
 
-=========================== 以下未開始做 ============================
-
----
+<details>
+<summary>====== 以下未開始做 ======</summary>
 
 # 方向二，在訓練小模型時，使用蒸餾
 
@@ -134,6 +138,10 @@ https://github.com/comus/ultralytics/pull/6/files
 
 
 # 方向三，先純蒸餾新模型，再訓練小模型
+
+</details>
+
+
 
 
 
