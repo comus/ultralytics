@@ -14,7 +14,7 @@ results = model.train(
     lr0=0.0001,            # 极低的学习率
     lrf=0.001,             # 极低的最终学习率
     optimizer="AdamW",      # 适合微调的优化器  
-    weight_decay=0.0,       # 禁用权重衰减，完全保留权重
+    weight_decay=0.0001,    # 輕微權重衰減，配合AdamW使用
     cos_lr=True,            # 余弦调度
     freeze=10,              # 冻结整个特征提取网络，只训练最后的Pose输出层(从模型结构可知)
     augment=False,          # 关闭增强
@@ -35,7 +35,6 @@ results = model.train(
     pose=12.0,              # 姿态损失权重
 
     nbs=64,              # 標準批量大小
-    accumulate=2,        # 梯度累積次數
 
     warmup_epochs=0.5,   # 半個epoch預熱
     warmup_momentum=0.8, # 預熱動量
