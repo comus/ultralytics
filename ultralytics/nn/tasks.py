@@ -1460,7 +1460,8 @@ def parse_model(d, ch, verbose=True):  # model_dict, input_channels(3)
                         n = args[2]
                         args = [args[0], args[1], args[2]]  # 保留[c1, c2, n]
                     else:  # 如果 YAML 格式是 [c1, c2, e]
-                        args = [args[0], args[1], n, args[2]]  # 插入 n 為 [c1, c2, n, e]
+                        args = [args[0], args[1], n, args[3]]  # 插入 n 為 [c1, c2, n, e]
+                        print(f"RepC3 parameters!!!: {args}")
                 else:  # 其他 repeat_modules 的標準處理
                     args.insert(2, n)  # number of repeats
                 n = 1
