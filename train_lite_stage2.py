@@ -13,7 +13,6 @@ results = model.train(
     cache="disk",
     lr0=0.0001,            # 极低的学习率
     lrf=0.001,             # 极低的最终学习率
-    warmup_epochs=0.0,      # 无需预热
     optimizer="AdamW",      # 适合微调的优化器  
     weight_decay=0.0,       # 禁用权重衰减，完全保留权重
     cos_lr=True,            # 余弦调度
