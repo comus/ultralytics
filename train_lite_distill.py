@@ -2,7 +2,7 @@ from ultralytics import YOLO
 
 # 載入新模型
 # model = YOLO("lite.yaml")
-model = YOLO("yolo11-pose-lite/train-distill-improve/weights/last.pt")
+model = YOLO("yolo11-pose-lite/train-distill-improve/weights/epoch16.pt")
 
 # 訓練模型
 results = model.train(
