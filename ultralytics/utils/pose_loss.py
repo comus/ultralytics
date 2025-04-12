@@ -159,12 +159,14 @@ class v8PoseLoss(v8DetectionLoss):
         else:
             loss[5] = torch.zeros(1, device=self.device, requires_grad=True)
 
-        if hasattr(self.model, 'epoch') and self.model.epoch < 5:  # 0, 1, 2, 3, 4
-            supervision_weight = 0.8  # 監督為主
-            distill_weight = 0.2      # 蒸餾為輔
-        else:  # 5及以上
-            supervision_weight = 0.6
-            distill_weight = 0.4
+        # if hasattr(self.model, 'epoch') and self.model.epoch < 5:  # 0, 1, 2, 3, 4
+        #     supervision_weight = 0.8  # 監督為主
+        #     distill_weight = 0.2      # 蒸餾為輔
+        # else:  # 5及以上
+        #     supervision_weight = 0.6
+        #     distill_weight = 0.4
+        supervision_weight = 0.0
+        distill_weight = 1.0
 
         loss[0] *= supervision_weight* self.hyp.box  # box gain
         loss[1] *= supervision_weight* self.hyp.pose  # pose gain
