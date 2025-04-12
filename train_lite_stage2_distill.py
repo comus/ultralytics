@@ -6,15 +6,15 @@ model = YOLO("yolo11-pose-lite/train/weights/best.pt")
 # 優化配置：完全解凍所有層，適度學習率
 results = model.train(
     data="coco-pose.yaml",
-    epochs=10,                # 較長訓練週期以充分優化
+    epochs=15,                # 較長訓練週期以充分優化
     imgsz=640,
     batch=64,
     save=True,
     cache="disk",
     
     # 正確設置學習率
-    lr0=0.001,                # 第二次訓練使用較小的初始學習率
-    lrf=0.1,                  # 最終學習率為初始值的10%，比標準衰減溫和些
+    lr0=0.0005,                # 第二次訓練使用較小的初始學習率
+    lrf=0.2,                  # 最終學習率為初始值的10%，比標準衰減溫和些
     optimizer="AdamW",
     weight_decay=0.0005,
     cos_lr=True,
@@ -37,7 +37,7 @@ results = model.train(
     
     # 訓練穩定性參數
     nbs=64,
-    warmup_epochs=1.0,
+    warmup_epochs=2.0,
     warmup_momentum=0.8,
     patience=15,
     save_period=1,
@@ -55,6 +55,6 @@ results = model.train(
     
     # BN層設置
     teacher=YOLO("yolo11x-pose.pt").model,
-    distill=1.0,
+    distill=0.3,
     freezeAllBN=True,
 )
