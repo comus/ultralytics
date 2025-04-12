@@ -328,7 +328,7 @@ class OriPose(Detect):
 #         return torch.cat([x, refined_kpt], 1) if self.export else (torch.cat([x[0], refined_kpt], 1), (x[1], kpt))
 
 
-class PrecisionPose(Detect):
+class Pose(Detect):
     """專為直接訓練優化的姿態頭，無需蒸餾"""
     
     def __init__(self, nc=80, kpt_shape=(17, 3), ch=()):
