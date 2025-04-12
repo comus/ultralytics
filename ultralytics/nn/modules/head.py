@@ -13,7 +13,7 @@ from ultralytics.utils.tal import TORCH_1_10, dist2bbox, dist2rbox, make_anchors
 from ultralytics.utils.torch_utils import fuse_conv_and_bn, smart_inference_mode
 
 from .block import DFL, SAVPE, BNContrastiveHead, ContrastiveHead, Proto, Residual, SwiGLUFFN
-from .conv import Conv, DWConv
+from .conv import Conv, DWConv, RepConv
 from .transformer import MLP, DeformableTransformerDecoder, DeformableTransformerDecoderLayer
 from .utils import bias_init_with_prob, linear_init
 
@@ -289,71 +289,285 @@ class OriPose(Detect):
             y[:, 1::ndim] = (y[:, 1::ndim] * 2.0 + (self.anchors[1] - 0.5)) * self.strides
             return y
 
-# 2. 增強型姿態頭實現
-class Pose(OriPose):
-    """增強型姿態頭，整合結構先驗和精確定位能力"""
+# # 2. 增強型姿態頭實現
+# class Pose(OriPose):
+#     """增強型姿態頭，整合結構先驗和精確定位能力"""
+    
+#     def __init__(self, nc=80, kpt_shape=(17, 3), ch=()):
+#         super().__init__(nc, kpt_shape, ch)
+#         self.nk = kpt_shape[0] * kpt_shape[1]
+        
+#         # 使用更深的關鍵點頭，提高特徵提取能力
+#         c4 = max(ch[0] // 3, self.nk)
+#         self.cv4 = nn.ModuleList(
+#             nn.Sequential(
+#                 Conv(x, c4, 3),
+#                 Conv(c4, c4, 3),
+#                 nn.Conv2d(c4, self.nk, 1)
+#             ) for x in ch
+#         )
+        
+#         # 添加骨架後處理模組
+#         self.skeleton_refiner = SkeletonRefiner(kpt_shape[0])
+    
+#     def forward(self, x):
+#         bs = x[0].shape[0]
+#         kpt = torch.cat([self.cv4[i](x[i]).view(bs, self.nk, -1) for i in range(self.nl)], -1)
+#         x = Detect.forward(self, x)
+        
+#         if self.training:
+#             return x, kpt
+        
+#         # 關鍵點解碼
+#         pred_kpt = self.kpts_decode(bs, kpt)
+        
+#         # 應用骨架後處理，僅在推理階段
+#         refined_kpt = self.skeleton_refiner(pred_kpt.view(bs, self.kpt_shape[0], -1))
+#         refined_kpt = refined_kpt.view_as(pred_kpt)
+        
+#         return torch.cat([x, refined_kpt], 1) if self.export else (torch.cat([x[0], refined_kpt], 1), (x[1], kpt))
+
+
+class Pose(Detect):
+    """增強型姿態頭，專為無蒸餾訓練優化"""
     
     def __init__(self, nc=80, kpt_shape=(17, 3), ch=()):
-        super().__init__(nc, kpt_shape, ch)
-        self.nk = kpt_shape[0] * kpt_shape[1]
+        super().__init__()
+        self.nc = nc  # 類別數
+        self.kpt_shape = kpt_shape  # 關鍵點形狀
+        self.nl = len(ch)  # 特徵層數量
+        self.nk = kpt_shape[0] * kpt_shape[1]  # 關鍵點總數
         
-        # 使用更深的關鍵點頭，提高特徵提取能力
-        c4 = max(ch[0] // 3, self.nk)
-        self.cv4 = nn.ModuleList(
-            nn.Sequential(
-                Conv(x, c4, 3),
-                Conv(c4, c4, 3),
-                nn.Conv2d(c4, self.nk, 1)
-            ) for x in ch
+        # 檢測頭部分
+        self.reg_max = 16  # DFL通道數
+        self.no = nc + self.reg_max * 4  # 每個錨點的輸出數
+        self.stride = torch.zeros(self.nl)  # 計算時的步長
+        
+        # 邊界框回歸頭
+        c2 = max(ch[0] // 4, 16, self.reg_max * 4)
+        self.cv2 = nn.ModuleList(
+            nn.Sequential(Conv(x, c2, 3), Conv(c2, c2, 3), nn.Conv2d(c2, 4 * self.reg_max, 1)) for x in ch
         )
         
-        # 添加骨架後處理模組
-        self.skeleton_refiner = SkeletonRefiner(kpt_shape[0])
+        # 分類頭
+        c3 = max(ch[0] // 2, min(nc, 80))
+        self.cv3 = nn.ModuleList(
+            nn.Sequential(Conv(x, c3, 3), Conv(c3, c3, 3), nn.Conv2d(c3, nc, 1)) for x in ch
+        )
+        
+        # 增強型姿態頭
+        c4 = max(ch[0] // 1.5, self.nk * 2)  # 更寬的通道，補償沒有蒸餾
+        self.cv4 = nn.ModuleList()
+        
+        for i, x in enumerate(ch):
+            # 使用官方RepConv的多分支設計
+            kpt_head = nn.Sequential(
+                # 初始特徵提取
+                Conv(x, c4, 3),
+                
+                # 雙注意力增強
+                CBAM(c4),
+                
+                # 使用官方RepConv進行特徵處理
+                RepConv(c4, c4 // 2),
+                
+                # 最終輸出層
+                nn.Conv2d(c4 // 2, self.nk, 1)
+            )
+            self.cv4.append(kpt_head)
+        
+        # DFL解碼器
+        self.dfl = DFL(self.reg_max) if self.reg_max > 1 else nn.Identity()
+        
+        # 骨架精煉器
+        self.kpt_refiner = AdvancedPoseRefiner(kpt_shape[0])
+        
+        # 特徵融合權重
+        self.fusion_weights = nn.Parameter(torch.ones(self.nl) / self.nl)
     
     def forward(self, x):
-        bs = x[0].shape[0]
-        kpt = torch.cat([self.cv4[i](x[i]).view(bs, self.nk, -1) for i in range(self.nl)], -1)
-        x = Detect.forward(self, x)
+        """前向傳播過程"""
+        bs = x[0].shape[0]  # 批次大小
+        
+        # 自適應融合多尺度特徵
+        kpt_features = [self.cv4[i](x[i]).view(bs, self.nk, -1) for i in range(self.nl)]
+        fusion_weights = F.softmax(self.fusion_weights, dim=0)
+        
+        # 加權融合關鍵點特徵
+        kpt = torch.zeros_like(kpt_features[0])
+        for i, feat in enumerate(kpt_features):
+            kpt += feat * fusion_weights[i]
+        
+        # 標準檢測頭前向傳播
+        for i in range(self.nl):
+            x[i] = torch.cat((self.cv2[i](x[i]), self.cv3[i](x[i])), 1)
         
         if self.training:
             return x, kpt
         
-        # 關鍵點解碼
-        pred_kpt = self.kpts_decode(bs, kpt)
+        # 推理階段
+        y = self._decode_boxes(x)  # 解碼邊界框
+        pred_kpt = self._decode_kpts(bs, kpt)  # 解碼關鍵點
         
-        # 應用骨架後處理，僅在推理階段
-        refined_kpt = self.skeleton_refiner(pred_kpt.view(bs, self.kpt_shape[0], -1))
+        # 應用骨架精煉
+        refined_kpt = self.kpt_refiner(pred_kpt.view(bs, self.kpt_shape[0], -1))
         refined_kpt = refined_kpt.view_as(pred_kpt)
         
-        return torch.cat([x, refined_kpt], 1) if self.export else (torch.cat([x[0], refined_kpt], 1), (x[1], kpt))
+        return torch.cat([y, refined_kpt], 1) if self.export else (torch.cat([y[0], refined_kpt], 1), (y[1], kpt))
     
-class SkeletonRefiner(nn.Module):
-    """骨架後處理模組，應用人體結構先驗約束"""
-    
+    def _decode_boxes(self, x):
+        """邊界框解碼 (與標準Detect類相同)"""
+        # Inference path
+        shape = x[0].shape  # BCHW
+        x_cat = torch.cat([xi.view(shape[0], self.no, -1) for xi in x], 2)
+        if self.format != "imx" and (self.dynamic or self.shape != shape):
+            self.anchors, self.strides = (x.transpose(0, 1) for x in make_anchors(x, self.stride, 0.5))
+            self.shape = shape
+
+        if self.export and self.format in {"saved_model", "pb", "tflite", "edgetpu", "tfjs"}:  # avoid TF FlexSplitV ops
+            box = x_cat[:, : self.reg_max * 4]
+            cls = x_cat[:, self.reg_max * 4 :]
+        else:
+            box, cls = x_cat.split((self.reg_max * 4, self.nc), 1)
+
+        if self.export and self.format in {"tflite", "edgetpu"}:
+            # Precompute normalization factor to increase numerical stability
+            # See https://github.com/ultralytics/ultralytics/issues/7371
+            grid_h = shape[2]
+            grid_w = shape[3]
+            grid_size = torch.tensor([grid_w, grid_h, grid_w, grid_h], device=box.device).reshape(1, 4, 1)
+            norm = self.strides / (self.stride[0] * grid_size)
+            dbox = self.decode_bboxes(self.dfl(box) * norm, self.anchors.unsqueeze(0) * norm[:, :2])
+        elif self.export and self.format == "imx":
+            dbox = self.decode_bboxes(
+                self.dfl(box) * self.strides, self.anchors.unsqueeze(0) * self.strides, xywh=False
+            )
+            return dbox.transpose(1, 2), cls.sigmoid().permute(0, 2, 1)
+        else:
+            dbox = self.decode_bboxes(self.dfl(box), self.anchors.unsqueeze(0)) * self.strides
+
+        return torch.cat((dbox, cls.sigmoid()), 1)
+
+    def _decode_kpts(self, bs, kpt):
+        """關鍵點解碼 (與標準Pose類相同)"""
+        ndim = self.kpt_shape[1]
+        if self.export:
+            if self.format in {
+                "tflite",
+                "edgetpu",
+            }:  # required for TFLite export to avoid 'PLACEHOLDER_FOR_GREATER_OP_CODES' bug
+                # Precompute normalization factor to increase numerical stability
+                y = kpt.view(bs, *self.kpt_shape, -1)
+                grid_h, grid_w = self.shape[2], self.shape[3]
+                grid_size = torch.tensor([grid_w, grid_h], device=y.device).reshape(1, 2, 1)
+                norm = self.strides / (self.stride[0] * grid_size)
+                a = (y[:, :, :2] * 2.0 + (self.anchors - 0.5)) * norm
+            else:
+                # NCNN fix
+                y = kpt.view(bs, *self.kpt_shape, -1)
+                a = (y[:, :, :2] * 2.0 + (self.anchors - 0.5)) * self.strides
+            if ndim == 3:
+                a = torch.cat((a, y[:, :, 2:3].sigmoid()), 2)
+            return a.view(bs, self.nk, -1)
+        else:
+            y = kpt.clone()
+            if ndim == 3:
+                y[:, 2::ndim] = y[:, 2::ndim].sigmoid()  # sigmoid (WARNING: inplace .sigmoid_() Apple MPS bug)
+            y[:, 0::ndim] = (y[:, 0::ndim] * 2.0 + (self.anchors[0] - 0.5)) * self.strides
+            y[:, 1::ndim] = (y[:, 1::ndim] * 2.0 + (self.anchors[1] - 0.5)) * self.strides
+            return y
+
+class CBAM(nn.Module):
+    """卷積塊注意力模塊 - 結合通道和空間注意力"""
+    def __init__(self, c, ratio=16, kernel_size=7):
+        super().__init__()
+        # 通道注意力
+        self.avg_pool = nn.AdaptiveAvgPool2d(1)
+        self.max_pool = nn.AdaptiveMaxPool2d(1)
+        self.fc = nn.Sequential(
+            nn.Conv2d(c, c // ratio, 1, bias=False),
+            nn.SiLU(inplace=True),
+            nn.Conv2d(c // ratio, c, 1, bias=False)
+        )
+        
+        # 空間注意力
+        self.conv = nn.Conv2d(2, 1, kernel_size, padding=kernel_size//2, bias=False)
+        
+    def forward(self, x):
+        # 通道注意力
+        avg_out = self.fc(self.avg_pool(x))
+        max_out = self.fc(self.max_pool(x))
+        channel_out = torch.sigmoid(avg_out + max_out)
+        x = x * channel_out
+        
+        # 空間注意力
+        avg_out = torch.mean(x, dim=1, keepdim=True)
+        max_out, _ = torch.max(x, dim=1, keepdim=True)
+        spatial_out = torch.sigmoid(self.conv(torch.cat([avg_out, max_out], dim=1)))
+        
+        return x * spatial_out
+
+class AdvancedPoseRefiner(nn.Module):
+    """進階姿態精煉器 - 非蒸餾訓練下更重要"""
     def __init__(self, num_keypoints=17):
         super().__init__()
         self.num_keypoints = num_keypoints
         
-        # COCO關鍵點骨架結構 - 重要連接
+        # COCO骨架結構 - 更全面的定義
         self.skeleton = [
-            (5, 6), (5, 11), (6, 12), (11, 12),  # 軀幹
-            (5, 7), (7, 9), (6, 8), (8, 10),     # 上肢
-            (11, 13), (13, 15), (12, 14), (14, 16)  # 下肢
+            # 軀幹核心
+            (5, 6),   # 左肩-右肩
+            (5, 11),  # 左肩-左髖
+            (6, 12),  # 右肩-右髖
+            (11, 12), # 左髖-右髖
+            
+            # 上肢
+            (5, 7),   # 左肩-左肘
+            (7, 9),   # 左肘-左腕
+            (6, 8),   # 右肩-右肘
+            (8, 10),  # 右肘-右腕
+            
+            # 下肢
+            (11, 13), # 左髖-左膝
+            (13, 15), # 左膝-左踝
+            (12, 14), # 右髖-右膝
+            (14, 16), # 右膝-右踝
+            
+            # 頭部連接
+            (0, 1),   # 鼻-左眼
+            (0, 2),   # 鼻-右眼
+            (1, 3),   # 左眼-左耳
+            (2, 4),   # 右眼-右耳
+            (0, 5),   # 鼻-左肩
+            (0, 6),   # 鼻-右肩
         ]
         
-        # 定義關鍵對的理想長度比例 (基於人體解剖學)
-        self.ideal_ratios = torch.tensor([
-            1.0, 1.2, 1.2, 0.9,  # 軀幹比例
-            0.6, 0.5, 0.6, 0.5,  # 上肢比例
-            0.8, 0.7, 0.8, 0.7   # 下肢比例
-        ])
+        # 更精確的骨架比例 (基於解剖學研究)
+        self.ideal_ratios = nn.Parameter(torch.tensor([
+            1.0,  1.2,  1.2,  0.9,   # 軀幹
+            0.62, 0.48, 0.62, 0.48,  # 上肢
+            0.8,  0.7,  0.8,  0.7,   # 下肢
+            0.12, 0.12, 0.24, 0.24, 0.5, 0.5  # 頭部連接
+        ]))
+        
+        # 部位分組 - 分階段精煉
+        self.body_parts = {
+            'torso': [5, 6, 11, 12],
+            'arms': [5, 6, 7, 8, 9, 10],
+            'legs': [11, 12, 13, 14, 15, 16],
+            'head': [0, 1, 2, 3, 4]
+        }
+        
+        # 調整參數 - 更強的調整
+        self.conf_threshold = 0.2
+        self.adjustment_weight = 0.5
     
     def forward(self, keypoints):
-        """應用輕量級骨架後處理"""
-        # 僅在有置信度通道時進行處理
-        if keypoints.shape[-1] > 2:  # 有置信度通道
+        """多階段姿態精煉"""
+        # 僅處理有置信度通道的情況
+        if keypoints.shape[-1] > 2:
             conf = keypoints[..., 2]
-            mask = conf > 0.3  # 高置信度掩碼
+            mask = conf > self.conf_threshold
             keypoints_xy = keypoints[..., :2].clone()
             
             # 逐批次處理
@@ -362,31 +576,27 @@ class SkeletonRefiner(nn.Module):
                 if mask[b, 5] and mask[b, 6]:
                     shoulder_width = torch.norm(keypoints_xy[b, 5] - keypoints_xy[b, 6])
                     
-                    # 應用骨架約束
-                    for i, (j1, j2) in enumerate(self.skeleton):
-                        if mask[b, j1] and mask[b, j2]:
-                            # 計算當前骨架長度和方向
-                            current = keypoints_xy[b, j2] - keypoints_xy[b, j1]
-                            length = torch.norm(current)
-                            if length < 1e-5:
-                                continue
-                                
-                            # 計算理想長度
-                            ideal = shoulder_width * self.ideal_ratios[i]
-                            
-                            # 計算溫和調整量
-                            ratio = (ideal / length).clamp(0.85, 1.15)
-                            if 0.95 < ratio < 1.05:
-                                continue
-                                
-                            # 根據置信度調整兩個點
-                            adjust = 0.2 * (ratio - 1.0)  # 溫和調整
-                            direction = current / length
-                            c1, c2 = conf[b, j1], conf[b, j2]
-                            w1, w2 = c2/(c1+c2+1e-6), c1/(c1+c2+1e-6)
-                            
-                            keypoints_xy[b, j1] -= direction * length * adjust * w1
-                            keypoints_xy[b, j2] += direction * length * adjust * w2
+                    # 階段1: 先精煉軀幹 (最穩定的部分)
+                    self._refine_body_part(
+                        keypoints_xy, conf, mask, b, shoulder_width, 
+                        'torso', self.adjustment_weight * 0.8
+                    )
+                    
+                    # 階段2: 精煉四肢
+                    self._refine_body_part(
+                        keypoints_xy, conf, mask, b, shoulder_width,
+                        'arms', self.adjustment_weight
+                    )
+                    self._refine_body_part(
+                        keypoints_xy, conf, mask, b, shoulder_width,
+                        'legs', self.adjustment_weight
+                    )
+                    
+                    # 階段3: 精煉頭部關鍵點
+                    self._refine_body_part(
+                        keypoints_xy, conf, mask, b, shoulder_width,
+                        'head', self.adjustment_weight * 0.9
+                    )
             
             # 更新坐標
             result = keypoints.clone()
@@ -394,6 +604,47 @@ class SkeletonRefiner(nn.Module):
             return result
         
         return keypoints
+    
+    def _refine_body_part(self, keypoints_xy, conf, mask, batch_idx, ref_length, part_name, adjustment_weight):
+        """精煉特定身體部位的關鍵點"""
+        part_indices = self.body_parts[part_name]
+        
+        for i, (j1, j2) in enumerate(self.skeleton):
+            # 只處理屬於當前部位的關鍵點對
+            if j1 not in part_indices and j2 not in part_indices:
+                continue
+                
+            if mask[batch_idx, j1] and mask[batch_idx, j2]:
+                # 計算當前骨架長度和方向
+                current = keypoints_xy[batch_idx, j2] - keypoints_xy[batch_idx, j1]
+                length = torch.norm(current)
+                if length < 1e-5:
+                    continue
+                    
+                # 計算理想長度
+                ideal = ref_length * self.ideal_ratios[i]
+                
+                # 調整範圍 - 根據部位自適應
+                min_ratio = 0.7 if part_name in ['torso', 'legs'] else 0.65
+                max_ratio = 1.4 if part_name in ['torso', 'legs'] else 1.5
+                
+                ratio = (ideal / length).clamp(min_ratio, max_ratio)
+                if 0.85 < ratio < 1.15:
+                    continue
+                    
+                # 根據置信度調整兩個點
+                adjust = adjustment_weight * (ratio - 1.0)
+                direction = current / length
+                c1, c2 = conf[batch_idx, j1], conf[batch_idx, j2]
+                w1, w2 = c2/(c1+c2+1e-6), c1/(c1+c2+1e-6)
+                
+                keypoints_xy[batch_idx, j1] -= direction * length * adjust * w1
+                keypoints_xy[batch_idx, j2] += direction * length * adjust * w2
+
+
+
+
+
 
 class Classify(nn.Module):
     """YOLO classification head, i.e. x(b,c1,20,20) to x(b,c2)."""
