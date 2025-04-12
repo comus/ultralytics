@@ -91,38 +91,38 @@ https://poe.com/s/gMxZfYKFOLfz7iQEr7vo
   這是我叫 AI 替我想的模型架構
 
   <details>
-  <summary>只有 3.0 GFLOPs</summary>
+  <summary>只有 1.2 GFLOPs</summary>
 
   ```
-                     from  n    params  module                                       arguments
-    0                  -1  1       232  ultralytics.nn.modules.conv.Conv             [3, 8, 3, 2]
-    1                  -1  1      1184  ultralytics.nn.modules.conv.Conv             [8, 16, 3, 2]
-    2                  -1  1      1304  ultralytics.nn.modules.block.C3k2            [16, 16, 1, False, 0.5]
-    3                  -1  1       928  ultralytics.nn.modules.block.SCDown          [16, 32, 3, 2]
-    4                  -1  1      6314  ultralytics.nn.modules.block.C3k2            [32, 32, 1, False, 0.6]
-    5                  -1  1      2880  ultralytics.nn.modules.block.SCDown          [32, 64, 3, 2]
-    6                  -1  1     25550  ultralytics.nn.modules.block.C3k2            [64, 64, 1, False, 0.6]
-    7                  -1  1      9856  ultralytics.nn.modules.block.SCDown          [64, 128, 3, 2]
-    8                  -1  1     78528  ultralytics.nn.modules.block.C3k2            [128, 128, 1, False, 0.5]
-    9                  -1  1     41344  ultralytics.nn.modules.block.SPPF            [128, 128, 5]
-  10                  -1  1         0  torch.nn.modules.upsampling.Upsample         [None, 2, 'nearest']
-  11             [-1, 6]  1         0  ultralytics.nn.modules.conv.Concat           [1]
-  12                  -1  1     12416  ultralytics.nn.modules.conv.Conv             [192, 64, 1, 1]
-  13                  -1  1     25550  ultralytics.nn.modules.block.C3k2            [64, 64, 1, False, 0.6]
-  14                  -1  1         0  torch.nn.modules.upsampling.Upsample         [None, 2, 'nearest']
-  15             [-1, 4]  1         0  ultralytics.nn.modules.conv.Concat           [1]
-  16                  -1  1      3136  ultralytics.nn.modules.conv.Conv             [96, 32, 1, 1]
-  17                  -1  1      6314  ultralytics.nn.modules.block.C3k2            [32, 32, 1, False, 0.6]
-  18                  -1  1      1440  ultralytics.nn.modules.block.SCDown          [32, 32, 3, 2]
-  19            [-1, 13]  1         0  ultralytics.nn.modules.conv.Concat           [1]
-  20                  -1  1      6272  ultralytics.nn.modules.conv.Conv             [96, 64, 1, 1]
-  21                  -1  1     25550  ultralytics.nn.modules.block.C3k2            [64, 64, 1, False, 0.6]
-  22                  -1  1      4928  ultralytics.nn.modules.block.SCDown          [64, 64, 3, 2]
-  23             [-1, 9]  1         0  ultralytics.nn.modules.conv.Concat           [1]
-  24                  -1  1     24832  ultralytics.nn.modules.conv.Conv             [192, 128, 1, 1]
-  25                  -1  1     78528  ultralytics.nn.modules.block.C3k2            [128, 128, 1, False, 0.5]
-  26        [17, 21, 25]  1    448734  ultralytics.nn.modules.head.Pose             [1, [17, 3], [32, 64, 128]]
-  lite summary: 171 layers, 805,820 parameters, 805,804 gradients, 3.0 GFLOPs
+                   from  n    params  module                                       arguments
+  0                  -1  1       232  ultralytics.nn.modules.conv.Conv             [3, 8, 3, 2]
+  1                  -1  1      1184  ultralytics.nn.modules.conv.Conv             [8, 16, 3, 2]
+  2                  -1  1      1304  ultralytics.nn.modules.block.C3k2            [16, 16, 1, False, 0.5]
+  3                  -1  1       928  ultralytics.nn.modules.block.SCDown          [16, 32, 3, 2]
+  4                  -1  1      6314  ultralytics.nn.modules.block.C3k2            [32, 32, 1, False, 0.6]
+  5                  -1  1      2880  ultralytics.nn.modules.block.SCDown          [32, 64, 3, 2]
+  6                  -1  1     25550  ultralytics.nn.modules.block.C3k2            [64, 64, 1, False, 0.6]
+  7                  -1  1      9856  ultralytics.nn.modules.block.SCDown          [64, 128, 3, 2]
+  8                  -1  1     78528  ultralytics.nn.modules.block.C3k2            [128, 128, 1, False, 0.5]
+  9                  -1  1     41344  ultralytics.nn.modules.block.SPPF            [128, 128, 5]
+ 10                  -1  1         0  torch.nn.modules.upsampling.Upsample         [None, 2, 'nearest']
+ 11             [-1, 6]  1         0  ultralytics.nn.modules.conv.Concat           [1]
+ 12                  -1  1     12416  ultralytics.nn.modules.conv.Conv             [192, 64, 1, 1]
+ 13                  -1  1     25550  ultralytics.nn.modules.block.C3k2            [64, 64, 1, False, 0.6]
+ 14                  -1  1         0  torch.nn.modules.upsampling.Upsample         [None, 2, 'nearest']
+ 15             [-1, 4]  1         0  ultralytics.nn.modules.conv.Concat           [1]
+ 16                  -1  1      3136  ultralytics.nn.modules.conv.Conv             [96, 32, 1, 1]
+ 17                  -1  1      6314  ultralytics.nn.modules.block.C3k2            [32, 32, 1, False, 0.6]
+ 18                  -1  1      1440  ultralytics.nn.modules.block.SCDown          [32, 32, 3, 2]
+ 19            [-1, 13]  1         0  ultralytics.nn.modules.conv.Concat           [1]
+ 20                  -1  1      6272  ultralytics.nn.modules.conv.Conv             [96, 64, 1, 1]
+ 21                  -1  1     25550  ultralytics.nn.modules.block.C3k2            [64, 64, 1, False, 0.6]
+ 22                  -1  1      4928  ultralytics.nn.modules.block.SCDown          [64, 64, 3, 2]
+ 23             [-1, 9]  1         0  ultralytics.nn.modules.conv.Concat           [1]
+ 24                  -1  1     24832  ultralytics.nn.modules.conv.Conv             [192, 128, 1, 1]
+ 25                  -1  1     78528  ultralytics.nn.modules.block.C3k2            [128, 128, 1, False, 0.5]
+ 26        [17, 21, 25]  1    448734  ultralytics.nn.modules.head.Pose             [1, [17, 3], [32, 64, 128]]
+lite summary: 171 layers, 805,820 parameters, 805,804 gradients, 3.0 GFLOPs
   ```
   </details>
 
@@ -138,31 +138,31 @@ https://poe.com/s/gMxZfYKFOLfz7iQEr7vo
   <summary>只有 2.9 GFLOPs</summary>
 
   ```
-                     from  n    params  module                                       arguments
-    0                  -1  1       232  ultralytics.nn.modules.conv.Conv             [3, 8, 3, 2]
-    1                  -1  1      1184  ultralytics.nn.modules.conv.Conv             [8, 16, 3, 2]
-    2                  -1  1      1720  ultralytics.nn.modules.block.C3k2            [16, 32, 1, False, 0.25]
-    3                  -1  1      9280  ultralytics.nn.modules.conv.Conv             [32, 32, 3, 2]
-    4                  -1  1      6640  ultralytics.nn.modules.block.C3k2            [32, 64, 1, False, 0.25]
-    5                  -1  1     36992  ultralytics.nn.modules.conv.Conv             [64, 64, 3, 2]
-    6                  -1  1     22016  ultralytics.nn.modules.block.C3k2            [64, 64, 1, True]
-    7                  -1  1     36992  ultralytics.nn.modules.conv.Conv             [64, 64, 3, 2]
-    8                  -1  1     22016  ultralytics.nn.modules.block.C3k2            [64, 64, 1, True]
-    9                  -1  1     10432  ultralytics.nn.modules.block.SPPF            [64, 64, 5]
-  10                  -1  1         0  torch.nn.modules.upsampling.Upsample         [None, 2, 'nearest']
-  11             [-1, 6]  1         0  ultralytics.nn.modules.conv.Concat           [1]
-  12                  -1  1     23904  ultralytics.nn.modules.block.C3k2            [128, 64, 1, False]
-  13                  -1  1         0  torch.nn.modules.upsampling.Upsample         [None, 2, 'nearest']
-  14             [-1, 4]  1         0  ultralytics.nn.modules.conv.Concat           [1]
-  15                  -1  1      8112  ultralytics.nn.modules.block.C3k2            [128, 32, 1, False]
-  16                  -1  1      9280  ultralytics.nn.modules.conv.Conv             [32, 32, 3, 2]
-  17            [-1, 12]  1         0  ultralytics.nn.modules.conv.Concat           [1]
-  18                  -1  1     21856  ultralytics.nn.modules.block.C3k2            [96, 64, 1, False]
-  19                  -1  1     36992  ultralytics.nn.modules.conv.Conv             [64, 64, 3, 2]
-  20             [-1, 9]  1         0  ultralytics.nn.modules.conv.Concat           [1]
-  21                  -1  1     26112  ultralytics.nn.modules.block.C3k2            [128, 64, 1, True]
-  22        [15, 18, 21]  1    379742  ultralytics.nn.modules.head.Pose             [1, [17, 3], [32, 64, 64]]
-  base summary: 178 layers, 653,502 parameters, 653,486 gradients, 2.9 GFLOPs
+                   from  n    params  module                                       arguments
+  0                  -1  1       232  ultralytics.nn.modules.conv.Conv             [3, 8, 3, 2]
+  1                  -1  1      1184  ultralytics.nn.modules.conv.Conv             [8, 16, 3, 2]
+  2                  -1  1      1720  ultralytics.nn.modules.block.C3k2            [16, 32, 1, False, 0.25]
+  3                  -1  1      9280  ultralytics.nn.modules.conv.Conv             [32, 32, 3, 2]
+  4                  -1  1      6640  ultralytics.nn.modules.block.C3k2            [32, 64, 1, False, 0.25]
+  5                  -1  1     36992  ultralytics.nn.modules.conv.Conv             [64, 64, 3, 2]
+  6                  -1  1     22016  ultralytics.nn.modules.block.C3k2            [64, 64, 1, True]
+  7                  -1  1     36992  ultralytics.nn.modules.conv.Conv             [64, 64, 3, 2]
+  8                  -1  1     22016  ultralytics.nn.modules.block.C3k2            [64, 64, 1, True]
+  9                  -1  1     10432  ultralytics.nn.modules.block.SPPF            [64, 64, 5]
+ 10                  -1  1         0  torch.nn.modules.upsampling.Upsample         [None, 2, 'nearest']
+ 11             [-1, 6]  1         0  ultralytics.nn.modules.conv.Concat           [1]
+ 12                  -1  1     23904  ultralytics.nn.modules.block.C3k2            [128, 64, 1, False]
+ 13                  -1  1         0  torch.nn.modules.upsampling.Upsample         [None, 2, 'nearest']
+ 14             [-1, 4]  1         0  ultralytics.nn.modules.conv.Concat           [1]
+ 15                  -1  1      8112  ultralytics.nn.modules.block.C3k2            [128, 32, 1, False]
+ 16                  -1  1      9280  ultralytics.nn.modules.conv.Conv             [32, 32, 3, 2]
+ 17            [-1, 12]  1         0  ultralytics.nn.modules.conv.Concat           [1]
+ 18                  -1  1     21856  ultralytics.nn.modules.block.C3k2            [96, 64, 1, False]
+ 19                  -1  1     36992  ultralytics.nn.modules.conv.Conv             [64, 64, 3, 2]
+ 20             [-1, 9]  1         0  ultralytics.nn.modules.conv.Concat           [1]
+ 21                  -1  1     26112  ultralytics.nn.modules.block.C3k2            [128, 64, 1, True]
+ 22        [15, 18, 21]  1    379742  ultralytics.nn.modules.head.Pose             [1, [17, 3], [32, 64, 64]]
+base summary: 178 layers, 653,502 parameters, 653,486 gradients, 2.9 GFLOPs
   ```
   </details>
 
