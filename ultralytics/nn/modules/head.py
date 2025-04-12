@@ -328,8 +328,8 @@ class OriPose(Detect):
 #         return torch.cat([x, refined_kpt], 1) if self.export else (torch.cat([x[0], refined_kpt], 1), (x[1], kpt))
 
 
-class EfficientPose(Detect):
-    """精度優化的輕量姿態頭"""
+class PrecisionPose(Detect):
+    """專為直接訓練優化的姿態頭，無需蒸餾"""
     
     def __init__(self, nc=80, kpt_shape=(17, 3), ch=()):
         super().__init__(nc, ch)
@@ -344,29 +344,38 @@ class EfficientPose(Detect):
         self.no = nc + self.reg_max * 4  # 每個錨點的輸出數
         self.stride = torch.zeros(self.nl)  # 計算時的步長
         
-        # 邊界框回歸頭 - 使用有效的設計
+        # 邊界框回歸頭 - 標準設計
         c2 = max(ch[0] // 4, 16, self.reg_max * 4)
         self.cv2 = nn.ModuleList(
             nn.Sequential(Conv(x, c2, 3), Conv(c2, 4 * self.reg_max, 1)) for x in ch
         )
         
-        # 分類頭 - 使用有效的設計
-        c3 = max(ch[0] // 3, min(nc, 60))  # 平衡通道數
+        # 分類頭 - 標準設計
+        c3 = max(ch[0] // 2, min(nc, 80))
         self.cv3 = nn.ModuleList(
             nn.Sequential(Conv(x, c3, 3), Conv(c3, nc, 1)) for x in ch
         )
         
-        # 姿態頭 - 平衡設計
-        c4 = max(ch[0] // 2, self.nk * 2)  # 為精度保留足夠通道
+        # 精度優先的姿態頭
+        c4 = max(ch[0] // 2, self.nk * 3)  # 保持足夠的通道數
         self.cv4 = nn.ModuleList()
         
         for i, x in enumerate(ch):
-            # 輕量高效的多分支設計
+            # 三階段設計以提高精度
             kpt_head = nn.Sequential(
-                # 初始特徵提取
+                # 第一階段：特徵處理
                 Conv(x, c4, 3),
-                # 簡化的特徵增強 (只保留必要部分)
-                nn.Conv2d(c4, self.nk, 1)
+                
+                # 第二階段：空間敏感性增強 - 使用簡化的SpatialAwareness模塊
+                nn.Sequential(
+                    Conv(c4, c4 // 2, 1),  # 降維
+                    Conv(c4 // 2, c4 // 2, 3, g=c4 // 2),  # 深度可分離卷積
+                    Conv(c4 // 2, c4, 1)  # 恢復維度
+                ),
+                
+                # 第三階段：精確定位
+                Conv(c4, c4 // 2, 3),
+                nn.Conv2d(c4 // 2, self.nk, 1)
             )
             self.cv4.append(kpt_head)
         

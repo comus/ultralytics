@@ -1461,7 +1461,6 @@ def parse_model(d, ch, verbose=True):  # model_dict, input_channels(3)
                         args = [args[0], args[1], args[2]]  # 保留[c1, c2, n]
                     else:  # 如果 YAML 格式是 [c1, c2, e]
                         args = [args[0], args[1], n, args[3]]  # 插入 n 為 [c1, c2, n, e]
-                        print(f"RepC3 parameters!!!: {args}")
                 else:  # 其他 repeat_modules 的標準處理
                     args.insert(2, n)  # number of repeats
                 n = 1
@@ -1511,10 +1510,6 @@ def parse_model(d, ch, verbose=True):  # model_dict, input_channels(3)
             args = [*args[1:]]
         else:
             c2 = ch[f]
-
-        # 在處理 Pose 模組之前添加調試
-        if m in {Detect, Pose, Segment}:
-            print(f"Before processing {m.__name__}, f={f}, args={args}")
 
         m_ = torch.nn.Sequential(*(m(*args) for _ in range(n))) if n > 1 else m(*args)  # module
         t = str(m)[8:-2].replace("__main__.", "")  # module type
