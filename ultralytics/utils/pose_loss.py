@@ -515,6 +515,7 @@ class v8PoseLoss(v8DetectionLoss):
                 "coord_loss": float(coord_loss.item()) if not torch.isnan(coord_loss) else 0.0,
                 "structure_loss": float(structure_loss.item()) if not torch.isnan(structure_loss) else 0.0,
                 "conf_loss": float(conf_loss.item()) if not torch.isnan(conf_loss) else 0.0,
+                "rel_pos_loss": float(rel_pos_loss.item()) if not torch.isnan(rel_pos_loss) else 0.0,
                 "feat_loss": float(feat_loss.item()) if not torch.isnan(feat_loss) else 0.0,
                 "total_loss": float(total_loss.item()) if not torch.isnan(total_loss) else 0.0,
                 "teacher_conf": float(avg_teacher_conf.item()),
@@ -530,6 +531,7 @@ class v8PoseLoss(v8DetectionLoss):
                 print(f"coord_loss: {float(coord_loss.item()):.4f}")
                 print(f"structure_loss: {float(structure_loss.item()):.4f}")
                 print(f"conf_loss: {float(conf_loss.item()):.4f}")
+                print(f"rel_pos_loss: {float(rel_pos_loss.item()):.4f}")
                 print(f"feat_loss: {float(feat_loss.item()):.4f}" + (f" (raw: {float(feat_loss.item() / (0.05 if current_epoch == 0 else 1.0)):.4f})" if current_epoch == 0 else ""))
                 print(f"total_loss: {float(total_loss.item()):.4f}")
                 print(f"teacher_conf: {float(avg_teacher_conf.item()):.4f}")
