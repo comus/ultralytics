@@ -189,9 +189,10 @@ class v8PoseLoss(v8DetectionLoss):
         7. 添加數值穩定性檢查
         8. 早期停止機制 
         """
-        epsilon = 1e-8
-        tolerance = 1e-8  # 數值穩定性容忍閾值
-        
+        # 降低容忍度，使模型對更小的誤差敏感
+        tolerance = 1e-10  # 從1e-8降低到1e-10
+        epsilon = 1e-10    # 從1e-8降低到1e-10
+
         try:
             # 【新增】早期停止機制
             # 如果上一批次損失已經非常小，可以早期返回
@@ -354,13 +355,29 @@ class v8PoseLoss(v8DetectionLoss):
             # 避免分母為零
             total_weight = coord_weights.sum() + epsilon
             
-            # 添加精確定位損失 - 在x_diff和y_diff計算後添加
-            # 小差異使用L1損失提供更強梯度
-            small_diff_mask_x = (x_diff**2 < 0.005)
-            small_diff_mask_y = (y_diff**2 < 0.005)
-            precise_x_loss = torch.where(small_diff_mask_x, torch.abs(x_diff), torch.zeros_like(x_diff))
-            precise_y_loss = torch.where(small_diff_mask_y, torch.abs(y_diff), torch.zeros_like(y_diff))
+            # 1. 更精細的坐標損失階梯
+            # 修改小差異閾值和權重，創建多層次精細損失
+            tiny_diff_mask_x = (x_diff**2 < 0.001)  # 極小差異
+            small_diff_mask_x = (x_diff**2 < 0.005) & ~tiny_diff_mask_x  # 小差異
+            medium_diff_mask_x = (x_diff**2 < 0.02) & ~small_diff_mask_x & ~tiny_diff_mask_x  # 中等差異
+            
+            tiny_diff_mask_y = (y_diff**2 < 0.001)
+            small_diff_mask_y = (y_diff**2 < 0.005) & ~tiny_diff_mask_y
+            medium_diff_mask_y = (y_diff**2 < 0.02) & ~small_diff_mask_y & ~tiny_diff_mask_y
 
+            # 為不同精度等級應用不同損失和權重
+            precise_x_loss = (
+                torch.where(tiny_diff_mask_x, torch.abs(x_diff) * 10.0, torch.zeros_like(x_diff)) +
+                torch.where(small_diff_mask_x, torch.abs(x_diff) * 5.0, torch.zeros_like(x_diff)) +
+                torch.where(medium_diff_mask_x, torch.abs(x_diff) * 2.0, torch.zeros_like(x_diff))
+            )
+            
+            precise_y_loss = (
+                torch.where(tiny_diff_mask_y, torch.abs(y_diff) * 10.0, torch.zeros_like(y_diff)) +
+                torch.where(small_diff_mask_y, torch.abs(y_diff) * 5.0, torch.zeros_like(y_diff)) +
+                torch.where(medium_diff_mask_y, torch.abs(y_diff) * 2.0, torch.zeros_like(y_diff))
+            )
+            
             # 將精確定位損失添加到加權損失中
             weighted_precise_x = precise_x_loss * coord_weights * 5.0  # 增強精確定位信號
             weighted_precise_y = precise_y_loss * coord_weights * 5.0
@@ -476,6 +493,93 @@ class v8PoseLoss(v8DetectionLoss):
             
             # 【改進8】結合KL散度和MSE的混合置信度損失
             conf_loss = (kl_loss.mean() * T * T * 0.5) + (mse_loss.mean() * 0.5)
+
+            # 2. 引入坐標一致性損失
+            # 為每個關鍵點計算與鄰近點的相對位置關係
+            keypoint_topology = [
+                # 頭部連接
+                (0, 1), (0, 2), (1, 3), (2, 4),
+                # 軀幹主體
+                (5, 6), (5, 11), (6, 12), (11, 12),
+                # 上肢
+                (5, 7), (7, 9), (6, 8), (8, 10),
+                # 下肢
+                (11, 13), (13, 15), (12, 14), (14, 16)
+            ]
+            
+            consistency_loss = torch.tensor(0.0, device=x_diff.device)
+            for src, dst in keypoint_topology:
+                # 學生模型的相對向量
+                s_rel_x = s_x[:, src].unsqueeze(-1) - s_x[:, dst].unsqueeze(-1)
+                s_rel_y = s_y[:, src].unsqueeze(-1) - s_y[:, dst].unsqueeze(-1)
+                
+                # 教師模型的相對向量
+                t_rel_x = t_x[:, src].unsqueeze(-1) - t_x[:, dst].unsqueeze(-1)
+                t_rel_y = t_y[:, src].unsqueeze(-1) - t_y[:, dst].unsqueeze(-1)
+                
+                # 計算夾角一致性
+                s_norm = torch.sqrt(s_rel_x**2 + s_rel_y**2 + epsilon)
+                t_norm = torch.sqrt(t_rel_x**2 + t_rel_y**2 + epsilon)
+                
+                s_unit_x, s_unit_y = s_rel_x / s_norm, s_rel_y / s_norm
+                t_unit_x, t_unit_y = t_rel_x / t_norm, t_rel_y / t_norm
+                
+                # 1 - cos(角度)
+                angle_diff = 1.0 - (s_unit_x * t_unit_x + s_unit_y * t_unit_y)
+                
+                # 長度比例一致性 (log比例損失)
+                length_ratio = s_norm / (t_norm + epsilon)
+                inv_length_ratio = t_norm / (s_norm + epsilon)
+                length_diff = torch.abs(torch.log(length_ratio + epsilon))
+                
+                # 組合角度和長度一致性
+                pair_conf = (teacher_conf_mask[:, src] + teacher_conf_mask[:, dst]) / 2.0
+                weighted_angle_diff = angle_diff * pair_conf.unsqueeze(-1)
+                weighted_length_diff = length_diff * pair_conf.unsqueeze(-1)
+                
+                consistency_loss = consistency_loss + weighted_angle_diff.sum() + weighted_length_diff.sum()
+            
+            # 安全平均
+            total_pairs = len(keypoint_topology)
+            consistency_loss = consistency_loss / (total_pairs * total_weight + epsilon)
+            
+            # 3. 添加姿態結構空間損失
+            # 通過主成分分析捕捉姿態空間
+            # 簡化版本實現
+            # 合併批次中的所有姿態
+            t_pose = torch.cat([t_x.unsqueeze(-1), t_y.unsqueeze(-1)], dim=-1)  # [B, 17, 2, grid]
+            s_pose = torch.cat([s_x.unsqueeze(-1), s_y.unsqueeze(-1)], dim=-1)  # [B, 17, 2, grid]
+            
+            # 計算每個姿態的中心
+            t_center = t_pose.mean(dim=1, keepdim=True)  # [B, 1, 2, grid]
+            s_center = s_pose.mean(dim=1, keepdim=True)  # [B, 1, 2, grid]
+            
+            # 中心化坐標
+            t_centered = t_pose - t_center  # [B, 17, 2, grid]
+            s_centered = s_pose - s_center  # [B, 17, 2, grid]
+            
+            # 計算身體尺度
+            t_scale = torch.sqrt((t_centered**2).sum(dim=(1, 2), keepdim=True) + epsilon)  # [B, 1, 1, grid]
+            s_scale = torch.sqrt((s_centered**2).sum(dim=(1, 2), keepdim=True) + epsilon)  # [B, 1, 1, grid]
+            
+            # 計算標準化後的姿態差異 - 消除尺度和中心差異
+            t_normalized = t_centered / (t_scale + epsilon)  # [B, 17, 2, grid]
+            s_normalized = s_centered / (s_scale + epsilon)  # [B, 17, 2, grid]
+            
+            # 計算標準化姿態的差異
+            pose_diff = (t_normalized - s_normalized)**2
+            pose_structure_loss = pose_diff.mean()
+            
+            # 4. 修改損失權重
+            # 把coord_loss改為更高的權重，使模型更注重坐標精確性
+            pred_loss = (
+                2.5 * coord_loss +  # 大幅提高坐標精度權重
+                1.2 * structure_loss +
+                1.5 * consistency_loss +  # 添加一致性損失
+                1.0 * pose_structure_loss +  # 添加姿態空間損失
+                0.5 * conf_loss +
+                1.0 * rel_pos_loss
+            )
             
             # 5. 【改進9】自適應損失組合
             # 使用教師模型的平均置信度來調整損失權重
@@ -498,7 +602,6 @@ class v8PoseLoss(v8DetectionLoss):
                 feat_loss = feat_loss * 0.05  # 大幅降低特徵損失
             
             # 組合所有損失
-            pred_loss = coord_loss + 1.2 * structure_loss + 0.5 * conf_loss + 1.0 * rel_pos_loss
             total_loss = adaptive_feat_weight * feat_loss + adaptive_pred_weight * pred_loss
             
             # 【新增】早期停止損失計算的額外檢查
@@ -525,6 +628,16 @@ class v8PoseLoss(v8DetectionLoss):
                 "progress": float(progress),
                 "epoch": int(current_epoch)
             }
+
+            # 記錄更多損失指標
+            self.last_loss_values.update({
+                "consistency_loss": float(consistency_loss.item()) if not torch.isnan(consistency_loss) else 0.0,
+                "pose_structure_loss": float(pose_structure_loss.item()) if not torch.isnan(pose_structure_loss) else 0.0,
+                "precise_coord_ratio": float(
+                    (tiny_diff_mask_x.sum() + tiny_diff_mask_y.sum()) / 
+                    (tiny_diff_mask_x.numel() + tiny_diff_mask_y.numel() + epsilon)
+                )
+            })
             
             # 輸出日誌信息
             if hasattr(self, 'model') and hasattr(self.model, 'epoch') and (
@@ -538,6 +651,25 @@ class v8PoseLoss(v8DetectionLoss):
                 print(f"total_loss: {float(total_loss.item()):.4f}")
                 print(f"teacher_conf: {float(avg_teacher_conf.item()):.4f}")
                 print(f"feat_weight: {adaptive_feat_weight:.4f}, pred_weight: {adaptive_pred_weight:.4f}")
+
+                print(f"consistency_loss: {float(consistency_loss.item()):.4f}")
+                print(f"pose_structure_loss: {float(pose_structure_loss.item()):.4f}")
+                
+                # 添加精確定位統計
+                precise_x_ratio = tiny_diff_mask_x.float().mean().item()
+                precise_y_ratio = tiny_diff_mask_y.float().mean().item()
+                print(f"極小誤差比例 (x<0.001): {precise_x_ratio:.4f}, (y<0.001): {precise_y_ratio:.4f}")
+                print(f"小誤差比例 (x<0.005): {small_diff_mask_x.float().mean().item():.4f}, (y<0.005): {small_diff_mask_y.float().mean().item():.4f}")
+                
+                # 計算坐標誤差分布
+                x_diff_mean = x_diff.abs().mean().item()
+                y_diff_mean = y_diff.abs().mean().item()
+                x_diff_std = x_diff.abs().std().item()
+                y_diff_std = y_diff.abs().std().item()
+                print(f"坐標誤差統計 - X軸: 均值={x_diff_mean:.6f}, 標準差={x_diff_std:.6f}")
+                print(f"坐標誤差統計 - Y軸: 均值={y_diff_mean:.6f}, 標準差={y_diff_std:.6f}")
+
+                self.log_precision_stats(x_diff.detach(), y_diff.detach())
             
             return total_loss
             
@@ -546,6 +678,38 @@ class v8PoseLoss(v8DetectionLoss):
             import traceback
             traceback.print_exc()  # 打印詳細錯誤堆棧
             return torch.tensor(0.1, device=student_outputs[1].device, requires_grad=True)
+        
+    def log_precision_stats(self, x_diff, y_diff):
+        """記錄坐標精度統計信息"""
+        # 定義精度等級
+        precision_thresholds = [0.0001, 0.0005, 0.001, 0.005, 0.01, 0.05]
+        precision_names = ["0.01%", "0.05%", "0.1%", "0.5%", "1%", "5%"]
+        
+        # 計算每個精度等級下的點比例
+        x_stats = []
+        y_stats = []
+        
+        for threshold in precision_thresholds:
+            x_ratio = (x_diff.abs() < threshold).float().mean().item()
+            y_ratio = (y_diff.abs() < threshold).float().mean().item()
+            x_stats.append(f"{x_ratio*100:.2f}%")
+            y_stats.append(f"{y_ratio*100:.2f}%")
+        
+        # 打印統計數據
+        print("\n--- 坐標精度統計 ---")
+        print(f"精度等級: {', '.join(precision_names)}")
+        print(f"X軸精度: {', '.join(x_stats)}")
+        print(f"Y軸精度: {', '.join(y_stats)}")
+        
+        # 計算整體mAP相關統計
+        xy_05 = (x_diff.abs() < 0.05) & (y_diff.abs() < 0.05)
+        xy_01 = (x_diff.abs() < 0.01) & (y_diff.abs() < 0.01)
+        xy_005 = (x_diff.abs() < 0.005) & (y_diff.abs() < 0.005)
+        
+        print(f"對應mAP50的點比例 (誤差<5%): {xy_05.float().mean().item()*100:.2f}%")
+        print(f"對應mAP90的點比例 (誤差<1%): {xy_01.float().mean().item()*100:.2f}%")
+        print(f"對應mAP95的點比例 (誤差<0.5%): {xy_005.float().mean().item()*100:.2f}%")
+
 
     @staticmethod
     def kpts_decode(anchor_points, pred_kpts):
