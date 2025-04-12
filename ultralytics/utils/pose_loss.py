@@ -17,23 +17,7 @@ from ultralytics.utils.metrics import OKS_SIGMA
 from ultralytics.utils.ops import crop_mask, xywh2xyxy, xyxy2xywh
 from ultralytics.utils.tal import RotatedTaskAlignedAssigner, TaskAlignedAssigner, dist2bbox, dist2rbox, make_anchors
 from ultralytics.utils.torch_utils import autocast
-
-class KeypointLoss(nn.Module):
-    """Criterion class for computing keypoint losses."""
-
-    def __init__(self, sigmas) -> None:
-        """Initialize the KeypointLoss class with keypoint sigmas."""
-        super().__init__()
-        self.sigmas = sigmas
-
-    def forward(self, pred_kpts, gt_kpts, kpt_mask, area):
-        """Calculate keypoint loss factor and Euclidean distance loss for keypoints."""
-        d = (pred_kpts[..., 0] - gt_kpts[..., 0]).pow(2) + (pred_kpts[..., 1] - gt_kpts[..., 1]).pow(2)
-        kpt_loss_factor = kpt_mask.shape[1] / (torch.sum(kpt_mask != 0, dim=1) + 1e-9)
-        # e = d / (2 * (area * self.sigmas) ** 2 + 1e-9)  # from formula
-        e = d / ((2 * self.sigmas).pow(2) * (area + 1e-9) * 2)  # from cocoeval
-        return (kpt_loss_factor.view(-1, 1) * ((1 - torch.exp(-e)) * kpt_mask)).mean()
-
+from ultralytics.utils.loss import KeypointLoss
 initial_T = 8.0
 min_T = 2.0
 
@@ -2015,156 +1999,156 @@ class v8PoseLoss(v8DetectionLoss):
         
     #     return total_loss
 
-    def distillation_loss_fixed(self, student_outputs, teacher_outputs, T=3.0, feat_weight=0.5, pred_weight=1.0):
-        """
-        修正版蒸餾損失函數 - 解決同模型蒸餾問題
-        """
-        # 獲取學生和教師模型的特徵圖和預測
-        student_features = student_outputs[0]
-        teacher_features = teacher_outputs[0]
+    # def distillation_loss_fixed(self, student_outputs, teacher_outputs, T=3.0, feat_weight=0.5, pred_weight=1.0):
+    #     """
+    #     修正版蒸餾損失函數 - 解決同模型蒸餾問題
+    #     """
+    #     # 獲取學生和教師模型的特徵圖和預測
+    #     student_features = student_outputs[0]
+    #     teacher_features = teacher_outputs[0]
         
-        student_preds = student_outputs[1]  # [batch_size, 51, num_anchors]
-        teacher_preds = teacher_outputs[1]  # [batch_size, 51, num_anchors]
+    #     student_preds = student_outputs[1]  # [batch_size, 51, num_anchors]
+    #     teacher_preds = teacher_outputs[1]  # [batch_size, 51, num_anchors]
         
-        batch_size = student_preds.shape[0]
-        num_keypoints = 17
+    #     batch_size = student_preds.shape[0]
+    #     num_keypoints = 17
         
-        # 重塑預測張量
-        s_preds = student_preds.reshape(batch_size, num_keypoints, 3, -1)  # [B, 17, 3, A]
-        t_preds = teacher_preds.reshape(batch_size, num_keypoints, 3, -1)  # [B, 17, 3, A]
+    #     # 重塑預測張量
+    #     s_preds = student_preds.reshape(batch_size, num_keypoints, 3, -1)  # [B, 17, 3, A]
+    #     t_preds = teacher_preds.reshape(batch_size, num_keypoints, 3, -1)  # [B, 17, 3, A]
         
-        # 提取x、y座標和置信度
-        s_x = s_preds[:, :, 0, :]  # [B, 17, A]
-        s_y = s_preds[:, :, 1, :]  # [B, 17, A]
-        s_conf = s_preds[:, :, 2, :]  # [B, 17, A]
+    #     # 提取x、y座標和置信度
+    #     s_x = s_preds[:, :, 0, :]  # [B, 17, A]
+    #     s_y = s_preds[:, :, 1, :]  # [B, 17, A]
+    #     s_conf = s_preds[:, :, 2, :]  # [B, 17, A]
         
-        t_x = t_preds[:, :, 0, :]  # [B, 17, A]
-        t_y = t_preds[:, :, 1, :]  # [B, 17, A]
-        t_conf = t_preds[:, :, 2, :]  # [B, 17, A]
+    #     t_x = t_preds[:, :, 0, :]  # [B, 17, A]
+    #     t_y = t_preds[:, :, 1, :]  # [B, 17, A]
+    #     t_conf = t_preds[:, :, 2, :]  # [B, 17, A]
         
-        # 1. 特徵蒸餾損失 - 向量化操作
-        feat_loss = 0.0
-        for s_feat, t_feat in zip(student_features, teacher_features):
-            feat_loss += F.mse_loss(s_feat, t_feat)
-        feat_loss = feat_loss / len(student_features)
+    #     # 1. 特徵蒸餾損失 - 向量化操作
+    #     feat_loss = 0.0
+    #     for s_feat, t_feat in zip(student_features, teacher_features):
+    #         feat_loss += F.mse_loss(s_feat, t_feat)
+    #     feat_loss = feat_loss / len(student_features)
         
-        # 2. 坐標損失 - 簡單MSE
-        coord_loss = F.mse_loss(s_x, t_x) + F.mse_loss(s_y, t_y)
+    #     # 2. 坐標損失 - 簡單MSE
+    #     coord_loss = F.mse_loss(s_x, t_x) + F.mse_loss(s_y, t_y)
         
-        # 3. 結構損失 - 計算骨架結構一致性
-        # 定義關鍵點對
-        skeleton = torch.tensor([
-            [5, 6],    # 左右肩
-            [11, 12],  # 左右髖
-            [5, 11],   # 左肩到左髖
-            [6, 12]    # 右肩到右髖
-        ], device=student_preds.device)
+    #     # 3. 結構損失 - 計算骨架結構一致性
+    #     # 定義關鍵點對
+    #     skeleton = torch.tensor([
+    #         [5, 6],    # 左右肩
+    #         [11, 12],  # 左右髖
+    #         [5, 11],   # 左肩到左髖
+    #         [6, 12]    # 右肩到右髖
+    #     ], device=student_preds.device)
         
-        structure_loss = 0.0
-        for (a, b) in skeleton:
-            # 計算骨骼長度
-            s_bone_len = torch.sqrt((s_x[:, a, :] - s_x[:, b, :])**2 + (s_y[:, a, :] - s_y[:, b, :])**2)
-            t_bone_len = torch.sqrt((t_x[:, a, :] - t_x[:, b, :])**2 + (t_y[:, a, :] - t_y[:, b, :])**2)
+    #     structure_loss = 0.0
+    #     for (a, b) in skeleton:
+    #         # 計算骨骼長度
+    #         s_bone_len = torch.sqrt((s_x[:, a, :] - s_x[:, b, :])**2 + (s_y[:, a, :] - s_y[:, b, :])**2)
+    #         t_bone_len = torch.sqrt((t_x[:, a, :] - t_x[:, b, :])**2 + (t_y[:, a, :] - t_y[:, b, :])**2)
             
-            # 比較長度
-            structure_loss += F.mse_loss(s_bone_len, t_bone_len)
+    #         # 比較長度
+    #         structure_loss += F.mse_loss(s_bone_len, t_bone_len)
         
-        structure_loss = structure_loss / len(skeleton)
+    #     structure_loss = structure_loss / len(skeleton)
         
-        # 4. 修正的置信度損失 - 使用BCE損失而非KL散度
-        # 修正為直接使用BCE，避免溫度縮放問題
-        conf_loss = F.binary_cross_entropy_with_logits(s_conf, torch.sigmoid(t_conf))
+    #     # 4. 修正的置信度損失 - 使用BCE損失而非KL散度
+    #     # 修正為直接使用BCE，避免溫度縮放問題
+    #     conf_loss = F.binary_cross_entropy_with_logits(s_conf, torch.sigmoid(t_conf))
         
-        # 5. 組合損失 - 調整權重
-        pred_loss = coord_loss + 0.5 * structure_loss + 0.3 * conf_loss
-        total_loss = feat_weight * feat_loss + pred_weight * pred_loss
+    #     # 5. 組合損失 - 調整權重
+    #     pred_loss = coord_loss + 0.5 * structure_loss + 0.3 * conf_loss
+    #     total_loss = feat_weight * feat_loss + pred_weight * pred_loss
         
-        # 輸出損失值
-        loss_values = {
-            "coord_loss": coord_loss.item(),
-            "structure_loss": structure_loss.item(),
-            "conf_loss": conf_loss.item(),
-            "feat_loss": feat_loss.item(),
-            "total_loss": total_loss.item()
-        }
+    #     # 輸出損失值
+    #     loss_values = {
+    #         "coord_loss": coord_loss.item(),
+    #         "structure_loss": structure_loss.item(),
+    #         "conf_loss": conf_loss.item(),
+    #         "feat_loss": feat_loss.item(),
+    #         "total_loss": total_loss.item()
+    #     }
         
-        print("\n--- Loss Values ---")
-        for k, v in loss_values.items():
-            print(f"{k}: {v:.4f}")
+    #     print("\n--- Loss Values ---")
+    #     for k, v in loss_values.items():
+    #         print(f"{k}: {v:.4f}")
 
-        return total_loss
+    #     return total_loss
 
-    @staticmethod
-    def kpts_decode(anchor_points, pred_kpts):
-        """Decode predicted keypoints to image coordinates."""
-        y = pred_kpts.clone()
-        y[..., :2] *= 2.0
-        y[..., 0] += anchor_points[:, [0]] - 0.5
-        y[..., 1] += anchor_points[:, [1]] - 0.5
-        return y
+    # @staticmethod
+    # def kpts_decode(anchor_points, pred_kpts):
+    #     """Decode predicted keypoints to image coordinates."""
+    #     y = pred_kpts.clone()
+    #     y[..., :2] *= 2.0
+    #     y[..., 0] += anchor_points[:, [0]] - 0.5
+    #     y[..., 1] += anchor_points[:, [1]] - 0.5
+    #     return y
 
-    def calculate_keypoints_loss(
-        self, masks, target_gt_idx, keypoints, batch_idx, stride_tensor, target_bboxes, pred_kpts
-    ):
-        """
-        Calculate the keypoints loss for the model.
+    # def calculate_keypoints_loss(
+    #     self, masks, target_gt_idx, keypoints, batch_idx, stride_tensor, target_bboxes, pred_kpts
+    # ):
+    #     """
+    #     Calculate the keypoints loss for the model.
 
-        This function calculates the keypoints loss and keypoints object loss for a given batch. The keypoints loss is
-        based on the difference between the predicted keypoints and ground truth keypoints. The keypoints object loss is
-        a binary classification loss that classifies whether a keypoint is present or not.
+    #     This function calculates the keypoints loss and keypoints object loss for a given batch. The keypoints loss is
+    #     based on the difference between the predicted keypoints and ground truth keypoints. The keypoints object loss is
+    #     a binary classification loss that classifies whether a keypoint is present or not.
 
-        Args:
-            masks (torch.Tensor): Binary mask tensor indicating object presence, shape (BS, N_anchors).
-            target_gt_idx (torch.Tensor): Index tensor mapping anchors to ground truth objects, shape (BS, N_anchors).
-            keypoints (torch.Tensor): Ground truth keypoints, shape (N_kpts_in_batch, N_kpts_per_object, kpts_dim).
-            batch_idx (torch.Tensor): Batch index tensor for keypoints, shape (N_kpts_in_batch, 1).
-            stride_tensor (torch.Tensor): Stride tensor for anchors, shape (N_anchors, 1).
-            target_bboxes (torch.Tensor): Ground truth boxes in (x1, y1, x2, y2) format, shape (BS, N_anchors, 4).
-            pred_kpts (torch.Tensor): Predicted keypoints, shape (BS, N_anchors, N_kpts_per_object, kpts_dim).
+    #     Args:
+    #         masks (torch.Tensor): Binary mask tensor indicating object presence, shape (BS, N_anchors).
+    #         target_gt_idx (torch.Tensor): Index tensor mapping anchors to ground truth objects, shape (BS, N_anchors).
+    #         keypoints (torch.Tensor): Ground truth keypoints, shape (N_kpts_in_batch, N_kpts_per_object, kpts_dim).
+    #         batch_idx (torch.Tensor): Batch index tensor for keypoints, shape (N_kpts_in_batch, 1).
+    #         stride_tensor (torch.Tensor): Stride tensor for anchors, shape (N_anchors, 1).
+    #         target_bboxes (torch.Tensor): Ground truth boxes in (x1, y1, x2, y2) format, shape (BS, N_anchors, 4).
+    #         pred_kpts (torch.Tensor): Predicted keypoints, shape (BS, N_anchors, N_kpts_per_object, kpts_dim).
 
-        Returns:
-            kpts_loss (torch.Tensor): The keypoints loss.
-            kpts_obj_loss (torch.Tensor): The keypoints object loss.
-        """
-        batch_idx = batch_idx.flatten()
-        batch_size = len(masks)
+    #     Returns:
+    #         kpts_loss (torch.Tensor): The keypoints loss.
+    #         kpts_obj_loss (torch.Tensor): The keypoints object loss.
+    #     """
+    #     batch_idx = batch_idx.flatten()
+    #     batch_size = len(masks)
 
-        # Find the maximum number of keypoints in a single image
-        max_kpts = torch.unique(batch_idx, return_counts=True)[1].max()
+    #     # Find the maximum number of keypoints in a single image
+    #     max_kpts = torch.unique(batch_idx, return_counts=True)[1].max()
 
-        # Create a tensor to hold batched keypoints
-        batched_keypoints = torch.zeros(
-            (batch_size, max_kpts, keypoints.shape[1], keypoints.shape[2]), device=keypoints.device
-        )
+    #     # Create a tensor to hold batched keypoints
+    #     batched_keypoints = torch.zeros(
+    #         (batch_size, max_kpts, keypoints.shape[1], keypoints.shape[2]), device=keypoints.device
+    #     )
 
-        # TODO: any idea how to vectorize this?
-        # Fill batched_keypoints with keypoints based on batch_idx
-        for i in range(batch_size):
-            keypoints_i = keypoints[batch_idx == i]
-            batched_keypoints[i, : keypoints_i.shape[0]] = keypoints_i
+    #     # TODO: any idea how to vectorize this?
+    #     # Fill batched_keypoints with keypoints based on batch_idx
+    #     for i in range(batch_size):
+    #         keypoints_i = keypoints[batch_idx == i]
+    #         batched_keypoints[i, : keypoints_i.shape[0]] = keypoints_i
 
-        # Expand dimensions of target_gt_idx to match the shape of batched_keypoints
-        target_gt_idx_expanded = target_gt_idx.unsqueeze(-1).unsqueeze(-1)
+    #     # Expand dimensions of target_gt_idx to match the shape of batched_keypoints
+    #     target_gt_idx_expanded = target_gt_idx.unsqueeze(-1).unsqueeze(-1)
 
-        # Use target_gt_idx_expanded to select keypoints from batched_keypoints
-        selected_keypoints = batched_keypoints.gather(
-            1, target_gt_idx_expanded.expand(-1, -1, keypoints.shape[1], keypoints.shape[2])
-        )
+    #     # Use target_gt_idx_expanded to select keypoints from batched_keypoints
+    #     selected_keypoints = batched_keypoints.gather(
+    #         1, target_gt_idx_expanded.expand(-1, -1, keypoints.shape[1], keypoints.shape[2])
+    #     )
 
-        # Divide coordinates by stride
-        selected_keypoints[..., :2] /= stride_tensor.view(1, -1, 1, 1)
+    #     # Divide coordinates by stride
+    #     selected_keypoints[..., :2] /= stride_tensor.view(1, -1, 1, 1)
 
-        kpts_loss = 0
-        kpts_obj_loss = 0
+    #     kpts_loss = 0
+    #     kpts_obj_loss = 0
 
-        if masks.any():
-            gt_kpt = selected_keypoints[masks]
-            area = xyxy2xywh(target_bboxes[masks])[:, 2:].prod(1, keepdim=True)
-            pred_kpt = pred_kpts[masks]
-            kpt_mask = gt_kpt[..., 2] != 0 if gt_kpt.shape[-1] == 3 else torch.full_like(gt_kpt[..., 0], True)
-            kpts_loss = self.keypoint_loss(pred_kpt, gt_kpt, kpt_mask, area)  # pose loss
+    #     if masks.any():
+    #         gt_kpt = selected_keypoints[masks]
+    #         area = xyxy2xywh(target_bboxes[masks])[:, 2:].prod(1, keepdim=True)
+    #         pred_kpt = pred_kpts[masks]
+    #         kpt_mask = gt_kpt[..., 2] != 0 if gt_kpt.shape[-1] == 3 else torch.full_like(gt_kpt[..., 0], True)
+    #         kpts_loss = self.keypoint_loss(pred_kpt, gt_kpt, kpt_mask, area)  # pose loss
 
-            if pred_kpt.shape[-1] == 3:
-                kpts_obj_loss = self.bce_pose(pred_kpt[..., 2], kpt_mask.float())  # keypoint obj loss
+    #         if pred_kpt.shape[-1] == 3:
+    #             kpts_obj_loss = self.bce_pose(pred_kpt[..., 2], kpt_mask.float())  # keypoint obj loss
 
-        return kpts_loss, kpts_obj_loss
+    #     return kpts_loss, kpts_obj_loss
