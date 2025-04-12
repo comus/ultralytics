@@ -37,6 +37,6 @@ results = model.train(
 
 
     teacher=YOLO("yolo11m-pose.pt").model,
-    distill=20.0,
+    distill=8.0,
     freezeAllBN=False,
 )

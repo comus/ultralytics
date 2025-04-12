@@ -160,11 +160,11 @@ class v8PoseLoss(v8DetectionLoss):
             loss[5] = torch.zeros(1, device=self.device, requires_grad=True)
 
         if hasattr(self.model, 'epoch') and self.model.epoch < 5:  # 0, 1, 2, 3, 4
-            supervision_weight = 0.1
-            distill_weight = 0.9
+            supervision_weight = 0.8  # 監督為主
+            distill_weight = 0.2      # 蒸餾為輔
         else:  # 5及以上
-            supervision_weight = 0.0  
-            distill_weight = 1.0
+            supervision_weight = 0.6
+            distill_weight = 0.4
 
         loss[0] *= supervision_weight* self.hyp.box  # box gain
         loss[1] *= supervision_weight* self.hyp.pose  # pose gain
@@ -354,8 +354,8 @@ class v8PoseLoss(v8DetectionLoss):
             
             # 添加精確定位損失 - 在x_diff和y_diff計算後添加
             # 小差異使用L1損失提供更強梯度
-            small_diff_mask_x = (x_diff**2 < 0.01)
-            small_diff_mask_y = (y_diff**2 < 0.01)
+            small_diff_mask_x = (x_diff**2 < 0.005)
+            small_diff_mask_y = (y_diff**2 < 0.005)
             precise_x_loss = torch.where(small_diff_mask_x, torch.abs(x_diff), torch.zeros_like(x_diff))
             precise_y_loss = torch.where(small_diff_mask_y, torch.abs(y_diff), torch.zeros_like(y_diff))
 
@@ -379,7 +379,7 @@ class v8PoseLoss(v8DetectionLoss):
             ], device=student_preds.device)
             
             # 骨架重要性權重 - 軀幹骨架權重更高
-            skeleton_weights = torch.tensor([1.5, 1.5, 1.0, 1.0, 0.7, 0.7], device=student_preds.device)
+            skeleton_weights = torch.tensor([2.0, 2.0, 1.2, 1.2, 0.6, 0.6], device=student_preds.device)
             
             a_idx, b_idx = skeleton[:, 0], skeleton[:, 1]
             
@@ -496,7 +496,7 @@ class v8PoseLoss(v8DetectionLoss):
                 feat_loss = feat_loss * 0.05  # 大幅降低特徵損失
             
             # 組合所有損失
-            pred_loss = coord_loss + 0.8 * structure_loss + 0.5 * conf_loss + 0.6 * rel_pos_loss
+            pred_loss = coord_loss + 1.2 * structure_loss + 0.5 * conf_loss + 1.0 * rel_pos_loss
             total_loss = adaptive_feat_weight * feat_loss + adaptive_pred_weight * pred_loss
             
             # 【新增】早期停止損失計算的額外檢查
