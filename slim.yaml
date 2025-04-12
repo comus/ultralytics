@@ -42,4 +42,4 @@ head:
   - [-1, 1, RepC3, [192, 1, 0.8]]               # 22
 
   # 精度優先的姿態頭
-  - [[16, 19, 22], 1, PrecisionPose, [nc, kpt_shape]]  # 23
+  - [[16, 19, 22], 1, Pose, [nc, kpt_shape]]  # 23
