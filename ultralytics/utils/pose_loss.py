@@ -19,30 +19,28 @@ from ultralytics.utils.tal import RotatedTaskAlignedAssigner, TaskAlignedAssigne
 from ultralytics.utils.torch_utils import autocast
 from ultralytics.utils.loss import KeypointLoss
 
-initial_T = 4.0
-min_T = 2.0
-
-def update_temperature(current_epoch, total_epochs, initial_T=8.0, min_T=2.0):
-    """根據當前epoch調整溫度
-    
-    Args:
-        current_epoch: 當前epoch索引(從0開始)
-        total_epochs: 總epoch數
-        initial_T: 初始溫度
-        min_T: 最小溫度
-    
-    Returns:
-        float: 當前epoch的溫度值
-    """
+def update_temperature(current_epoch, total_epochs, initial_T=4.0, min_T=2.0):
+    """根據當前epoch調整溫度 - 使用非線性降溫曲線，考慮epoch從0開始"""
     # 確保在最後一個epoch時達到最小溫度
     if total_epochs <= 1:
         return min_T  # 防止只有一個epoch的情況
     
-    # 正規化epoch進度(0到1)
+    # 正規化epoch進度(0到1)，考慮epoch從0開始
     progress = current_epoch / (total_epochs - 1) if total_epochs > 1 else 1.0
     
+    # 使用調整後的進度曲線 - S型曲線使降溫在中期更快
+    if progress < 0.3:
+        # 前30%保持較高溫度
+        adjusted_progress = progress * 0.2  # 緩慢降溫
+    elif progress < 0.7:
+        # 中間40%快速降溫
+        adjusted_progress = 0.2 + (progress - 0.3) * 1.5
+    else:
+        # 後30%緩慢降至最低溫度
+        adjusted_progress = 0.8 + (progress - 0.7) * 0.67
+    
     # 使用指數衰減計算溫度
-    T = initial_T * (min_T / initial_T) ** progress
+    T = initial_T * (min_T / initial_T) ** adjusted_progress
     
     return T
 
@@ -161,16 +159,23 @@ class v8PoseLoss(v8DetectionLoss):
         else:
             loss[5] = torch.zeros(1, device=self.device, requires_grad=True)
 
-        loss[0] *= self.hyp.box  # box gain
-        loss[1] *= self.hyp.pose  # pose gain
-        loss[2] *= self.hyp.kobj  # kobj gain
-        loss[3] *= self.hyp.cls  # cls gain
-        loss[4] *= self.hyp.dfl  # dfl gain
-        loss[5] *= self.hyp.distill
+        if hasattr(self.model, 'epoch') and self.model.epoch < 5:  # 0, 1, 2, 3, 4
+            supervision_weight = 0.1
+            distill_weight = 0.9
+        else:  # 5及以上
+            supervision_weight = 0.0  
+            distill_weight = 1.0
+
+        loss[0] *= supervision_weight* self.hyp.box  # box gain
+        loss[1] *= supervision_weight* self.hyp.pose  # pose gain
+        loss[2] *= supervision_weight* self.hyp.kobj  # kobj gain
+        loss[3] *= supervision_weight* self.hyp.cls  # cls gain
+        loss[4] *= supervision_weight* self.hyp.dfl  # dfl gain
+        loss[5] *= distill_weight* self.hyp.distill
 
         return loss * batch_size, loss.detach()  # loss(box, cls, dfl)
     
-    def pose_distillation_loss_enhanced(self, student_outputs, teacher_outputs, T=3.0, feat_weight=0.2, pred_weight=0.4):
+    def pose_distillation_loss_enhanced(self, student_outputs, teacher_outputs, T=3.0, feat_weight=0.3, pred_weight=0.6):
         """
         增強版姿態蒸餾損失函數：
         1. 重新加入溫度調節機制
@@ -183,7 +188,7 @@ class v8PoseLoss(v8DetectionLoss):
         8. 早期停止機制 
         """
         epsilon = 1e-8
-        tolerance = 1e-6  # 數值穩定性容忍閾值
+        tolerance = 1e-8  # 數值穩定性容忍閾值
         
         try:
             # 【新增】早期停止機制
@@ -237,21 +242,6 @@ class v8PoseLoss(v8DetectionLoss):
             total_epochs = getattr(self.model, 'epochs', 100) if hasattr(self, 'model') else 100
             is_first_batch_in_epoch = getattr(self.model, 'is_first_batch_in_epoch', False) if hasattr(self, 'model') else False
 
-            # if is_first_batch_in_epoch:
-            #     print("\n=== Feature Maps Shapes ===")
-            #     for i, (s_f, t_f) in enumerate(zip(student_features, teacher_features)):
-            #         print(f"Layer {i}: Student shape {s_f.shape}, Teacher shape {t_f.shape}")
-
-            # if is_first_batch_in_epoch:
-            #     print("\n=== Channel Value Ranges ===")
-            #     print(f"X channels - min: {s_x.min().item():.4f}, max: {s_x.max().item():.4f}")
-            #     print(f"Y channels - min: {s_y.min().item():.4f}, max: {s_y.max().item():.4f}")
-            #     print(f"Conf channels - min: {s_conf.min().item():.4f}, max: {s_conf.max().item():.4f}")
-                
-            #     # 檢查置信度通道是否符合預期
-            #     conf_sigmoid = torch.sigmoid(s_conf)
-            #     print(f"Sigmoid(Conf) - min: {conf_sigmoid.min().item():.4f}, max: {conf_sigmoid.max().item():.4f}")
-            
             # 計算訓練進度比例
             progress = calculate_progress(current_epoch, total_epochs)
             
@@ -265,51 +255,6 @@ class v8PoseLoss(v8DetectionLoss):
                 last_feat_loss = self.last_loss_values.get('feat_loss', 1.0)
                 if last_feat_loss < 0.01:  # 特徵損失已經很小
                     simplified_feature_distill = True
-            
-            # # 動態調整選擇的特徵層數量 - 從多到少
-            # if max_len >= 4 and not simplified_feature_distill:
-            #     # 初期選擇更多層，後期集中於關鍵層
-            #     start_layers = min(max_len, 5)  # 初始階段最多選5層
-            #     end_layers = 3                  # 最終階段選3層
-                
-            #     # 隨著訓練進行逐漸減少層數
-            #     num_layers = int(start_layers - (start_layers - end_layers) * progress)
-                
-            #     if progress < 0.3:  # 訓練初期 - 均勻選取多層
-            #         # 均勻選擇層
-            #         indices = np.linspace(0, max_len-1, num_layers, dtype=int).tolist()
-            #     elif progress < 0.7:  # 訓練中期 - 傾向選取中間層和深層
-            #         # 選擇一個淺層，其餘選擇較深的層
-            #         indices = [0]  # 始終包含第一層
-            #         deep_indices = np.linspace(max_len//3, max_len-1, num_layers-1, dtype=int).tolist()
-            #         indices.extend(deep_indices)
-            #     else:  # 訓練後期 - 專注於關鍵層
-            #         # 固定選擇首層、中間層和末層
-            #         indices = [0, max_len//2, max_len-1]
-                    
-            #         # 如果需要更多層，在深層區域增加
-            #         if num_layers > 3:
-            #             extra_deep = np.linspace(max_len//2, max_len-2, num_layers-3, dtype=int).tolist()
-            #             indices = sorted(list(set(indices + extra_deep)))  # 去重並排序
-            # else:
-            #     # 如果層數較少或使用簡化蒸餾，選擇關鍵層
-            #     if simplified_feature_distill and max_len >= 3:
-            #         # 簡化模式：只使用首層、中間層和末層
-            #         indices = [0, max_len//2, max_len-1]
-            #     else:
-            #         # 層數少時全部使用
-            #         indices = list(range(max_len))
-
-            # # 動態調整選擇的特徵層數量 - 初期只使用淺層
-            # if current_epoch < 2:
-            #     # 初期只使用淺層特徵
-            #     indices = [0]
-            # elif current_epoch < total_epochs // 2:
-            #     # 中期使用兩層特徵
-            #     indices = [0, 1] if max_len > 1 else [0]
-            # else:
-            #     # 後期使用全部特徵層
-            #     indices = list(range(max_len))
 
             # 在第6-7個epoch擴展到所有特徵層
             if current_epoch < 6:
@@ -406,7 +351,21 @@ class v8PoseLoss(v8DetectionLoss):
             
             # 避免分母為零
             total_weight = coord_weights.sum() + epsilon
-            coord_loss = (weighted_x_diff.sum() + weighted_y_diff.sum()) / total_weight
+            
+            # 添加精確定位損失 - 在x_diff和y_diff計算後添加
+            # 小差異使用L1損失提供更強梯度
+            small_diff_mask_x = (x_diff**2 < 0.01)
+            small_diff_mask_y = (y_diff**2 < 0.01)
+            precise_x_loss = torch.where(small_diff_mask_x, torch.abs(x_diff), torch.zeros_like(x_diff))
+            precise_y_loss = torch.where(small_diff_mask_y, torch.abs(y_diff), torch.zeros_like(y_diff))
+
+            # 將精確定位損失添加到加權損失中
+            weighted_precise_x = precise_x_loss * coord_weights * 5.0  # 增強精確定位信號
+            weighted_precise_y = precise_y_loss * coord_weights * 5.0
+
+            # 修改coord_loss計算
+            coord_loss = (weighted_x_diff.sum() + weighted_y_diff.sum() + 
+                        weighted_precise_x.sum() + weighted_precise_y.sum()) / total_weight
             
             # 3. 結構損失 - 優化骨架選擇和權重
             # 【改進5】擴展骨架集合並按重要性加權
@@ -459,6 +418,41 @@ class v8PoseLoss(v8DetectionLoss):
                 # 安全平均
                 total_bone_weight = (bone_conf * skeleton_weights.unsqueeze(0).unsqueeze(-1)).sum() + epsilon
                 structure_loss = weighted_bone_diff.sum() / total_bone_weight
+
+            # 添加相對位置和方向約束
+            # 使用上面已經計算的a_idx和b_idx
+            rel_pos_loss = torch.tensor(0.0, device=student_preds.device)
+
+            for pair_idx in range(len(a_idx)):
+                i, j = a_idx[pair_idx], b_idx[pair_idx]
+                
+                # 計算相對位置向量
+                s_vec_x = s_x[:, i].unsqueeze(-1) - s_x[:, j].unsqueeze(-1)
+                s_vec_y = s_y[:, i].unsqueeze(-1) - s_y[:, j].unsqueeze(-1)
+                
+                t_vec_x = t_x[:, i].unsqueeze(-1) - t_x[:, j].unsqueeze(-1)
+                t_vec_y = t_y[:, i].unsqueeze(-1) - t_y[:, j].unsqueeze(-1)
+                
+                # 向量長度
+                s_norm = torch.sqrt(s_vec_x**2 + s_vec_y**2 + epsilon)
+                t_norm = torch.sqrt(t_vec_x**2 + t_vec_y**2 + epsilon)
+                
+                # 歸一化向量
+                s_dir_x = s_vec_x / s_norm
+                s_dir_y = s_vec_y / s_norm
+                t_dir_x = t_vec_x / t_norm
+                t_dir_y = t_vec_y / t_norm
+                
+                # 方向差異
+                dir_diff = 1.0 - (s_dir_x * t_dir_x + s_dir_y * t_dir_y)
+                
+                # 加權
+                weighted_dir_diff = dir_diff * bone_conf[:, pair_idx].unsqueeze(-1) * skeleton_weights[pair_idx]
+                rel_pos_loss = rel_pos_loss + weighted_dir_diff.sum()
+
+            # 安全平均
+            rel_pos_loss = rel_pos_loss / (total_bone_weight + epsilon)
+
             
             # 4. 【改進7】使用KL散度的置信度損失，加入溫度調節
             # 【新增】數值穩定性檢查
@@ -488,10 +482,10 @@ class v8PoseLoss(v8DetectionLoss):
             # 【修改】自適應權重 - 初期大幅降低特徵損失權重
             if current_epoch < 2:
                 # 初期極低特徵權重，避免過度蒸餾
-                base_feat_weight = feat_weight * 0.1
+                base_feat_weight = feat_weight * 0.15
             else:
                 # 隨著訓練進行逐漸恢復權重
-                base_feat_weight = feat_weight * (0.1 + 0.9 * min(1.0, (current_epoch - 2) / (total_epochs - 2)))
+                base_feat_weight = feat_weight * (0.15 + 0.85 * min(1.0, (current_epoch - 2) / (total_epochs - 2) * 1.5))
                 
             # 低置信度時更信任特徵蒸餾，高置信度時更信任輸出蒸餾
             adaptive_feat_weight = base_feat_weight * (1.0 - avg_teacher_conf.item())
@@ -502,7 +496,7 @@ class v8PoseLoss(v8DetectionLoss):
                 feat_loss = feat_loss * 0.05  # 大幅降低特徵損失
             
             # 組合所有損失
-            pred_loss = coord_loss + 0.5 * structure_loss + 0.5 * conf_loss
+            pred_loss = coord_loss + 0.8 * structure_loss + 0.5 * conf_loss + 0.6 * rel_pos_loss
             total_loss = adaptive_feat_weight * feat_loss + adaptive_pred_weight * pred_loss
             
             # 【新增】早期停止損失計算的額外檢查

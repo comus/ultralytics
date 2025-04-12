@@ -29,11 +29,11 @@ results = model.train(
     multi_scale=True,            # 重新啟用多尺度訓練
 
 
-    kobj=0.0,               # 关键点损失权重
-    pose=0.0,              # 姿态损失权重
-    box=0.0,               # 框损失权重
-    cls=0.0,               # 类别损失权重
-    dfl=0.0,               # 目标置信度损失权重
+    kobj=1.0,               # 关键点损失权重
+    pose=12.0,              # 姿态损失权重
+    box=7.5,               # 框损失权重
+    cls=0.5,               # 类别损失权重
+    dfl=1.5,               # 目标置信度损失权重
 
 
     teacher=YOLO("yolo11x-pose.pt").model,
