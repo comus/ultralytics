@@ -1477,6 +1477,47 @@ class C2LitePSA(nn.Module):
         b = self.m(b)
         return self.cv2(torch.cat((a, b), 1))
 
+class LightC2f(nn.Module):
+    """輕量化C2f，替代C2PSA"""
+    
+    def __init__(self, c1, c2=None, n=1, shortcut=False, g=1, e=0.5):
+        super().__init__()
+        c2 = c2 or c1
+        self.c = int(c1 * e)  # 隱藏通道
+        self.cv1 = Conv(c1, 2 * self.c, 1, 1)
+        self.cv2 = Conv((2 + n) * self.c, c2, 1)
+        
+        # 使用官方RepConv
+        self.m = nn.ModuleList(RepConv(self.c, self.c) for _ in range(n))
+        
+        # 加入輕量注意力
+        self.se = SELayer(c2, reduction=16)
+        
+    def forward(self, x):
+        """前向傳播，高效特徵融合"""
+        y = list(self.cv1(x).chunk(2, 1))
+        y.extend(m(y[-1]) for m in self.m)
+        out = self.cv2(torch.cat(y, 1))
+        return self.se(out)  # 應用通道注意力
+
+class SELayer(nn.Module):
+    """Squeeze-and-Excitation注意力"""
+    def __init__(self, channel, reduction=16):
+        super().__init__()
+        self.avg_pool = nn.AdaptiveAvgPool2d(1)
+        self.fc = nn.Sequential(
+            nn.Linear(channel, channel // reduction, bias=False),
+            nn.SiLU(inplace=True),
+            nn.Linear(channel // reduction, channel, bias=False),
+            nn.Sigmoid()
+        )
+
+    def forward(self, x):
+        b, c, _, _ = x.shape
+        y = self.avg_pool(x).view(b, c)
+        y = self.fc(y).view(b, c, 1, 1)
+        return x * y.expand_as(x)
+
 class C2PSA(nn.Module):
     """
     C2PSA module with attention mechanism for enhanced feature extraction and processing.
