@@ -1,31 +1,36 @@
 from ultralytics import YOLO
 
-# 使用更穩定的訓練設置
+# Load the pretrained model
 model = YOLO("yolo11-pose-lite/train/weights/best.pt")
+
+# 极端保守策略：完全冻结特征提取器，仅训练最后的输出层
 results = model.train(
     data="coco-pose.yaml",
-    epochs=10,
-    imgsz=640,
-    batch=16,               # 降低批次大小
-    save_period=1,
-    lr0=0.0005,             # 降低學習率
-    lrf=0.01,
-    optimizer="SGD",        # 改用SGD優化器，更穩定
-    momentum=0.937,
-    weight_decay=0.0005,
-    warmup_epochs=2.0,      # 延長預熱
-    freeze=12,              # 凍結更多層
-    mosaic=0.0,
-    degrees=0.0,            # 禁用旋轉
-    translate=0.1,
-    scale=0.5,
-    val=True,
-    device=0,
-    workers=8,
-    amp=False,              # 關閉混合精度，避免數值問題
-    kobj=1.0,               # 降低權重
-    pose=10.0,              # 降低權重
-    box=0.5,
+    epochs=10,              # 减少轮数，集中训练头部
+    imgsz=640,              # 标准图像尺寸
+    batch=64,               # 降回稍小的批量避免过度波动
+    save=True,
+    save_period=1,          # 每轮保存检查点
+    cache="disk",
+    lr0=0.00005,            # 极低的学习率
+    lrf=0.0005,             # 极低的最终学习率
+    warmup_epochs=0.0,      # 无需预热
+    patience=10,            # 快速早停
+    optimizer="AdamW",      # 适合微调的优化器  
+    weight_decay=0.0,       # 禁用权重衰减，完全保留权重
+    cos_lr=True,            # 余弦调度
+    freeze=22,              # 冻结整个特征提取网络，只训练最后的Pose输出层(从模型结构可知)
+    augment=False,          # 关闭增强
+    val=True,               # 验证
+    plots=True,             # 性能图表
+    device=0,               # RTX 4090
+    workers=8,              # 减少工作线程
+    multi_scale=False,      # 关闭多尺度
+    amp=True,               # 混合精度
+    overlap_mask=True,      # 关键点重叠处理
+    kobj=2.0,               # 关键点损失权重
+    pose=12.0,              # 姿态损失权重
+
 
     project="yolo11-pose-lite",
     name="train-stage2",
