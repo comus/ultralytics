@@ -1,41 +1,59 @@
 from ultralytics import YOLO
 
-# Load the pretrained model
+# 載入最佳模型
 model = YOLO("yolo11-pose-lite/train/weights/best.pt")
 
-# 极端保守策略：完全冻结特征提取器，仅训练最后的输出层
+# 優化配置：完全解凍所有層，適度學習率
 results = model.train(
     data="coco-pose.yaml",
-    epochs=10,              # 减少轮数，集中训练头部
-    imgsz=640,              # 标准图像尺寸
-    batch=64,               # 降回稍小的批量避免过度波动
+    epochs=10,                # 較長訓練週期以充分優化
+    imgsz=640,
+    batch=64,
     save=True,
-    save_period=1,          # 每轮保存检查点
     cache="disk",
-    lr0=0.00005,            # 极低的学习率
-    lrf=0.0005,             # 极低的最终学习率
-    warmup_epochs=0.0,      # 无需预热
-    patience=10,            # 快速早停
-    optimizer="AdamW",      # 适合微调的优化器  
-    weight_decay=0.0,       # 禁用权重衰减，完全保留权重
-    cos_lr=True,            # 余弦调度
-    freeze=16,              # 冻结整个特征提取网络，只训练最后的Pose输出层(从模型结构可知)
-    augment=False,          # 关闭增强
-    val=True,               # 验证
-    plots=True,             # 性能图表
-    device=0,               # RTX 4090
-    workers=8,              # 减少工作线程
-    multi_scale=False,      # 关闭多尺度
-    amp=True,               # 混合精度
-    overlap_mask=True,      # 关键点重叠处理
-    kobj=2.0,               # 关键点损失权重
-    pose=12.0,              # 姿态损失权重
-
-
+    
+    # 正確設置學習率
+    lr0=0.001,                # 第二次訓練使用較小的初始學習率
+    lrf=0.1,                  # 最終學習率為初始值的10%，比標準衰減溫和些
+    optimizer="AdamW",
+    weight_decay=0.0005,
+    cos_lr=True,
+    freeze=0,                 # 完全解凍所有層
+    
+    # 數據增強部分
+    multi_scale=True,
+    scale=0.3,
+    mosaic=0.5,
+    degrees=10.0,
+    translate=0.15,
+    fliplr=0.5,
+    hsv_h=0.02,
+    hsv_s=0.15,
+    hsv_v=0.15,
+    
+    # 損失權重
+    kobj=2.5,
+    pose=14.0,
+    
+    # 訓練穩定性參數
+    nbs=64,
+    warmup_epochs=1.0,
+    warmup_momentum=0.8,
+    patience=15,
+    save_period=1,
+    
+    # 環境設置
+    device=0,
+    workers=16,
+    amp=True,
+    overlap_mask=True,
+    
+    # 項目設置
     project="yolo11-pose-lite",
     name="train-stage2-distill",
     exist_ok=True,
-
+    
+    # BN層設置
     teacher=YOLO("yolo11x-pose.pt").model,
     distill=1.0,
     freezeAllBN=True,
