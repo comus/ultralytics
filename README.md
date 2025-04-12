@@ -149,7 +149,7 @@ lite summary: 171 layers, 805,820 parameters, 805,804 gradients, 3.0 GFLOPs
 - 訓練參數：看 train_lite.py
   - 參數說明看官方的文檔 https://docs.ultralytics.com/usage/cfg/#train-settings
 
-第一次訓練，經過 60 epochs 後，pose mAP50-95=0.209
+第一次訓練，經過 60 epochs 後，pose mAP50-95=0.231
 
 <details>
 <summary>訓練過程</summary>
@@ -1056,6 +1056,22 @@ https://github.com/comus/ultralytics/pull/6/files
 - 叫 AI 替你改訓練參數
 
 3. 然後運行 `train.py`
+
+
+# 下一步
+
+分三個部分
+
+1. 針對第一次訓練的 best.pt, 再訓練多 10 epochs
+2. 使用蒸餾損失函數 ＋ 監督損失函數，將大模型蒸餾到小模型
+3. 只使用蒸餾損失函數（純蒸餾），將大模型蒸餾到小模型
+
+
+
+
+
+
+
 
 ---
 
