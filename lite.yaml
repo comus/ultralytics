@@ -3,6 +3,8 @@
 nc: 80  # number of classes
 kpt_shape: [17, 3]  # [number of keypoints, number of dims per keypoint]
 
+task: "pose"
+
 # 模型縮放係數設定
 scales: # model compound scaling constants
   # [depth, width, max_channels]
