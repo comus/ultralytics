@@ -3,8 +3,6 @@
 nc: 80  # number of classes
 kpt_shape: [17, 3]  # [number of keypoints, number of dims per keypoint]
 
-task: "pose"
-
 # 模型縮放係數設定
 scales: # model compound scaling constants
   # [depth, width, max_channels]
@@ -50,4 +48,4 @@ head:
   - [-1, 2, C3k2, [512, False, 0.5]]            # 26
 
   # 使用增強姿態頭
-  - [[18, 22, 26], 1, EnhancedPose, [nc, kpt_shape]]  # 27
+  - [[18, 22, 26], 1, Pose, [nc, kpt_shape]]  # 27
