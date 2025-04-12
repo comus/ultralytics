@@ -91,6 +91,30 @@ https://poe.com/s/gMxZfYKFOLfz7iQEr7vo
 - 模型架構：自己看 base.yaml
 - 訓練參數：看 train_base.py
 
+## 如何用我的程式碼
+
+```
+git clone https://github.com/comus/ultralytics
+cd ultralytics
+conda create -n yolo python=3.11
+conda activate yolo
+pip install ultralytics psutil requests seaborn pandas numpy scikit-learn pycocotools mlx onnxruntime tqdm pyyaml opencv-python matplotlib
+pip install torch torchvision
+
+# 之後運行 python 檔案, predict.py 或者訓練的程式或者驗證的程式
+python predict.py
+```
+
+
+
+
+
+---
+
+=========================== 以下未開始做 ============================
+
+---
+
 # 方向二，在訓練小模型時，使用蒸餾
 
 這兩個模型訓練過程，我會使用蒸餾損失函數，將大模型蒸餾到小模型
