@@ -383,21 +383,19 @@ class Pose(Detect):
         # 骨架精煉器
         self.kpt_refiner = AdvancedPoseRefiner(kpt_shape[0])
         
-        # 特徵融合權重
+        # 特徵融合權重 - 針對不同層分配權重
         self.fusion_weights = nn.Parameter(torch.ones(self.nl) / self.nl)
     
     def forward(self, x):
         """前向傳播過程"""
         bs = x[0].shape[0]  # 批次大小
         
-        # 自適應融合多尺度特徵
+        # 修改點 1: 使用 torch.cat 而不是嘗試相加
+        # 獲取所有特徵層的關鍵點預測並展平為 (bs, nk, -1) 形狀
         kpt_features = [self.cv4[i](x[i]).view(bs, self.nk, -1) for i in range(self.nl)]
-        fusion_weights = F.softmax(self.fusion_weights, dim=0)
         
-        # 加權融合關鍵點特徵
-        kpt = torch.zeros_like(kpt_features[0])
-        for i, feat in enumerate(kpt_features):
-            kpt += feat * fusion_weights[i]
+        # 修改點 2: 在最後一個維度上拼接所有關鍵點特徵
+        kpt = torch.cat(kpt_features, -1)  # 拼接而不是相加
         
         # 標準檢測頭前向傳播
         for i in range(self.nl):
