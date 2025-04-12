@@ -332,7 +332,8 @@ class Pose(Detect):
     """增強型姿態頭，專為無蒸餾訓練優化"""
     
     def __init__(self, nc=80, kpt_shape=(17, 3), ch=()):
-        super().__init__()
+        super().__init__(nc, ch)
+
         self.nc = nc  # 類別數
         self.kpt_shape = kpt_shape  # 關鍵點形狀
         self.nl = len(ch)  # 特徵層數量
