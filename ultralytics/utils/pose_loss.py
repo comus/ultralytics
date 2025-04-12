@@ -300,16 +300,22 @@ class v8PoseLoss(v8DetectionLoss):
             #         # 層數少時全部使用
             #         indices = list(range(max_len))
 
-            # 動態調整選擇的特徵層數量 - 初期只使用淺層
-            if current_epoch < 2:
-                # 初期只使用淺層特徵
-                indices = [0]
-            elif current_epoch < total_epochs // 2:
-                # 中期使用兩層特徵
-                indices = [0, 1] if max_len > 1 else [0]
+            # # 動態調整選擇的特徵層數量 - 初期只使用淺層
+            # if current_epoch < 2:
+            #     # 初期只使用淺層特徵
+            #     indices = [0]
+            # elif current_epoch < total_epochs // 2:
+            #     # 中期使用兩層特徵
+            #     indices = [0, 1] if max_len > 1 else [0]
+            # else:
+            #     # 後期使用全部特徵層
+            #     indices = list(range(max_len))
+
+            # 在第6-7個epoch擴展到所有特徵層
+            if current_epoch < 6:
+                indices = [0, 1] if current_epoch >= 3 else [0]
             else:
-                # 後期使用全部特徵層
-                indices = list(range(max_len))
+                indices = [0, 1, 2]  # 使用所有層
             
             # 確保索引唯一且有序
             indices = sorted(list(set(indices)))
