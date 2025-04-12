@@ -1452,7 +1452,17 @@ def parse_model(d, ch, verbose=True):  # model_dict, input_channels(3)
 
             args = [c1, c2, *args[1:]]
             if m in repeat_modules:
-                args.insert(2, n)  # number of repeats
+                # 特殊處理 RepC3 模組
+                if m is RepC3:
+                    # 檢查 YAML 中的參數數量
+                    if len(args) == 3:  # 如果 YAML 已經包含 [c1, c2, n, e]
+                        # 不需要插入額外的 n，直接使用第三個參數作為 n
+                        n = args[2]
+                        args = [args[0], args[1], args[2]]  # 保留[c1, c2, n]
+                    else:  # 如果 YAML 格式是 [c1, c2, e]
+                        args = [args[0], args[1], n, args[2]]  # 插入 n 為 [c1, c2, n, e]
+                else:  # 其他 repeat_modules 的標準處理
+                    args.insert(2, n)  # number of repeats
                 n = 1
             if m is C3k2:  # for M/L/X sizes
                 legacy = False
@@ -1500,9 +1510,6 @@ def parse_model(d, ch, verbose=True):  # model_dict, input_channels(3)
             args = [*args[1:]]
         else:
             c2 = ch[f]
-
-        if m is RepC3:
-            print(f"RepC3 parameters: {args}")
 
         m_ = torch.nn.Sequential(*(m(*args) for _ in range(n))) if n > 1 else m(*args)  # module
         t = str(m)[8:-2].replace("__main__.", "")  # module type
