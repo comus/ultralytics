@@ -24,7 +24,7 @@ results = model.train(
     plots=True,
     save_period=1,              # 每10個epoch保存一次
     project="yolo11-pose-lite",
-    name="train-distill",
+    name="train-distill-improve",
     exist_ok=True,
     multi_scale=True,            # 重新啟用多尺度訓練
 
