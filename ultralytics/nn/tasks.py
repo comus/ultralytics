@@ -16,6 +16,7 @@ from ultralytics.nn.modules import (
     C1,
     C2,
     C2PSA,
+    C2LitePSA,
     C3,
     C3TR,
     ELAN1,
@@ -1378,6 +1379,7 @@ def parse_model(d, ch, verbose=True):  # model_dict, input_channels(3)
             SPPF,
             C2fPSA,
             C2PSA,
+            C2LitePSA,
             DWConv,
             Focus,
             BottleneckCSP,
@@ -1420,6 +1422,7 @@ def parse_model(d, ch, verbose=True):  # model_dict, input_channels(3)
             C2fPSA,
             C2fCIB,
             C2PSA,
+            C2LitePSA,
             A2C2f,
         }
     )

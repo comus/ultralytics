@@ -1438,6 +1438,45 @@ class PSA(nn.Module):
         return self.cv2(torch.cat((a, b), 1))
 
 
+# 1. 輕量級PSA模組實現
+class LitePSA(nn.Module):
+    """輕量級部分自注意力模組"""
+    
+    def __init__(self, c1, e=0.5):
+        super().__init__()
+        self.c = int(c1 * e)  # 隱藏通道數
+        self.cv1 = Conv(c1, 2 * self.c, 1, 1)
+        self.cv2 = Conv(2 * self.c, c1, 1)
+        
+        # 使用輕量級空間注意力機制
+        self.attn = nn.Sequential(
+            nn.Conv2d(self.c, self.c, kernel_size=5, padding=2, groups=self.c),
+            nn.BatchNorm2d(self.c),
+            nn.SiLU(),
+            nn.Conv2d(self.c, self.c, kernel_size=1)
+        )
+    
+    def forward(self, x):
+        a, b = self.cv1(x).split((self.c, self.c), dim=1)
+        b = b + self.attn(b)
+        return self.cv2(torch.cat((a, b), 1))
+
+class C2LitePSA(nn.Module):
+    """輕量級C2PSA模組，仿照原生C2PSA設計但更輕量"""
+    
+    def __init__(self, c1, c2=None, n=1, e=0.5):
+        super().__init__()
+        c2 = c2 or c1
+        self.c = int(c1 * e)  # 隱藏通道數
+        self.cv1 = Conv(c1, 2 * self.c, 1, 1)
+        self.cv2 = Conv(2 * self.c, c2, 1)
+        self.m = LitePSA(self.c, e=0.5)
+    
+    def forward(self, x):
+        a, b = self.cv1(x).split((self.c, self.c), 1)
+        b = self.m(b)
+        return self.cv2(torch.cat((a, b), 1))
+
 class C2PSA(nn.Module):
     """
     C2PSA module with attention mechanism for enhanced feature extraction and processing.
