@@ -328,8 +328,8 @@ class OriPose(Detect):
 #         return torch.cat([x, refined_kpt], 1) if self.export else (torch.cat([x[0], refined_kpt], 1), (x[1], kpt))
 
 
-class Pose(Detect):
-    """增強型姿態頭，專為無蒸餾訓練優化"""
+class EfficientPose(Detect):
+    """精度優化的輕量姿態頭"""
     
     def __init__(self, nc=80, kpt_shape=(17, 3), ch=()):
         super().__init__(nc, ch)
@@ -344,58 +344,41 @@ class Pose(Detect):
         self.no = nc + self.reg_max * 4  # 每個錨點的輸出數
         self.stride = torch.zeros(self.nl)  # 計算時的步長
         
-        # 邊界框回歸頭
+        # 邊界框回歸頭 - 使用有效的設計
         c2 = max(ch[0] // 4, 16, self.reg_max * 4)
         self.cv2 = nn.ModuleList(
-            nn.Sequential(Conv(x, c2, 3), Conv(c2, c2, 3), nn.Conv2d(c2, 4 * self.reg_max, 1)) for x in ch
+            nn.Sequential(Conv(x, c2, 3), Conv(c2, 4 * self.reg_max, 1)) for x in ch
         )
         
-        # 分類頭
-        c3 = max(ch[0] // 2, min(nc, 80))
+        # 分類頭 - 使用有效的設計
+        c3 = max(ch[0] // 3, min(nc, 60))  # 平衡通道數
         self.cv3 = nn.ModuleList(
-            nn.Sequential(Conv(x, c3, 3), Conv(c3, c3, 3), nn.Conv2d(c3, nc, 1)) for x in ch
+            nn.Sequential(Conv(x, c3, 3), Conv(c3, nc, 1)) for x in ch
         )
         
-        # 增強型姿態頭
-        c4 = max(ch[0] // 1.5, self.nk * 2)  # 更寬的通道，補償沒有蒸餾
+        # 姿態頭 - 平衡設計
+        c4 = max(ch[0] // 2, self.nk * 2)  # 為精度保留足夠通道
         self.cv4 = nn.ModuleList()
         
         for i, x in enumerate(ch):
-            # 使用官方RepConv的多分支設計
+            # 輕量高效的多分支設計
             kpt_head = nn.Sequential(
                 # 初始特徵提取
                 Conv(x, c4, 3),
-                
-                # 雙注意力增強
-                CBAM(c4),
-                
-                # 使用官方RepConv進行特徵處理
-                RepConv(c4, c4 // 2),
-                
-                # 最終輸出層
-                nn.Conv2d(c4 // 2, self.nk, 1)
+                # 簡化的特徵增強 (只保留必要部分)
+                nn.Conv2d(c4, self.nk, 1)
             )
             self.cv4.append(kpt_head)
         
         # DFL解碼器
         self.dfl = DFL(self.reg_max) if self.reg_max > 1 else nn.Identity()
-        
-        # 骨架精煉器
-        self.kpt_refiner = AdvancedPoseRefiner(kpt_shape[0])
-        
-        # 特徵融合權重 - 針對不同層分配權重
-        self.fusion_weights = nn.Parameter(torch.ones(self.nl) / self.nl)
     
     def forward(self, x):
         """前向傳播過程"""
         bs = x[0].shape[0]  # 批次大小
         
-        # 修改點 1: 使用 torch.cat 而不是嘗試相加
-        # 獲取所有特徵層的關鍵點預測並展平為 (bs, nk, -1) 形狀
-        kpt_features = [self.cv4[i](x[i]).view(bs, self.nk, -1) for i in range(self.nl)]
-        
-        # 修改點 2: 在最後一個維度上拼接所有關鍵點特徵
-        kpt = torch.cat(kpt_features, -1)  # 拼接而不是相加
+        # 獲取所有特徵層的關鍵點預測並拼接
+        kpt = torch.cat([self.cv4[i](x[i]).view(bs, self.nk, -1) for i in range(self.nl)], -1)
         
         # 標準檢測頭前向傳播
         for i in range(self.nl):
@@ -408,12 +391,8 @@ class Pose(Detect):
         y = self._decode_boxes(x)  # 解碼邊界框
         pred_kpt = self._decode_kpts(bs, kpt)  # 解碼關鍵點
         
-        # 應用骨架精煉
-        refined_kpt = self.kpt_refiner(pred_kpt.view(bs, self.kpt_shape[0], -1))
-        refined_kpt = refined_kpt.view_as(pred_kpt)
-        
-        return torch.cat([y, refined_kpt], 1) if self.export else (torch.cat([y[0], refined_kpt], 1), (y[1], kpt))
-    
+        return torch.cat([y, pred_kpt], 1) if self.export else (torch.cat([y[0], pred_kpt], 1), (y[1], kpt))
+
     def _decode_boxes(self, x):
         """邊界框解碼 (與標準Detect類相同)"""
         # Inference path
