@@ -61,6 +61,7 @@ from .block import (
     ResNetLayer,
     SCDown,
     TorchVision,
+    LightC2f,
 )
 from .conv import (
     CBAM,
