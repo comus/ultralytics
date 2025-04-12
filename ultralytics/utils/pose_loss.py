@@ -165,8 +165,8 @@ class v8PoseLoss(v8DetectionLoss):
         # else:  # 5及以上
         #     supervision_weight = 0.6
         #     distill_weight = 0.4
-        supervision_weight = 0.0
-        distill_weight = 1.0
+        supervision_weight = 1.0
+        distill_weight = 0.0
 
         loss[0] *= supervision_weight* self.hyp.box  # box gain
         loss[1] *= supervision_weight* self.hyp.pose  # pose gain
