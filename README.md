@@ -63,9 +63,15 @@ Results saved to /root/autodl-tmp/ultralytics/runs/pose/val5
 
 https://poe.com/s/1jVchmCmAfe9msarZt8l
 
+https://poe.com/s/W5uKVMNvZuVsBhVtFO2U
+
 # 另外的方向: 自行建立另一小模型，再蒸餾
 
 主打輕量級模型，我訓練速度快，訓練時間短。
+
+低精度的模型也有場景的
+
+https://poe.com/s/OWI97xqrv3108DApozqJ
 
 # 方向一，先訓練另一小模型，再蒸餾大模型到小模型
 
