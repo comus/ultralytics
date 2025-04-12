@@ -1,7 +1,8 @@
 from ultralytics import YOLO
 
 # 載入新模型
-model = YOLO("lite.yaml")
+# model = YOLO("lite.yaml")
+model = YOLO("yolo11-pose-lite/train-distill-improve/weights/last.pt")
 
 # 訓練模型
 results = model.train(
@@ -39,4 +40,6 @@ results = model.train(
     teacher=YOLO("yolo11m-pose.pt").model,
     distill=8.0,
     freezeAllBN=False,
+
+    resume=True,
 )
