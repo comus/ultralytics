@@ -147,6 +147,9 @@ class v8PoseLoss(v8DetectionLoss):
             loss[1], loss[2] = self.calculate_keypoints_loss(
                 fg_mask, target_gt_idx, keypoints, batch_idx, stride_tensor, target_bboxes, pred_kpts
             )
+
+        supervision_weight = 1.0
+        distill_weight = 0.0
         
         if "teacher" in batch and batch["teacher"] is not None:
             # 如果 self.model 有 trainer 屬性，則打印 epoch
@@ -156,17 +159,15 @@ class v8PoseLoss(v8DetectionLoss):
             T = update_temperature(epoch, epochs)
 
             loss[5] = self.pose_distillation_loss_enhanced(preds, batch["teacher_preds"], T)
+
+            if hasattr(self.model, 'epoch') and self.model.epoch < 5:  # 0, 1, 2, 3, 4
+                supervision_weight = 0.8  # 監督為主
+                distill_weight = 0.2      # 蒸餾為輔
+            else:  # 5及以上
+                supervision_weight = 0.6
+                distill_weight = 0.4
         else:
             loss[5] = torch.zeros(1, device=self.device, requires_grad=True)
-
-        if hasattr(self.model, 'epoch') and self.model.epoch < 5:  # 0, 1, 2, 3, 4
-            supervision_weight = 0.8  # 監督為主
-            distill_weight = 0.2      # 蒸餾為輔
-        else:  # 5及以上
-            supervision_weight = 0.6
-            distill_weight = 0.4
-        # supervision_weight = 0.0
-        # distill_weight = 1.0
 
         loss[0] *= supervision_weight* self.hyp.box  # box gain
         loss[1] *= supervision_weight* self.hyp.pose  # pose gain
