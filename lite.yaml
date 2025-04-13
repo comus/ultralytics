@@ -1,40 +1,40 @@
 # Parameters
 nc: 80 # number of classes
 kpt_shape: [17, 3] # number of keypoints, number of dims (2 for x,y or 3 for x,y,visible)
-scales: # model compound scaling constants, i.e. 'model=yolo11n-pose.yaml' will call yolo11.yaml with scale 'n'
-  lite: [0.25, 0.25, 512]
+scales: # model compound scaling constants
+  lite: [0.5, 0.25, 512] # 使用標準縮放因子：增加深度縮放到0.5，保持寬度縮放0.25
 
-# YOLO11n backbone
+# YOLO11n-pose backbone
 backbone:
   # [from, repeats, module, args]
   - [-1, 1, Conv, [32, 3, 2]] # 0-P1/2
   - [-1, 1, Conv, [64, 3, 2]] # 1-P2/4
-  - [-1, 1, C3k2, [128, False, 0.25]]
+  - [-1, 2, C3k2, [128, False, 0.25]] # 恢復重複次數為2
   - [-1, 1, Conv, [128, 3, 2]] # 3-P3/8
-  - [-1, 1, C3k2, [256, False, 0.25]]
+  - [-1, 2, C3k2, [256, False, 0.25]] # 恢復重複次數為2
   - [-1, 1, Conv, [256, 3, 2]] # 5-P4/16
-  - [-1, 1, C3k2, [256, True]]
+  - [-1, 2, C3k2, [256, True]] # 恢復重複次數為2
   - [-1, 1, Conv, [512, 3, 2]] # 7-P5/32
-  - [-1, 1, C3k2, [512, True]]
+  - [-1, 2, C3k2, [512, True]] # 恢復重複次數為2
   - [-1, 1, SPPF, [512, 5]] # 9
-  - [-1, 1, C2PSA, [512]] # 10
+  - [-1, 2, C2PSA, [512]] # 10 - 恢復重複次數為2
 
-# YOLO11n head
+# YOLO11n-pose head
 head:
   - [-1, 1, nn.Upsample, [None, 2, "nearest"]]
   - [[-1, 6], 1, Concat, [1]] # cat backbone P4
-  - [-1, 1, C3k2, [256, False]] # 13
+  - [-1, 2, C3k2, [256, False]] # 13 - 恢復重複次數為2
 
   - [-1, 1, nn.Upsample, [None, 2, "nearest"]]
   - [[-1, 4], 1, Concat, [1]] # cat backbone P3
-  - [-1, 1, C3k2, [128, False]] # 16 (P3/8-small)
+  - [-1, 2, C3k2, [128, False]] # 16 (P3/8-small) - 恢復重複次數為2
 
   - [-1, 1, Conv, [128, 3, 2]]
   - [[-1, 13], 1, Concat, [1]] # cat head P4
-  - [-1, 1, C3k2, [256, False]] # 19 (P4/16-medium)
+  - [-1, 2, C3k2, [256, False]] # 19 (P4/16-medium) - 恢復重複次數為2
 
   - [-1, 1, Conv, [256, 3, 2]]
   - [[-1, 10], 1, Concat, [1]] # cat head P5
-  - [-1, 1, C3k2, [512, True]] # 22 (P5/32-large)
+  - [-1, 2, C3k2, [512, True]] # 22 (P5/32-large) - 恢復重複次數為2
 
   - [[16, 19, 22], 1, Pose, [nc, kpt_shape]] # Detect(P3, P4, P5)
