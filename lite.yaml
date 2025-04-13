@@ -13,9 +13,9 @@ scales: # model compound scaling constants
 # 輕量化骨幹 (添加PSA)
 backbone:
   # [from, repeats, module, args]
-  - [-1, 1, Conv, [8, 3, 2]]  # 0-P1/2
-  - [-1, 1, Conv, [16, 3, 2]]  # 1-P2/4
-  - [-1, 1, C3k2, [16, False, 0.5]]  # 2
+  - [-1, 1, Conv, [16, 3, 2]]  # 0-P1/2
+  - [-1, 1, Conv, [32, 3, 2]]  # 1-P2/4
+  - [-1, 1, C3k2, [32, False, 0.5]]  # 2
   - [-1, 1, SCDown, [32, 3, 2]]  # 3-P3/8
   - [-1, 1, C3k2, [32, False, 0.6]]  # 4
   - [-1, 1, SCDown, [64, 3, 2]]  # 5-P4/16
