@@ -1,6 +1,6 @@
 from ultralytics import YOLO
 
-model = YOLO("yolo11n-pose/weights/last.pt")
+model = YOLO("yolo11n-pose/train/weights/last.pt")
 
 # 以30 epoch的checkpoint為基礎的二次訓練參數
 results = model.train(
