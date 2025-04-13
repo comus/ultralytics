@@ -28,7 +28,7 @@ results = model.train(
     project="pose-lite",
     name="train",
     exist_ok=True,
-    multi_scale=True,            # 重新啟用多尺度訓練
+    # multi_scale=True,            # 重新啟用多尺度訓練
 
     teacher=None,
     distill=1.0,

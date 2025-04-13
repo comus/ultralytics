@@ -238,7 +238,7 @@ class OBB(Detect):
         return dist2rbox(bboxes, self.angle, anchors, dim=1)
 
 
-class Pose(Detect):
+class OriPose(Detect):
     """YOLO Pose head for keypoints models."""
 
     def __init__(self, nc=80, kpt_shape=(17, 3), ch=()):
@@ -289,44 +289,133 @@ class Pose(Detect):
             y[:, 1::ndim] = (y[:, 1::ndim] * 2.0 + (self.anchors[1] - 0.5)) * self.strides
             return y
 
-# # 2. 增強型姿態頭實現
-# class Pose(OriPose):
-#     """增強型姿態頭，整合結構先驗和精確定位能力"""
+class Pose(OriPose):
+    """增強型姿態頭，改進關鍵點定位"""
     
-#     def __init__(self, nc=80, kpt_shape=(17, 3), ch=()):
-#         super().__init__(nc, kpt_shape, ch)
-#         self.nk = kpt_shape[0] * kpt_shape[1]
+    def __init__(self, nc=80, kpt_shape=(17, 3), ch=()):
+        super().__init__(nc, kpt_shape, ch)
+        self.nk = kpt_shape[0] * kpt_shape[1]
         
-#         # 使用更深的關鍵點頭，提高特徵提取能力
-#         c4 = max(ch[0] // 3, self.nk)
-#         self.cv4 = nn.ModuleList(
-#             nn.Sequential(
-#                 Conv(x, c4, 3),
-#                 Conv(c4, c4, 3),
-#                 nn.Conv2d(c4, self.nk, 1)
-#             ) for x in ch
-#         )
+        # 使用更深的關鍵點頭
+        c4 = max(ch[0] // 3, self.nk * 2)
+        self.cv4 = nn.ModuleList(
+            nn.Sequential(
+                Conv(x, c4, 3),
+                Conv(c4, c4, 3),
+                AttentionModule(c4),  # 添加注意力模組
+                nn.Conv2d(c4, self.nk, 1)
+            ) for x in ch
+        )
         
-#         # 添加骨架後處理模組
-#         self.skeleton_refiner = SkeletonRefiner(kpt_shape[0])
+        # 添加骨架後處理
+        self.skeleton_refiner = SkeletonRefiner(kpt_shape[0])
     
-#     def forward(self, x):
-#         bs = x[0].shape[0]
-#         kpt = torch.cat([self.cv4[i](x[i]).view(bs, self.nk, -1) for i in range(self.nl)], -1)
-#         x = Detect.forward(self, x)
+    def forward(self, x):
+        """前向傳播"""
+        bs = x[0].shape[0]
+        kpt = torch.cat([self.cv4[i](x[i]).view(bs, self.nk, -1) for i in range(self.nl)], -1)
+        x = Detect.forward(self, x)
         
-#         if self.training:
-#             return x, kpt
+        if self.training:
+            return x, kpt
         
-#         # 關鍵點解碼
-#         pred_kpt = self.kpts_decode(bs, kpt)
+        # 推理階段應用骨架後處理
+        pred_kpt = self.kpts_decode(bs, kpt)
+        refined_kpt = self.skeleton_refiner(pred_kpt.view(bs, self.kpt_shape[0], -1))
+        refined_kpt = refined_kpt.view_as(pred_kpt)
         
-#         # 應用骨架後處理，僅在推理階段
-#         refined_kpt = self.skeleton_refiner(pred_kpt.view(bs, self.kpt_shape[0], -1))
-#         refined_kpt = refined_kpt.view_as(pred_kpt)
-        
-#         return torch.cat([x, refined_kpt], 1) if self.export else (torch.cat([x[0], refined_kpt], 1), (x[1], kpt))
+        return torch.cat([x, refined_kpt], 1) if self.export else (torch.cat([x[0], refined_kpt], 1), (x[1], kpt))
 
+class AttentionModule(nn.Module):
+    """簡單高效的通道注意力"""
+    def __init__(self, c, reduction=8):
+        super().__init__()
+        self.avg_pool = nn.AdaptiveAvgPool2d(1)
+        self.fc = nn.Sequential(
+            nn.Linear(c, c // reduction, bias=False),
+            nn.SiLU(inplace=True),
+            nn.Linear(c // reduction, c, bias=False),
+            nn.Sigmoid()
+        )
+        
+    def forward(self, x):
+        b, c, _, _ = x.shape
+        y = self.avg_pool(x).view(b, c)
+        y = self.fc(y).view(b, c, 1, 1)
+        return x * y.expand_as(x)
+
+
+class SkeletonRefiner(nn.Module):
+    """骨架後處理模組，應用人體結構先驗"""
+    
+    def __init__(self, num_keypoints=17):
+        super().__init__()
+        self.num_keypoints = num_keypoints
+        
+        # COCO關鍵點骨架結構
+        self.skeleton = [
+            (5, 6), (5, 11), (6, 12), (11, 12),  # 軀幹
+            (5, 7), (7, 9), (6, 8), (8, 10),     # 上肢
+            (11, 13), (13, 15), (12, 14), (14, 16)  # 下肢
+        ]
+        
+        # 定義關鍵對的理想長度比例
+        self.ideal_ratios = torch.tensor([
+            1.0, 1.2, 1.2, 0.9,  # 軀幹比例
+            0.6, 0.5, 0.6, 0.5,  # 上肢比例
+            0.8, 0.7, 0.8, 0.7   # 下肢比例
+        ])
+        
+        # 調整參數
+        self.conf_threshold = 0.3
+        self.adjustment_weight = 0.35
+    
+    def forward(self, keypoints):
+        """應用骨架後處理"""
+        # 僅處理有置信度通道的情況
+        if keypoints.shape[-1] > 2:
+            conf = keypoints[..., 2]
+            mask = conf > self.conf_threshold
+            keypoints_xy = keypoints[..., :2].clone()
+            
+            # 逐批次處理
+            for b in range(keypoints.shape[0]):
+                # 找出基準骨架 (肩膀寬度)
+                if mask[b, 5] and mask[b, 6]:
+                    shoulder_width = torch.norm(keypoints_xy[b, 5] - keypoints_xy[b, 6])
+                    
+                    # 應用骨架約束
+                    for i, (j1, j2) in enumerate(self.skeleton):
+                        if mask[b, j1] and mask[b, j2]:
+                            # 計算當前骨架長度和方向
+                            current = keypoints_xy[b, j2] - keypoints_xy[b, j1]
+                            length = torch.norm(current)
+                            if length < 1e-5:
+                                continue
+                                
+                            # 計算理想長度
+                            ideal = shoulder_width * self.ideal_ratios[i]
+                            
+                            # 計算調整比例
+                            ratio = (ideal / length).clamp(0.75, 1.35)
+                            if 0.9 < ratio < 1.1:
+                                continue
+                                
+                            # 根據置信度調整兩個點
+                            adjust = self.adjustment_weight * (ratio - 1.0)
+                            direction = current / length
+                            c1, c2 = conf[b, j1], conf[b, j2]
+                            w1, w2 = c2/(c1+c2+1e-6), c1/(c1+c2+1e-6)
+                            
+                            keypoints_xy[b, j1] -= direction * length * adjust * w1
+                            keypoints_xy[b, j2] += direction * length * adjust * w2
+            
+            # 更新坐標
+            result = keypoints.clone()
+            result[..., :2] = keypoints_xy
+            return result
+        
+        return keypoints
 
 # class Pose(Detect):
 #     """專為直接訓練優化的姿態頭，無需蒸餾"""
