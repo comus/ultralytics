@@ -238,7 +238,7 @@ class OBB(Detect):
         return dist2rbox(bboxes, self.angle, anchors, dim=1)
 
 
-class OriPose(Detect):
+class Pose(Detect):
     """YOLO Pose head for keypoints models."""
 
     def __init__(self, nc=80, kpt_shape=(17, 3), ch=()):
@@ -328,141 +328,141 @@ class OriPose(Detect):
 #         return torch.cat([x, refined_kpt], 1) if self.export else (torch.cat([x[0], refined_kpt], 1), (x[1], kpt))
 
 
-class Pose(Detect):
-    """專為直接訓練優化的姿態頭，無需蒸餾"""
+# class Pose(Detect):
+#     """專為直接訓練優化的姿態頭，無需蒸餾"""
     
-    def __init__(self, nc=80, kpt_shape=(17, 3), ch=()):
-        super().__init__(nc, ch)
+#     def __init__(self, nc=80, kpt_shape=(17, 3), ch=()):
+#         super().__init__(nc, ch)
 
-        self.nc = nc  # 類別數
-        self.kpt_shape = kpt_shape  # 關鍵點形狀
-        self.nl = len(ch)  # 特徵層數量
-        self.nk = kpt_shape[0] * kpt_shape[1]  # 關鍵點總數
+#         self.nc = nc  # 類別數
+#         self.kpt_shape = kpt_shape  # 關鍵點形狀
+#         self.nl = len(ch)  # 特徵層數量
+#         self.nk = kpt_shape[0] * kpt_shape[1]  # 關鍵點總數
         
-        # 檢測頭部分
-        self.reg_max = 16  # DFL通道數
-        self.no = nc + self.reg_max * 4  # 每個錨點的輸出數
-        self.stride = torch.zeros(self.nl)  # 計算時的步長
+#         # 檢測頭部分
+#         self.reg_max = 16  # DFL通道數
+#         self.no = nc + self.reg_max * 4  # 每個錨點的輸出數
+#         self.stride = torch.zeros(self.nl)  # 計算時的步長
         
-        # 邊界框回歸頭 - 標準設計
-        c2 = max(ch[0] // 4, 16, self.reg_max * 4)
-        self.cv2 = nn.ModuleList(
-            nn.Sequential(Conv(x, c2, 3), Conv(c2, 4 * self.reg_max, 1)) for x in ch
-        )
+#         # 邊界框回歸頭 - 標準設計
+#         c2 = max(ch[0] // 4, 16, self.reg_max * 4)
+#         self.cv2 = nn.ModuleList(
+#             nn.Sequential(Conv(x, c2, 3), Conv(c2, 4 * self.reg_max, 1)) for x in ch
+#         )
         
-        # 分類頭 - 標準設計
-        c3 = max(ch[0] // 2, min(nc, 80))
-        self.cv3 = nn.ModuleList(
-            nn.Sequential(Conv(x, c3, 3), Conv(c3, nc, 1)) for x in ch
-        )
+#         # 分類頭 - 標準設計
+#         c3 = max(ch[0] // 2, min(nc, 80))
+#         self.cv3 = nn.ModuleList(
+#             nn.Sequential(Conv(x, c3, 3), Conv(c3, nc, 1)) for x in ch
+#         )
         
-        # 精度優先的姿態頭
-        c4 = max(ch[0] // 2, self.nk * 3)  # 保持足夠的通道數
-        self.cv4 = nn.ModuleList()
+#         # 精度優先的姿態頭
+#         c4 = max(ch[0] // 2, self.nk * 3)  # 保持足夠的通道數
+#         self.cv4 = nn.ModuleList()
         
-        for i, x in enumerate(ch):
-            # 三階段設計以提高精度
-            kpt_head = nn.Sequential(
-                # 第一階段：特徵處理
-                Conv(x, c4, 3),
+#         for i, x in enumerate(ch):
+#             # 三階段設計以提高精度
+#             kpt_head = nn.Sequential(
+#                 # 第一階段：特徵處理
+#                 Conv(x, c4, 3),
                 
-                # 第二階段：空間敏感性增強 - 使用簡化的SpatialAwareness模塊
-                nn.Sequential(
-                    Conv(c4, c4 // 2, 1),  # 降維
-                    Conv(c4 // 2, c4 // 2, 3, g=c4 // 2),  # 深度可分離卷積
-                    Conv(c4 // 2, c4, 1)  # 恢復維度
-                ),
+#                 # 第二階段：空間敏感性增強 - 使用簡化的SpatialAwareness模塊
+#                 nn.Sequential(
+#                     Conv(c4, c4 // 2, 1),  # 降維
+#                     Conv(c4 // 2, c4 // 2, 3, g=c4 // 2),  # 深度可分離卷積
+#                     Conv(c4 // 2, c4, 1)  # 恢復維度
+#                 ),
                 
-                # 第三階段：精確定位
-                Conv(c4, c4 // 2, 3),
-                nn.Conv2d(c4 // 2, self.nk, 1)
-            )
-            self.cv4.append(kpt_head)
+#                 # 第三階段：精確定位
+#                 Conv(c4, c4 // 2, 3),
+#                 nn.Conv2d(c4 // 2, self.nk, 1)
+#             )
+#             self.cv4.append(kpt_head)
         
-        # DFL解碼器
-        self.dfl = DFL(self.reg_max) if self.reg_max > 1 else nn.Identity()
+#         # DFL解碼器
+#         self.dfl = DFL(self.reg_max) if self.reg_max > 1 else nn.Identity()
     
-    def forward(self, x):
-        """前向傳播過程"""
-        bs = x[0].shape[0]  # 批次大小
+#     def forward(self, x):
+#         """前向傳播過程"""
+#         bs = x[0].shape[0]  # 批次大小
         
-        # 獲取所有特徵層的關鍵點預測並拼接
-        kpt = torch.cat([self.cv4[i](x[i]).view(bs, self.nk, -1) for i in range(self.nl)], -1)
+#         # 獲取所有特徵層的關鍵點預測並拼接
+#         kpt = torch.cat([self.cv4[i](x[i]).view(bs, self.nk, -1) for i in range(self.nl)], -1)
         
-        # 標準檢測頭前向傳播
-        for i in range(self.nl):
-            x[i] = torch.cat((self.cv2[i](x[i]), self.cv3[i](x[i])), 1)
+#         # 標準檢測頭前向傳播
+#         for i in range(self.nl):
+#             x[i] = torch.cat((self.cv2[i](x[i]), self.cv3[i](x[i])), 1)
         
-        if self.training:
-            return x, kpt
+#         if self.training:
+#             return x, kpt
         
-        # 推理階段
-        y = self._decode_boxes(x)  # 解碼邊界框
-        pred_kpt = self._decode_kpts(bs, kpt)  # 解碼關鍵點
+#         # 推理階段
+#         y = self._decode_boxes(x)  # 解碼邊界框
+#         pred_kpt = self._decode_kpts(bs, kpt)  # 解碼關鍵點
         
-        return torch.cat([y, pred_kpt], 1) if self.export else (torch.cat([y[0], pred_kpt], 1), (y[1], kpt))
+#         return torch.cat([y, pred_kpt], 1) if self.export else (torch.cat([y[0], pred_kpt], 1), (y[1], kpt))
 
-    def _decode_boxes(self, x):
-        """邊界框解碼 (與標準Detect類相同)"""
-        # Inference path
-        shape = x[0].shape  # BCHW
-        x_cat = torch.cat([xi.view(shape[0], self.no, -1) for xi in x], 2)
-        if self.format != "imx" and (self.dynamic or self.shape != shape):
-            self.anchors, self.strides = (x.transpose(0, 1) for x in make_anchors(x, self.stride, 0.5))
-            self.shape = shape
+#     def _decode_boxes(self, x):
+#         """邊界框解碼 (與標準Detect類相同)"""
+#         # Inference path
+#         shape = x[0].shape  # BCHW
+#         x_cat = torch.cat([xi.view(shape[0], self.no, -1) for xi in x], 2)
+#         if self.format != "imx" and (self.dynamic or self.shape != shape):
+#             self.anchors, self.strides = (x.transpose(0, 1) for x in make_anchors(x, self.stride, 0.5))
+#             self.shape = shape
 
-        if self.export and self.format in {"saved_model", "pb", "tflite", "edgetpu", "tfjs"}:  # avoid TF FlexSplitV ops
-            box = x_cat[:, : self.reg_max * 4]
-            cls = x_cat[:, self.reg_max * 4 :]
-        else:
-            box, cls = x_cat.split((self.reg_max * 4, self.nc), 1)
+#         if self.export and self.format in {"saved_model", "pb", "tflite", "edgetpu", "tfjs"}:  # avoid TF FlexSplitV ops
+#             box = x_cat[:, : self.reg_max * 4]
+#             cls = x_cat[:, self.reg_max * 4 :]
+#         else:
+#             box, cls = x_cat.split((self.reg_max * 4, self.nc), 1)
 
-        if self.export and self.format in {"tflite", "edgetpu"}:
-            # Precompute normalization factor to increase numerical stability
-            # See https://github.com/ultralytics/ultralytics/issues/7371
-            grid_h = shape[2]
-            grid_w = shape[3]
-            grid_size = torch.tensor([grid_w, grid_h, grid_w, grid_h], device=box.device).reshape(1, 4, 1)
-            norm = self.strides / (self.stride[0] * grid_size)
-            dbox = self.decode_bboxes(self.dfl(box) * norm, self.anchors.unsqueeze(0) * norm[:, :2])
-        elif self.export and self.format == "imx":
-            dbox = self.decode_bboxes(
-                self.dfl(box) * self.strides, self.anchors.unsqueeze(0) * self.strides, xywh=False
-            )
-            return dbox.transpose(1, 2), cls.sigmoid().permute(0, 2, 1)
-        else:
-            dbox = self.decode_bboxes(self.dfl(box), self.anchors.unsqueeze(0)) * self.strides
+#         if self.export and self.format in {"tflite", "edgetpu"}:
+#             # Precompute normalization factor to increase numerical stability
+#             # See https://github.com/ultralytics/ultralytics/issues/7371
+#             grid_h = shape[2]
+#             grid_w = shape[3]
+#             grid_size = torch.tensor([grid_w, grid_h, grid_w, grid_h], device=box.device).reshape(1, 4, 1)
+#             norm = self.strides / (self.stride[0] * grid_size)
+#             dbox = self.decode_bboxes(self.dfl(box) * norm, self.anchors.unsqueeze(0) * norm[:, :2])
+#         elif self.export and self.format == "imx":
+#             dbox = self.decode_bboxes(
+#                 self.dfl(box) * self.strides, self.anchors.unsqueeze(0) * self.strides, xywh=False
+#             )
+#             return dbox.transpose(1, 2), cls.sigmoid().permute(0, 2, 1)
+#         else:
+#             dbox = self.decode_bboxes(self.dfl(box), self.anchors.unsqueeze(0)) * self.strides
 
-        return torch.cat((dbox, cls.sigmoid()), 1)
+#         return torch.cat((dbox, cls.sigmoid()), 1)
 
-    def _decode_kpts(self, bs, kpt):
-        """關鍵點解碼 (與標準Pose類相同)"""
-        ndim = self.kpt_shape[1]
-        if self.export:
-            if self.format in {
-                "tflite",
-                "edgetpu",
-            }:  # required for TFLite export to avoid 'PLACEHOLDER_FOR_GREATER_OP_CODES' bug
-                # Precompute normalization factor to increase numerical stability
-                y = kpt.view(bs, *self.kpt_shape, -1)
-                grid_h, grid_w = self.shape[2], self.shape[3]
-                grid_size = torch.tensor([grid_w, grid_h], device=y.device).reshape(1, 2, 1)
-                norm = self.strides / (self.stride[0] * grid_size)
-                a = (y[:, :, :2] * 2.0 + (self.anchors - 0.5)) * norm
-            else:
-                # NCNN fix
-                y = kpt.view(bs, *self.kpt_shape, -1)
-                a = (y[:, :, :2] * 2.0 + (self.anchors - 0.5)) * self.strides
-            if ndim == 3:
-                a = torch.cat((a, y[:, :, 2:3].sigmoid()), 2)
-            return a.view(bs, self.nk, -1)
-        else:
-            y = kpt.clone()
-            if ndim == 3:
-                y[:, 2::ndim] = y[:, 2::ndim].sigmoid()  # sigmoid (WARNING: inplace .sigmoid_() Apple MPS bug)
-            y[:, 0::ndim] = (y[:, 0::ndim] * 2.0 + (self.anchors[0] - 0.5)) * self.strides
-            y[:, 1::ndim] = (y[:, 1::ndim] * 2.0 + (self.anchors[1] - 0.5)) * self.strides
-            return y
+#     def _decode_kpts(self, bs, kpt):
+#         """關鍵點解碼 (與標準Pose類相同)"""
+#         ndim = self.kpt_shape[1]
+#         if self.export:
+#             if self.format in {
+#                 "tflite",
+#                 "edgetpu",
+#             }:  # required for TFLite export to avoid 'PLACEHOLDER_FOR_GREATER_OP_CODES' bug
+#                 # Precompute normalization factor to increase numerical stability
+#                 y = kpt.view(bs, *self.kpt_shape, -1)
+#                 grid_h, grid_w = self.shape[2], self.shape[3]
+#                 grid_size = torch.tensor([grid_w, grid_h], device=y.device).reshape(1, 2, 1)
+#                 norm = self.strides / (self.stride[0] * grid_size)
+#                 a = (y[:, :, :2] * 2.0 + (self.anchors - 0.5)) * norm
+#             else:
+#                 # NCNN fix
+#                 y = kpt.view(bs, *self.kpt_shape, -1)
+#                 a = (y[:, :, :2] * 2.0 + (self.anchors - 0.5)) * self.strides
+#             if ndim == 3:
+#                 a = torch.cat((a, y[:, :, 2:3].sigmoid()), 2)
+#             return a.view(bs, self.nk, -1)
+#         else:
+#             y = kpt.clone()
+#             if ndim == 3:
+#                 y[:, 2::ndim] = y[:, 2::ndim].sigmoid()  # sigmoid (WARNING: inplace .sigmoid_() Apple MPS bug)
+#             y[:, 0::ndim] = (y[:, 0::ndim] * 2.0 + (self.anchors[0] - 0.5)) * self.strides
+#             y[:, 1::ndim] = (y[:, 1::ndim] * 2.0 + (self.anchors[1] - 0.5)) * self.strides
+#             return y
 
 class CBAM(nn.Module):
     """卷積塊注意力模塊 - 結合通道和空間注意力"""
