@@ -133,8 +133,6 @@ __all__ = (
     "SCDown",
     "C2fPSA",
     "C2PSA",
-    "C2LitePSA",
-    "LightC2f",
     "C2fAttn",
     "C3x",
     "C3TR",
