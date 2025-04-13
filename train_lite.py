@@ -1,7 +1,7 @@
 from ultralytics import YOLO
 
 # 載入新模型
-model = YOLO("lite2.yaml")
+model = YOLO("lite.yaml")
 
 # 訓練模型
 results = model.train(
