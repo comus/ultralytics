@@ -1,31 +1,32 @@
 from ultralytics import YOLO
 
-# 載入新模型
 model = YOLO("yolo11n-pose.yaml")
 
-# 訓練模型
+# Train the model with optimized parameters for RTX 4090 (24GB VRAM)
 results = model.train(
-    data="coco-pose.yaml",
-    epochs=500,                 # 您要求的500個epochs
-    imgsz=640,                  # 您要求的640 image size
-    batch=64,                  # 增加到128充分利用RTX 4090顯存
-    cache="disk",               # 使用硬碟緩存加速訓練
-    device=0,                   # 使用RTX 4090
-    workers=12,                 # 增加工作線程數量與CPU核心數匹配
-    patience=50,                # 設置早停條件，避免過度擬合
-    cos_lr=True,                # 使用余弦學習率調度器
-    lr0=0.008,              # 降低初始學習率
-    lrf=0.005,
-    warmup_epochs=5.0,          # 前3個epoch進行warmup
-    weight_decay=0.001,
-    close_mosaic=20,            # 最後10個epoch關閉mosaic增強
-    amp=True,                   # 啟用自動混合精度加速訓練
-    optimizer="AdamW",          # 使用AdamW優化器
-    pose=12.0,                  # 姿態檢測損失權重
-    kobj=1.5,                   # 關鍵點目標性損失權重
-    plots=True,                 # 生成訓練過程圖表
-    save_period=1,              # 每個epoch保存一次模型
-    project="yolo11n-pose",     # 項目名稱
-    name="train",               # 訓練運行名稱
-    exist_ok=True,              # 允許覆蓋現有目錄
+    data="coco-pose.yaml",          # Point to your actual dataset YAML
+    epochs=500,                     # More epochs for training from scratch
+    patience=50,                    # Early stopping patience
+    batch=64,                       # Batch size - adjust based on your VRAM
+    cos_lr=True,                    # Use cosine learning rate scheduler
+    lrf=0.001,                      # Final learning rate as a fraction of initial rate
+    warmup_epochs=5,                # Warmup epochs - useful for training from scratch
+    save_period=1,                 # Save checkpoint every 10 epochs
+    cache="disk",                    # Do not cache images in RAM (large dataset)
+    close_mosaic=25,                # Disable mosaic in last 25 epochs for stability
+    plots=True,                     # Save plots of training results
+    mosaic=1.0,                     # Add back, important!
+    mixup=0.1,
+    copy_paste=0.1,
+    hsv_h=0.015,                     # Color tone enhancement
+    hsv_s=0.7,                       # Saturation enhancement
+    hsv_v=0.4,                       # Brightness enhancement
+    translate=0.1,                   # Translation enhancement
+    scale=0.5,                       # Scaling enhancement
+    fliplr=0.5,                      # Horizontal flip
+    multi_scale=True,
+    project="yolo11n-pose",
+    name="train",
+    pretrained=False,
+    exist_ok=True
 )
