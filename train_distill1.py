@@ -21,13 +21,17 @@ results = model.train(
     close_mosaic=20,           # 在最後15個epoch禁用mosaic增強穩定訓練
     amp=True,                  # 啟用混合精度訓練
     optimizer="AdamW",         # 使用AdamW優化器
-    pose=12.0,                 # 姿態損失權重
-    kobj=1.5,                  # 關鍵點目標性損失權重
     plots=True,                # 生成訓練圖表
     save_period=1,             # 每個epoch儲存一次
     project="yolo11n-pose-distill1",    # 專案名稱
     name="train",              # 訓練執行名稱
     exist_ok=True,             # 允許覆蓋現有目錄
+
+    box=8.0,   # 略微增加
+    cls=0.5,   # 保持不變
+    dfl=1.5,   # 保持不變
+    pose=15.0,  # 顯著增加
+    kobj=1.5,   # 已調整到適當值
     
     # 使用蒸餾，從更大的模型學習
     teacher=YOLO("yolo11m-pose.pt").model,  # 使用YOLO 11x作為教師模型
