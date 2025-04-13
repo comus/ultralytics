@@ -65,6 +65,7 @@ class PoseTrainer(yolo.detect.DetectionTrainer):
         self.teacher = overrides.get("teacher", None)
         self.distill = overrides.get("distill", 1.0)
         self.freezeAllBN = overrides.get("freezeAllBN", False)
+        self.loss_function = overrides.get("loss_function", "pose_loss")
 
         super().__init__(cfg, overrides, _callbacks)
 
@@ -155,6 +156,11 @@ class PoseTrainer(yolo.detect.DetectionTrainer):
         # add teacher
         if self.teacher is not None:
             batch["teacher"] = self.teacher
+
+        if self.loss_function == "pose_loss2":
+            batch["loss_function"] = "pose_loss2"
+        else:
+            batch["loss_function"] = "pose_loss"
 
         return batch
 
