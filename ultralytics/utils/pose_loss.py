@@ -159,14 +159,14 @@ class v8PoseLoss(v8DetectionLoss):
         else:
             loss[5] = torch.zeros(1, device=self.device, requires_grad=True)
 
-        # if hasattr(self.model, 'epoch') and self.model.epoch < 5:  # 0, 1, 2, 3, 4
-        #     supervision_weight = 0.8  # 監督為主
-        #     distill_weight = 0.2      # 蒸餾為輔
-        # else:  # 5及以上
-        #     supervision_weight = 0.6
-        #     distill_weight = 0.4
-        supervision_weight = 1.0
-        distill_weight = 0.0
+        if hasattr(self.model, 'epoch') and self.model.epoch < 5:  # 0, 1, 2, 3, 4
+            supervision_weight = 0.8  # 監督為主
+            distill_weight = 0.2      # 蒸餾為輔
+        else:  # 5及以上
+            supervision_weight = 0.6
+            distill_weight = 0.4
+        # supervision_weight = 0.0
+        # distill_weight = 1.0
 
         loss[0] *= supervision_weight* self.hyp.box  # box gain
         loss[1] *= supervision_weight* self.hyp.pose  # pose gain
@@ -398,54 +398,23 @@ class v8PoseLoss(v8DetectionLoss):
             small_diff_mask_y = (y_diff**2 < 0.005) & ~tiny_diff_mask_y & ~ultra_tiny_diff_mask_y
             medium_diff_mask_y = (y_diff**2 < 0.02) & ~small_diff_mask_y & ~tiny_diff_mask_y & ~ultra_tiny_diff_mask_y
 
-            # 更新 X 軸精確損失計算 - 增強 micro_tiny 和 ultra_tiny 權重
+            # 更新 X 軸精確損失計算
             precise_x_loss = (
-                torch.where(micro_tiny_diff_mask_x, torch.abs(x_diff) * tiny_weight_x * 4.0, torch.zeros_like(x_diff)) +  # 從2.5提高到4.0
-                torch.where(ultra_tiny_diff_mask_x, torch.abs(x_diff) * tiny_weight_x * 2.5, torch.zeros_like(x_diff)) +  # 從1.8提高到2.5
-                torch.where(tiny_diff_mask_x, torch.abs(x_diff) * tiny_weight_x * 1.2, torch.zeros_like(x_diff)) +        # 增加1.2倍
+                torch.where(micro_tiny_diff_mask_x, torch.abs(x_diff) * tiny_weight_x * 2.5, torch.zeros_like(x_diff)) +  # 新增超微小差異層級
+                torch.where(ultra_tiny_diff_mask_x, torch.abs(x_diff) * tiny_weight_x * 1.8, torch.zeros_like(x_diff)) +
+                torch.where(tiny_diff_mask_x, torch.abs(x_diff) * tiny_weight_x, torch.zeros_like(x_diff)) +
                 torch.where(small_diff_mask_x, torch.abs(x_diff) * small_weight_x, torch.zeros_like(x_diff)) +
                 torch.where(medium_diff_mask_x, torch.abs(x_diff) * 2.0, torch.zeros_like(x_diff))
             )
 
-            # 更新 Y 軸精確損失計算 - 大幅提高超精細區域權重
+            # 更新 Y 軸精確損失計算 - 提高 Y 軸權重
             precise_y_loss = (
-                torch.where(micro_tiny_diff_mask_y, torch.abs(y_diff) * tiny_weight_y * 8.0, torch.zeros_like(y_diff)) +  # 從5.0提高到8.0
-                torch.where(ultra_tiny_diff_mask_y, torch.abs(y_diff) * tiny_weight_y * 5.0, torch.zeros_like(y_diff)) +  # 從3.5提高到5.0
-                torch.where(tiny_diff_mask_y, torch.abs(y_diff) * tiny_weight_y * 2.0, torch.zeros_like(y_diff)) +        # 從1.5提高到2.0
-                torch.where(small_diff_mask_y, torch.abs(y_diff) * small_weight_y * 1.5, torch.zeros_like(y_diff)) +      # 從1.2提高到1.5
-                torch.where(medium_diff_mask_y, torch.abs(y_diff) * 4.0, torch.zeros_like(y_diff))                        # 從3.5提高到4.0
+                torch.where(micro_tiny_diff_mask_y, torch.abs(y_diff) * tiny_weight_y * 5.0, torch.zeros_like(y_diff)) +  # 從4.0提高到5.0
+                torch.where(ultra_tiny_diff_mask_y, torch.abs(y_diff) * tiny_weight_y * 3.5, torch.zeros_like(y_diff)) +  # 從2.5提高到3.5
+                torch.where(tiny_diff_mask_y, torch.abs(y_diff) * tiny_weight_y * 1.5, torch.zeros_like(y_diff)) +        # 提高權重
+                torch.where(small_diff_mask_y, torch.abs(y_diff) * small_weight_y * 1.2, torch.zeros_like(y_diff)) +      # 提高權重
+                torch.where(medium_diff_mask_y, torch.abs(y_diff) * 3.5, torch.zeros_like(y_diff))                       # 提高權重
             )
-
-            # 添加專門針對 mAP50-95 的優化 - 新增
-            # 定義更細的誤差區間，對應不同IoU閾值
-            map75_mask_x = (x_diff**2 < 0.002)  # 對應約IoU 0.75的精度要求
-            map80_mask_x = (x_diff**2 < 0.0015) # 對應約IoU 0.80的精度要求
-            map90_mask_x = (x_diff**2 < 0.001)  # 對應約IoU 0.90的精度要求
-            map95_mask_x = (x_diff**2 < 0.0005) # 對應約IoU 0.95的精度要求
-
-            map75_mask_y = (y_diff**2 < 0.002)
-            map80_mask_y = (y_diff**2 < 0.0015)
-            map90_mask_y = (y_diff**2 < 0.001)
-            map95_mask_y = (y_diff**2 < 0.0005)
-
-            # 添加專門的mAP梯度損失
-            map_grad_x_loss = (
-                torch.where(map95_mask_x, torch.abs(x_diff) * 10.0, torch.zeros_like(x_diff)) +  # 最高精度區域
-                torch.where(map90_mask_x & ~map95_mask_x, torch.abs(x_diff) * 7.0, torch.zeros_like(x_diff)) +
-                torch.where(map80_mask_x & ~map90_mask_x, torch.abs(x_diff) * 5.0, torch.zeros_like(x_diff)) +
-                torch.where(map75_mask_x & ~map80_mask_x, torch.abs(x_diff) * 3.0, torch.zeros_like(x_diff))
-            )
-
-            map_grad_y_loss = (
-                torch.where(map95_mask_y, torch.abs(y_diff) * 15.0, torch.zeros_like(y_diff)) +  # Y軸更高權重
-                torch.where(map90_mask_y & ~map95_mask_y, torch.abs(y_diff) * 10.0, torch.zeros_like(y_diff)) +
-                torch.where(map80_mask_y & ~map90_mask_y, torch.abs(y_diff) * 7.0, torch.zeros_like(y_diff)) +
-                torch.where(map75_mask_y & ~map80_mask_y, torch.abs(y_diff) * 4.0, torch.zeros_like(y_diff))
-            )
-
-            # 添加進權重精確損失
-            weighted_map_grad_x = map_grad_x_loss * coord_weights
-            weighted_map_grad_y = map_grad_y_loss * coord_weights
             
             # 將精確定位損失添加到加權損失中
             weighted_precise_x = precise_x_loss * coord_weights
@@ -462,10 +431,9 @@ class v8PoseLoss(v8DetectionLoss):
                 y_precise_factor = 1.0 + (target_ratio - current_y_to_x_precise_ratio) * 0.5
                 weighted_precise_y = weighted_precise_y * y_precise_factor
 
-            # 修改coord_loss計算，加入新的mAP梯度損失
+            # 修改coord_loss計算
             coord_loss = (weighted_x_diff.sum() + weighted_y_diff.sum() + 
-                        weighted_precise_x.sum() + weighted_precise_y.sum() +
-                        weighted_map_grad_x.sum() + weighted_map_grad_y.sum()) / total_weight
+                        weighted_precise_x.sum() + weighted_precise_y.sum()) / total_weight
             
             # 在計算 coord_loss 之後，pred_loss 之前添加
             # 添加針對 Y 軸的特殊處理
@@ -523,12 +491,12 @@ class v8PoseLoss(v8DetectionLoss):
             
             # 骨架重要性權重 - 軀幹與核心部位權重更高
             skeleton_weights = torch.tensor([
-                3.5, 3.5,   # 軀幹上部、骨盆 (從2.5提高到3.5)
-                2.5, 2.5,   # 左右軀幹 (從1.5提高到2.5)
-                1.5, 1.5,   # 上臂 (從1.0提高到1.5)
-                1.0, 1.0,   # 前臂 (從0.8提高到1.0)
-                2.0, 2.0,   # 大腿 (從1.2提高到2.0)
-                1.2, 1.2    # 小腿 (從0.8提高到1.2)
+                2.5, 2.5,   # 軀幹上部、骨盆 
+                1.5, 1.5,   # 左右軀幹
+                1.0, 1.0,   # 上臂
+                0.8, 0.8,   # 前臂
+                1.2, 1.2,   # 大腿
+                0.8, 0.8    # 小腿
             ], device=student_preds.device)
             
             a_idx, b_idx = skeleton[:, 0], skeleton[:, 1]
@@ -569,7 +537,10 @@ class v8PoseLoss(v8DetectionLoss):
                 total_bone_weight = (bone_conf * skeleton_weights.unsqueeze(0).unsqueeze(-1)).sum() + epsilon
                 structure_loss = weighted_bone_diff.sum() / total_bone_weight
 
-            rel_pos_loss = torch.tensor(0.0, device=student_preds.device)  # 在循環前初始化
+            # 添加相對位置和方向約束
+            # 使用上面已經計算的a_idx和b_idx
+            rel_pos_loss = torch.tensor(0.0, device=student_preds.device)
+
             for pair_idx in range(len(a_idx)):
                 i, j = a_idx[pair_idx], b_idx[pair_idx]
                 
@@ -592,14 +563,9 @@ class v8PoseLoss(v8DetectionLoss):
                 
                 # 方向差異
                 dir_diff = 1.0 - (s_dir_x * t_dir_x + s_dir_y * t_dir_y)
-
-                # 添加高精度方向差異處理
-                high_precision_dir_mask = dir_diff < 0.05  # 非常小的角度差異
-                weighted_dir_diff = torch.where(
-                    high_precision_dir_mask,
-                    dir_diff * bone_conf[:, pair_idx].unsqueeze(-1) * skeleton_weights[pair_idx] * 2.5, # 高精度區域權重提高
-                    dir_diff * bone_conf[:, pair_idx].unsqueeze(-1) * skeleton_weights[pair_idx]
-                )
+                
+                # 加權
+                weighted_dir_diff = dir_diff * bone_conf[:, pair_idx].unsqueeze(-1) * skeleton_weights[pair_idx]
                 rel_pos_loss = rel_pos_loss + weighted_dir_diff.sum()
 
             # 安全平均
@@ -701,57 +667,38 @@ class v8PoseLoss(v8DetectionLoss):
             t_normalized = t_centered / t_std  # [B, 17, 2, grid]
             s_normalized = s_centered / s_std  # [B, 17, 2, grid]
 
-            # 更新姿態結構空間損失計算，添加精度階梯
-
-            # 修改姿態結構空間損失的權重和細節
+            # 計算形狀差異，使用適當的縮放因子
             shape_diff = (t_normalized - s_normalized)**2
-
-            # 識別高精度區域
-            high_precision_shape_mask = shape_diff < 0.01
-            medium_precision_shape_mask = (shape_diff >= 0.01) & (shape_diff < 0.05)
-
-            # 精度階梯權重
-            weighted_shape_diff = torch.where(
-                high_precision_shape_mask,
-                shape_diff * 10.0,  # 高精度區域加大權重
-                torch.where(
-                    medium_precision_shape_mask,
-                    shape_diff * 5.0,
-                    shape_diff * 2.0
-                )
-            )
-
-            pose_structure_loss = weighted_shape_diff.mean()
+            pose_structure_loss = shape_diff.mean() * 5.0
             
             # 4. 修改損失權重 - 動態調整各項權重
             # 加速早期訓練
-            # 4. 修改損失權重 - 加重精度相關部分的權重
             if current_epoch < 5:
                 # 前5個epoch重視坐標精度
-                coord_weight = 3.5       # 從3.0提高到3.5
-                structure_weight = 2.0   # 從1.5提高到2.0
-                consistency_weight = 2.5 # 從2.0提高到2.5
-                pose_structure_weight = 3.0 # 從2.0提高到3.0 - 顯著提高
+                coord_weight = 3.0
+                structure_weight = 1.5
+                consistency_weight = 2.0
+                pose_structure_weight = 2.0
                 conf_weight = 0.5
-                rel_pos_weight = 2.0     # 從1.5提高到2.0
+                rel_pos_weight = 1.5
             else:
-                # 後期更均衡，但仍保持高權重
-                coord_weight = 3.0       # 從2.5提高到3.0
-                structure_weight = 1.8   # 從1.2提高到1.8
-                consistency_weight = 2.0 # 從1.5提高到2.0
-                pose_structure_weight = 2.0 # 從1.0提高到2.0
+                # 後期更均衡
+                coord_weight = 2.5
+                structure_weight = 1.2
+                consistency_weight = 1.5
+                pose_structure_weight = 1.0
                 conf_weight = 0.5
-                rel_pos_weight = 1.5     # 從1.0提高到1.5
-    
+                rel_pos_weight = 1.0
+            
             # 組合所有損失
             pred_loss = (
                 coord_weight * coord_loss +
                 structure_weight * structure_loss +
                 consistency_weight * consistency_loss +
-                0.01 * pose_structure_weight * pose_structure_loss +  # 從0.005提高回0.01
+                0.005 * pose_structure_weight * pose_structure_loss +  # 從 0.01 降至 0.005
                 conf_weight * conf_loss +
                 rel_pos_weight * rel_pos_loss +
-                2.0 * y_special_loss  # 從1.5提高到2.0
+                1.5 * y_special_loss  # 從1.0提高到1.5
             )
             
             # 5. 【改進9】自適應損失組合
@@ -773,79 +720,6 @@ class v8PoseLoss(v8DetectionLoss):
             # 【初期階段特別處理】首個epoch大幅降低特徵損失影響
             if current_epoch == 0:
                 feat_loss = feat_loss * 0.05  # 大幅降低特徵損失
-
-            # 添加專門針對高IoU檢測的損失項
-            # 計算高置信度點的精確定位增強
-            high_conf_mask = teacher_conf_mask > 0.7  # 回到較高的閾值要求
-            if high_conf_mask.any():
-                # 提取高置信度點
-                high_conf_x = s_x[high_conf_mask]
-                high_conf_y = s_y[high_conf_mask]
-                high_conf_t_x = t_x[high_conf_mask]
-                high_conf_t_y = t_y[high_conf_mask]
-                
-                if high_conf_x.numel() > 0:
-                    # 計算高置信度點的誤差
-                    hc_x_diff = torch.abs(high_conf_x - high_conf_t_x)
-                    hc_y_diff = torch.abs(high_conf_y - high_conf_t_y)
-                    
-                    # 針對不同IoU閾值的精度要求
-                    hc_map95_x_mask = hc_x_diff < 0.0005
-                    hc_map90_x_mask = (hc_x_diff >= 0.0005) & (hc_x_diff < 0.001)
-                    hc_map80_x_mask = (hc_x_diff >= 0.001) & (hc_x_diff < 0.0015)
-                    
-                    hc_map95_y_mask = hc_y_diff < 0.0005
-                    hc_map90_y_mask = (hc_y_diff >= 0.0005) & (hc_y_diff < 0.001)
-                    hc_map80_y_mask = (hc_y_diff >= 0.001) & (hc_y_diff < 0.0015)
-                    
-                    # 計算高置信度點的IoU損失
-                    hc_iou_loss = torch.tensor(0.0, device=student_preds.device, requires_grad=True)
-                    
-                    # X軸IoU損失
-                    if hc_map95_x_mask.any():
-                        hc_iou_loss = hc_iou_loss + hc_x_diff[hc_map95_x_mask].sum() * 12.0 / (hc_map95_x_mask.sum() + epsilon)
-                    if hc_map90_x_mask.any():
-                        hc_iou_loss = hc_iou_loss + hc_x_diff[hc_map90_x_mask].sum() * 8.0 / (hc_map90_x_mask.sum() + epsilon)
-                    if hc_map80_x_mask.any():
-                        hc_iou_loss = hc_iou_loss + hc_x_diff[hc_map80_x_mask].sum() * 5.0 / (hc_map80_x_mask.sum() + epsilon)
-                    
-                    # Y軸IoU損失 - 更高權重
-                    if hc_map95_y_mask.any():
-                        hc_iou_loss = hc_iou_loss + hc_y_diff[hc_map95_y_mask].sum() * 18.0 / (hc_map95_y_mask.sum() + epsilon)
-                    if hc_map90_y_mask.any():
-                        hc_iou_loss = hc_iou_loss + hc_y_diff[hc_map90_y_mask].sum() * 12.0 / (hc_map90_y_mask.sum() + epsilon)
-                    if hc_map80_y_mask.any():
-                        hc_iou_loss = hc_iou_loss + hc_y_diff[hc_map80_y_mask].sum() * 8.0 / (hc_map80_y_mask.sum() + epsilon)
-                    
-                    # 將高置信度IoU損失添加到總損失
-                    pred_loss = pred_loss + 0.5 * hc_iou_loss  # 適度權重
-
-            # 添加進度自適應的精細定位權重增強
-            if current_epoch >= 10:  # 訓練後期特別關注精細定位
-                # 計算訓練進度比例影響因子
-                progress_factor = min(1.0, (current_epoch - 10) / 20.0)  # 從0到1緩慢提升
-                
-                # 計算超精細誤差比例
-                ultra_precision_x_ratio = (map95_mask_x.float().mean() + map90_mask_x.float().mean()) / 2
-                ultra_precision_y_ratio = (map95_mask_y.float().mean() + map90_mask_y.float().mean()) / 2
-                
-                # 目標比例 - 隨進度逐步提高
-                target_ultra_precision = 0.02 + progress_factor * 0.04  # 從2%提高到6%
-                
-                # 如果當前比例低於目標，增加相應的損失權重
-                if ultra_precision_x_ratio < target_ultra_precision:
-                    boost_factor_x = 1.0 + min(1.0, (target_ultra_precision - ultra_precision_x_ratio) * 10.0)
-                    pred_loss = pred_loss + coord_weight * weighted_map_grad_x.sum() * boost_factor_x / total_weight
-                
-                if ultra_precision_y_ratio < target_ultra_precision:
-                    boost_factor_y = 1.0 + min(1.5, (target_ultra_precision - ultra_precision_y_ratio) * 15.0)  # Y軸更積極
-                    pred_loss = pred_loss + coord_weight * weighted_map_grad_y.sum() * boost_factor_y / total_weight
-                
-                # 記錄訓練統計
-                if hasattr(self, 'model') and hasattr(self.model, 'epoch') and is_first_batch_in_epoch:
-                    print(f"目標超精細比例: {target_ultra_precision:.4f}, 當前X: {ultra_precision_x_ratio:.4f}, Y: {ultra_precision_y_ratio:.4f}")
-                    if ultra_precision_x_ratio < target_ultra_precision or ultra_precision_y_ratio < target_ultra_precision:
-                        print(f"超精細定位權重提升 - X: {boost_factor_x if 'boost_factor_x' in locals() else 0.0:.2f}, Y: {boost_factor_y if 'boost_factor_y' in locals() else 0.0:.2f}")
             
             # 組合所有損失
             total_loss = adaptive_feat_weight * feat_loss + adaptive_pred_weight * pred_loss
@@ -931,22 +805,6 @@ class v8PoseLoss(v8DetectionLoss):
                 if x_diff_mean > 0:
                     y_x_ratio = y_diff_mean / x_diff_mean
                     print(f"Y/X軸誤差比例: {y_x_ratio:.4f}")
-
-                print("\n--- 高IoU精度統計 ---")
-                map95_x_ratio = map95_mask_x.float().mean().item()
-                map90_x_ratio = map90_mask_x.float().mean().item() 
-                map80_x_ratio = map80_mask_x.float().mean().item()
-                map75_x_ratio = map75_mask_x.float().mean().item()
-                
-                map95_y_ratio = map95_mask_y.float().mean().item()
-                map90_y_ratio = map90_mask_y.float().mean().item()
-                map80_y_ratio = map80_mask_y.float().mean().item()
-                map75_y_ratio = map75_mask_y.float().mean().item()
-                
-                print(f"IoU閾值對應精度 - IoU75/80/90/95")
-                print(f"X軸精度比例: {map75_x_ratio:.4f}/{map80_x_ratio:.4f}/{map90_x_ratio:.4f}/{map95_x_ratio:.4f}")
-                print(f"Y軸精度比例: {map75_y_ratio:.4f}/{map80_y_ratio:.4f}/{map90_y_ratio:.4f}/{map95_y_ratio:.4f}")
-                print(f"綜合精度目標達成率: {((map95_x_ratio + map95_y_ratio) / 0.06):.2f}")
             
             return total_loss
             
