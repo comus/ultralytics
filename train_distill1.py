@@ -31,7 +31,7 @@ results = model.train(
     
     # 使用蒸餾，從更大的模型學習
     teacher=YOLO("yolo11m-pose.pt").model,  # 使用YOLO 11x作為教師模型
-    distill=8.0,               # 蒸餾損失權重
+    distill=4.0,               # 蒸餾損失權重
     
     # 額外優化參數
     # multi_scale=True,          # 啟用多尺度訓練增強泛化能力
