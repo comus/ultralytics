@@ -1,0 +1,1343 @@
+(yolo) [root@autodl-container-38c543b634-489ea28f ~/autodl-tmp/ultralytics] [TMX:final3]$ python train_distill2.py
+New https://pypi.org/project/ultralytics/8.3.107 available 😃 Update with 'pip install -U ultralytics'
+Ultralytics 8.3.105 🚀 Python-3.11.11 torch-2.6.0+cu124 CUDA:0 (NVIDIA GeForce RTX 4090, 24111MiB)
+engine/trainer: task=pose, mode=train, model=yolo11n-pose.yaml, data=coco-pose.yaml, epochs=500, time=None, patience=50, batch=32, imgsz=640, save=True, save_period=1, cache=disk, device=None, workers=8, project=yolo11n-pose-distill2, name=train, exist_ok=True, pretrained=False, optimizer=auto, verbose=True, seed=0, deterministic=True, single_cls=False, rect=False, cos_lr=True, close_mosaic=25, resume=False, amp=True, fraction=1.0, profile=False, freeze=None, multi_scale=True, overlap_mask=True, mask_ratio=4, dropout=0.0, val=True, split=val, save_json=False, conf=None, iou=0.7, max_det=300, half=False, dnn=False, plots=True, source=None, vid_stride=1, stream_buffer=False, visualize=False, augment=False, agnostic_nms=False, classes=None, retina_masks=False, embed=None, show=False, save_frames=False, save_txt=False, save_conf=False, save_crop=False, show_labels=True, show_conf=True, show_boxes=True, line_width=None, format=torchscript, keras=False, optimize=False, int8=False, dynamic=False, simplify=True, opset=None, workspace=None, nms=False, teacher=PoseModel(
+  (model): Sequential(
+    (0): Conv(
+      (conv): Conv2d(3, 64, kernel_size=(3, 3), stride=(2, 2), padding=(1, 1), bias=False)
+      (bn): BatchNorm2d(64, eps=0.001, momentum=0.03, affine=True, track_running_stats=True)
+      (act): SiLU(inplace=True)
+    )
+    (1): Conv(
+      (conv): Conv2d(64, 128, kernel_size=(3, 3), stride=(2, 2), padding=(1, 1), bias=False)
+      (bn): BatchNorm2d(128, eps=0.001, momentum=0.03, affine=True, track_running_stats=True)
+      (act): SiLU(inplace=True)
+    )
+    (2): C3k2(
+      (cv1): Conv(
+        (conv): Conv2d(128, 128, kernel_size=(1, 1), stride=(1, 1), bias=False)
+        (bn): BatchNorm2d(128, eps=0.001, momentum=0.03, affine=True, track_running_stats=True)
+        (act): SiLU(inplace=True)
+      )
+      (cv2): Conv(
+        (conv): Conv2d(192, 256, kernel_size=(1, 1), stride=(1, 1), bias=False)
+        (bn): BatchNorm2d(256, eps=0.001, momentum=0.03, affine=True, track_running_stats=True)
+        (act): SiLU(inplace=True)
+      )
+      (m): ModuleList(
+        (0): C3k(
+          (cv1): Conv(
+            (conv): Conv2d(64, 32, kernel_size=(1, 1), stride=(1, 1), bias=False)
+            (bn): BatchNorm2d(32, eps=0.001, momentum=0.03, affine=True, track_running_stats=True)
+            (act): SiLU(inplace=True)
+          )
+          (cv2): Conv(
+            (conv): Conv2d(64, 32, kernel_size=(1, 1), stride=(1, 1), bias=False)
+            (bn): BatchNorm2d(32, eps=0.001, momentum=0.03, affine=True, track_running_stats=True)
+            (act): SiLU(inplace=True)
+          )
+          (cv3): Conv(
+            (conv): Conv2d(64, 64, kernel_size=(1, 1), stride=(1, 1), bias=False)
+            (bn): BatchNorm2d(64, eps=0.001, momentum=0.03, affine=True, track_running_stats=True)
+            (act): SiLU(inplace=True)
+          )
+          (m): Sequential(
+            (0): Bottleneck(
+              (cv1): Conv(
+                (conv): Conv2d(32, 32, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1), bias=False)
+                (bn): BatchNorm2d(32, eps=0.001, momentum=0.03, affine=True, track_running_stats=True)
+                (act): SiLU(inplace=True)
+              )
+              (cv2): Conv(
+                (conv): Conv2d(32, 32, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1), bias=False)
+                (bn): BatchNorm2d(32, eps=0.001, momentum=0.03, affine=True, track_running_stats=True)
+                (act): SiLU(inplace=True)
+              )
+            )
+            (1): Bottleneck(
+              (cv1): Conv(
+                (conv): Conv2d(32, 32, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1), bias=False)
+                (bn): BatchNorm2d(32, eps=0.001, momentum=0.03, affine=True, track_running_stats=True)
+                (act): SiLU(inplace=True)
+              )
+              (cv2): Conv(
+                (conv): Conv2d(32, 32, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1), bias=False)
+                (bn): BatchNorm2d(32, eps=0.001, momentum=0.03, affine=True, track_running_stats=True)
+                (act): SiLU(inplace=True)
+              )
+            )
+          )
+        )
+      )
+    )
+    (3): Conv(
+      (conv): Conv2d(256, 256, kernel_size=(3, 3), stride=(2, 2), padding=(1, 1), bias=False)
+      (bn): BatchNorm2d(256, eps=0.001, momentum=0.03, affine=True, track_running_stats=True)
+      (act): SiLU(inplace=True)
+    )
+    (4): C3k2(
+      (cv1): Conv(
+        (conv): Conv2d(256, 256, kernel_size=(1, 1), stride=(1, 1), bias=False)
+        (bn): BatchNorm2d(256, eps=0.001, momentum=0.03, affine=True, track_running_stats=True)
+        (act): SiLU(inplace=True)
+      )
+      (cv2): Conv(
+        (conv): Conv2d(384, 512, kernel_size=(1, 1), stride=(1, 1), bias=False)
+        (bn): BatchNorm2d(512, eps=0.001, momentum=0.03, affine=True, track_running_stats=True)
+        (act): SiLU(inplace=True)
+      )
+      (m): ModuleList(
+        (0): C3k(
+          (cv1): Conv(
+            (conv): Conv2d(128, 64, kernel_size=(1, 1), stride=(1, 1), bias=False)
+            (bn): BatchNorm2d(64, eps=0.001, momentum=0.03, affine=True, track_running_stats=True)
+            (act): SiLU(inplace=True)
+          )
+          (cv2): Conv(
+            (conv): Conv2d(128, 64, kernel_size=(1, 1), stride=(1, 1), bias=False)
+            (bn): BatchNorm2d(64, eps=0.001, momentum=0.03, affine=True, track_running_stats=True)
+            (act): SiLU(inplace=True)
+          )
+          (cv3): Conv(
+            (conv): Conv2d(128, 128, kernel_size=(1, 1), stride=(1, 1), bias=False)
+            (bn): BatchNorm2d(128, eps=0.001, momentum=0.03, affine=True, track_running_stats=True)
+            (act): SiLU(inplace=True)
+          )
+          (m): Sequential(
+            (0): Bottleneck(
+              (cv1): Conv(
+                (conv): Conv2d(64, 64, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1), bias=False)
+                (bn): BatchNorm2d(64, eps=0.001, momentum=0.03, affine=True, track_running_stats=True)
+                (act): SiLU(inplace=True)
+              )
+              (cv2): Conv(
+                (conv): Conv2d(64, 64, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1), bias=False)
+                (bn): BatchNorm2d(64, eps=0.001, momentum=0.03, affine=True, track_running_stats=True)
+                (act): SiLU(inplace=True)
+              )
+            )
+            (1): Bottleneck(
+              (cv1): Conv(
+                (conv): Conv2d(64, 64, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1), bias=False)
+                (bn): BatchNorm2d(64, eps=0.001, momentum=0.03, affine=True, track_running_stats=True)
+                (act): SiLU(inplace=True)
+              )
+              (cv2): Conv(
+                (conv): Conv2d(64, 64, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1), bias=False)
+                (bn): BatchNorm2d(64, eps=0.001, momentum=0.03, affine=True, track_running_stats=True)
+                (act): SiLU(inplace=True)
+              )
+            )
+          )
+        )
+      )
+    )
+    (5): Conv(
+      (conv): Conv2d(512, 512, kernel_size=(3, 3), stride=(2, 2), padding=(1, 1), bias=False)
+      (bn): BatchNorm2d(512, eps=0.001, momentum=0.03, affine=True, track_running_stats=True)
+      (act): SiLU(inplace=True)
+    )
+    (6): C3k2(
+      (cv1): Conv(
+        (conv): Conv2d(512, 512, kernel_size=(1, 1), stride=(1, 1), bias=False)
+        (bn): BatchNorm2d(512, eps=0.001, momentum=0.03, affine=True, track_running_stats=True)
+        (act): SiLU(inplace=True)
+      )
+      (cv2): Conv(
+        (conv): Conv2d(768, 512, kernel_size=(1, 1), stride=(1, 1), bias=False)
+        (bn): BatchNorm2d(512, eps=0.001, momentum=0.03, affine=True, track_running_stats=True)
+        (act): SiLU(inplace=True)
+      )
+      (m): ModuleList(
+        (0): C3k(
+          (cv1): Conv(
+            (conv): Conv2d(256, 128, kernel_size=(1, 1), stride=(1, 1), bias=False)
+            (bn): BatchNorm2d(128, eps=0.001, momentum=0.03, affine=True, track_running_stats=True)
+            (act): SiLU(inplace=True)
+          )
+          (cv2): Conv(
+            (conv): Conv2d(256, 128, kernel_size=(1, 1), stride=(1, 1), bias=False)
+            (bn): BatchNorm2d(128, eps=0.001, momentum=0.03, affine=True, track_running_stats=True)
+            (act): SiLU(inplace=True)
+          )
+          (cv3): Conv(
+            (conv): Conv2d(256, 256, kernel_size=(1, 1), stride=(1, 1), bias=False)
+            (bn): BatchNorm2d(256, eps=0.001, momentum=0.03, affine=True, track_running_stats=True)
+            (act): SiLU(inplace=True)
+          )
+          (m): Sequential(
+            (0): Bottleneck(
+              (cv1): Conv(
+                (conv): Conv2d(128, 128, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1), bias=False)
+                (bn): BatchNorm2d(128, eps=0.001, momentum=0.03, affine=True, track_running_stats=True)
+                (act): SiLU(inplace=True)
+              )
+              (cv2): Conv(
+                (conv): Conv2d(128, 128, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1), bias=False)
+                (bn): BatchNorm2d(128, eps=0.001, momentum=0.03, affine=True, track_running_stats=True)
+                (act): SiLU(inplace=True)
+              )
+            )
+            (1): Bottleneck(
+              (cv1): Conv(
+                (conv): Conv2d(128, 128, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1), bias=False)
+                (bn): BatchNorm2d(128, eps=0.001, momentum=0.03, affine=True, track_running_stats=True)
+                (act): SiLU(inplace=True)
+              )
+              (cv2): Conv(
+                (conv): Conv2d(128, 128, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1), bias=False)
+                (bn): BatchNorm2d(128, eps=0.001, momentum=0.03, affine=True, track_running_stats=True)
+                (act): SiLU(inplace=True)
+              )
+            )
+          )
+        )
+      )
+    )
+    (7): Conv(
+      (conv): Conv2d(512, 512, kernel_size=(3, 3), stride=(2, 2), padding=(1, 1), bias=False)
+      (bn): BatchNorm2d(512, eps=0.001, momentum=0.03, affine=True, track_running_stats=True)
+      (act): SiLU(inplace=True)
+    )
+    (8): C3k2(
+      (cv1): Conv(
+        (conv): Conv2d(512, 512, kernel_size=(1, 1), stride=(1, 1), bias=False)
+        (bn): BatchNorm2d(512, eps=0.001, momentum=0.03, affine=True, track_running_stats=True)
+        (act): SiLU(inplace=True)
+      )
+      (cv2): Conv(
+        (conv): Conv2d(768, 512, kernel_size=(1, 1), stride=(1, 1), bias=False)
+        (bn): BatchNorm2d(512, eps=0.001, momentum=0.03, affine=True, track_running_stats=True)
+        (act): SiLU(inplace=True)
+      )
+      (m): ModuleList(
+        (0): C3k(
+          (cv1): Conv(
+            (conv): Conv2d(256, 128, kernel_size=(1, 1), stride=(1, 1), bias=False)
+            (bn): BatchNorm2d(128, eps=0.001, momentum=0.03, affine=True, track_running_stats=True)
+            (act): SiLU(inplace=True)
+          )
+          (cv2): Conv(
+            (conv): Conv2d(256, 128, kernel_size=(1, 1), stride=(1, 1), bias=False)
+            (bn): BatchNorm2d(128, eps=0.001, momentum=0.03, affine=True, track_running_stats=True)
+            (act): SiLU(inplace=True)
+          )
+          (cv3): Conv(
+            (conv): Conv2d(256, 256, kernel_size=(1, 1), stride=(1, 1), bias=False)
+            (bn): BatchNorm2d(256, eps=0.001, momentum=0.03, affine=True, track_running_stats=True)
+            (act): SiLU(inplace=True)
+          )
+          (m): Sequential(
+            (0): Bottleneck(
+              (cv1): Conv(
+                (conv): Conv2d(128, 128, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1), bias=False)
+                (bn): BatchNorm2d(128, eps=0.001, momentum=0.03, affine=True, track_running_stats=True)
+                (act): SiLU(inplace=True)
+              )
+              (cv2): Conv(
+                (conv): Conv2d(128, 128, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1), bias=False)
+                (bn): BatchNorm2d(128, eps=0.001, momentum=0.03, affine=True, track_running_stats=True)
+                (act): SiLU(inplace=True)
+              )
+            )
+            (1): Bottleneck(
+              (cv1): Conv(
+                (conv): Conv2d(128, 128, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1), bias=False)
+                (bn): BatchNorm2d(128, eps=0.001, momentum=0.03, affine=True, track_running_stats=True)
+                (act): SiLU(inplace=True)
+              )
+              (cv2): Conv(
+                (conv): Conv2d(128, 128, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1), bias=False)
+                (bn): BatchNorm2d(128, eps=0.001, momentum=0.03, affine=True, track_running_stats=True)
+                (act): SiLU(inplace=True)
+              )
+            )
+          )
+        )
+      )
+    )
+    (9): SPPF(
+      (cv1): Conv(
+        (conv): Conv2d(512, 256, kernel_size=(1, 1), stride=(1, 1), bias=False)
+        (bn): BatchNorm2d(256, eps=0.001, momentum=0.03, affine=True, track_running_stats=True)
+        (act): SiLU(inplace=True)
+      )
+      (cv2): Conv(
+        (conv): Conv2d(1024, 512, kernel_size=(1, 1), stride=(1, 1), bias=False)
+        (bn): BatchNorm2d(512, eps=0.001, momentum=0.03, affine=True, track_running_stats=True)
+        (act): SiLU(inplace=True)
+      )
+      (m): MaxPool2d(kernel_size=5, stride=1, padding=2, dilation=1, ceil_mode=False)
+    )
+    (10): C2PSA(
+      (cv1): Conv(
+        (conv): Conv2d(512, 512, kernel_size=(1, 1), stride=(1, 1), bias=False)
+        (bn): BatchNorm2d(512, eps=0.001, momentum=0.03, affine=True, track_running_stats=True)
+        (act): SiLU(inplace=True)
+      )
+      (cv2): Conv(
+        (conv): Conv2d(512, 512, kernel_size=(1, 1), stride=(1, 1), bias=False)
+        (bn): BatchNorm2d(512, eps=0.001, momentum=0.03, affine=True, track_running_stats=True)
+        (act): SiLU(inplace=True)
+      )
+      (m): Sequential(
+        (0): PSABlock(
+          (attn): Attention(
+            (qkv): Conv(
+              (conv): Conv2d(256, 512, kernel_size=(1, 1), stride=(1, 1), bias=False)
+              (bn): BatchNorm2d(512, eps=0.001, momentum=0.03, affine=True, track_running_stats=True)
+              (act): Identity()
+            )
+            (proj): Conv(
+              (conv): Conv2d(256, 256, kernel_size=(1, 1), stride=(1, 1), bias=False)
+              (bn): BatchNorm2d(256, eps=0.001, momentum=0.03, affine=True, track_running_stats=True)
+              (act): Identity()
+            )
+            (pe): Conv(
+              (conv): Conv2d(256, 256, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1), groups=256, bias=False)
+              (bn): BatchNorm2d(256, eps=0.001, momentum=0.03, affine=True, track_running_stats=True)
+              (act): Identity()
+            )
+          )
+          (ffn): Sequential(
+            (0): Conv(
+              (conv): Conv2d(256, 512, kernel_size=(1, 1), stride=(1, 1), bias=False)
+              (bn): BatchNorm2d(512, eps=0.001, momentum=0.03, affine=True, track_running_stats=True)
+              (act): SiLU(inplace=True)
+            )
+            (1): Conv(
+              (conv): Conv2d(512, 256, kernel_size=(1, 1), stride=(1, 1), bias=False)
+              (bn): BatchNorm2d(256, eps=0.001, momentum=0.03, affine=True, track_running_stats=True)
+              (act): Identity()
+            )
+          )
+        )
+      )
+    )
+    (11): Upsample(scale_factor=2.0, mode='nearest')
+    (12): Concat()
+    (13): C3k2(
+      (cv1): Conv(
+        (conv): Conv2d(1024, 512, kernel_size=(1, 1), stride=(1, 1), bias=False)
+        (bn): BatchNorm2d(512, eps=0.001, momentum=0.03, affine=True, track_running_stats=True)
+        (act): SiLU(inplace=True)
+      )
+      (cv2): Conv(
+        (conv): Conv2d(768, 512, kernel_size=(1, 1), stride=(1, 1), bias=False)
+        (bn): BatchNorm2d(512, eps=0.001, momentum=0.03, affine=True, track_running_stats=True)
+        (act): SiLU(inplace=True)
+      )
+      (m): ModuleList(
+        (0): C3k(
+          (cv1): Conv(
+            (conv): Conv2d(256, 128, kernel_size=(1, 1), stride=(1, 1), bias=False)
+            (bn): BatchNorm2d(128, eps=0.001, momentum=0.03, affine=True, track_running_stats=True)
+            (act): SiLU(inplace=True)
+          )
+          (cv2): Conv(
+            (conv): Conv2d(256, 128, kernel_size=(1, 1), stride=(1, 1), bias=False)
+            (bn): BatchNorm2d(128, eps=0.001, momentum=0.03, affine=True, track_running_stats=True)
+            (act): SiLU(inplace=True)
+          )
+          (cv3): Conv(
+            (conv): Conv2d(256, 256, kernel_size=(1, 1), stride=(1, 1), bias=False)
+            (bn): BatchNorm2d(256, eps=0.001, momentum=0.03, affine=True, track_running_stats=True)
+            (act): SiLU(inplace=True)
+          )
+          (m): Sequential(
+            (0): Bottleneck(
+              (cv1): Conv(
+                (conv): Conv2d(128, 128, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1), bias=False)
+                (bn): BatchNorm2d(128, eps=0.001, momentum=0.03, affine=True, track_running_stats=True)
+                (act): SiLU(inplace=True)
+              )
+              (cv2): Conv(
+                (conv): Conv2d(128, 128, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1), bias=False)
+                (bn): BatchNorm2d(128, eps=0.001, momentum=0.03, affine=True, track_running_stats=True)
+                (act): SiLU(inplace=True)
+              )
+            )
+            (1): Bottleneck(
+              (cv1): Conv(
+                (conv): Conv2d(128, 128, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1), bias=False)
+                (bn): BatchNorm2d(128, eps=0.001, momentum=0.03, affine=True, track_running_stats=True)
+                (act): SiLU(inplace=True)
+              )
+              (cv2): Conv(
+                (conv): Conv2d(128, 128, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1), bias=False)
+                (bn): BatchNorm2d(128, eps=0.001, momentum=0.03, affine=True, track_running_stats=True)
+                (act): SiLU(inplace=True)
+              )
+            )
+          )
+        )
+      )
+    )
+    (14): Upsample(scale_factor=2.0, mode='nearest')
+    (15): Concat()
+    (16): C3k2(
+      (cv1): Conv(
+        (conv): Conv2d(1024, 256, kernel_size=(1, 1), stride=(1, 1), bias=False)
+        (bn): BatchNorm2d(256, eps=0.001, momentum=0.03, affine=True, track_running_stats=True)
+        (act): SiLU(inplace=True)
+      )
+      (cv2): Conv(
+        (conv): Conv2d(384, 256, kernel_size=(1, 1), stride=(1, 1), bias=False)
+        (bn): BatchNorm2d(256, eps=0.001, momentum=0.03, affine=True, track_running_stats=True)
+        (act): SiLU(inplace=True)
+      )
+      (m): ModuleList(
+        (0): C3k(
+          (cv1): Conv(
+            (conv): Conv2d(128, 64, kernel_size=(1, 1), stride=(1, 1), bias=False)
+            (bn): BatchNorm2d(64, eps=0.001, momentum=0.03, affine=True, track_running_stats=True)
+            (act): SiLU(inplace=True)
+          )
+          (cv2): Conv(
+            (conv): Conv2d(128, 64, kernel_size=(1, 1), stride=(1, 1), bias=False)
+            (bn): BatchNorm2d(64, eps=0.001, momentum=0.03, affine=True, track_running_stats=True)
+            (act): SiLU(inplace=True)
+          )
+          (cv3): Conv(
+            (conv): Conv2d(128, 128, kernel_size=(1, 1), stride=(1, 1), bias=False)
+            (bn): BatchNorm2d(128, eps=0.001, momentum=0.03, affine=True, track_running_stats=True)
+            (act): SiLU(inplace=True)
+          )
+          (m): Sequential(
+            (0): Bottleneck(
+              (cv1): Conv(
+                (conv): Conv2d(64, 64, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1), bias=False)
+                (bn): BatchNorm2d(64, eps=0.001, momentum=0.03, affine=True, track_running_stats=True)
+                (act): SiLU(inplace=True)
+              )
+              (cv2): Conv(
+                (conv): Conv2d(64, 64, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1), bias=False)
+                (bn): BatchNorm2d(64, eps=0.001, momentum=0.03, affine=True, track_running_stats=True)
+                (act): SiLU(inplace=True)
+              )
+            )
+            (1): Bottleneck(
+              (cv1): Conv(
+                (conv): Conv2d(64, 64, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1), bias=False)
+                (bn): BatchNorm2d(64, eps=0.001, momentum=0.03, affine=True, track_running_stats=True)
+                (act): SiLU(inplace=True)
+              )
+              (cv2): Conv(
+                (conv): Conv2d(64, 64, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1), bias=False)
+                (bn): BatchNorm2d(64, eps=0.001, momentum=0.03, affine=True, track_running_stats=True)
+                (act): SiLU(inplace=True)
+              )
+            )
+          )
+        )
+      )
+    )
+    (17): Conv(
+      (conv): Conv2d(256, 256, kernel_size=(3, 3), stride=(2, 2), padding=(1, 1), bias=False)
+      (bn): BatchNorm2d(256, eps=0.001, momentum=0.03, affine=True, track_running_stats=True)
+      (act): SiLU(inplace=True)
+    )
+    (18): Concat()
+    (19): C3k2(
+      (cv1): Conv(
+        (conv): Conv2d(768, 512, kernel_size=(1, 1), stride=(1, 1), bias=False)
+        (bn): BatchNorm2d(512, eps=0.001, momentum=0.03, affine=True, track_running_stats=True)
+        (act): SiLU(inplace=True)
+      )
+      (cv2): Conv(
+        (conv): Conv2d(768, 512, kernel_size=(1, 1), stride=(1, 1), bias=False)
+        (bn): BatchNorm2d(512, eps=0.001, momentum=0.03, affine=True, track_running_stats=True)
+        (act): SiLU(inplace=True)
+      )
+      (m): ModuleList(
+        (0): C3k(
+          (cv1): Conv(
+            (conv): Conv2d(256, 128, kernel_size=(1, 1), stride=(1, 1), bias=False)
+            (bn): BatchNorm2d(128, eps=0.001, momentum=0.03, affine=True, track_running_stats=True)
+            (act): SiLU(inplace=True)
+          )
+          (cv2): Conv(
+            (conv): Conv2d(256, 128, kernel_size=(1, 1), stride=(1, 1), bias=False)
+            (bn): BatchNorm2d(128, eps=0.001, momentum=0.03, affine=True, track_running_stats=True)
+            (act): SiLU(inplace=True)
+          )
+          (cv3): Conv(
+            (conv): Conv2d(256, 256, kernel_size=(1, 1), stride=(1, 1), bias=False)
+            (bn): BatchNorm2d(256, eps=0.001, momentum=0.03, affine=True, track_running_stats=True)
+            (act): SiLU(inplace=True)
+          )
+          (m): Sequential(
+            (0): Bottleneck(
+              (cv1): Conv(
+                (conv): Conv2d(128, 128, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1), bias=False)
+                (bn): BatchNorm2d(128, eps=0.001, momentum=0.03, affine=True, track_running_stats=True)
+                (act): SiLU(inplace=True)
+              )
+              (cv2): Conv(
+                (conv): Conv2d(128, 128, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1), bias=False)
+                (bn): BatchNorm2d(128, eps=0.001, momentum=0.03, affine=True, track_running_stats=True)
+                (act): SiLU(inplace=True)
+              )
+            )
+            (1): Bottleneck(
+              (cv1): Conv(
+                (conv): Conv2d(128, 128, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1), bias=False)
+                (bn): BatchNorm2d(128, eps=0.001, momentum=0.03, affine=True, track_running_stats=True)
+                (act): SiLU(inplace=True)
+              )
+              (cv2): Conv(
+                (conv): Conv2d(128, 128, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1), bias=False)
+                (bn): BatchNorm2d(128, eps=0.001, momentum=0.03, affine=True, track_running_stats=True)
+                (act): SiLU(inplace=True)
+              )
+            )
+          )
+        )
+      )
+    )
+    (20): Conv(
+      (conv): Conv2d(512, 512, kernel_size=(3, 3), stride=(2, 2), padding=(1, 1), bias=False)
+      (bn): BatchNorm2d(512, eps=0.001, momentum=0.03, affine=True, track_running_stats=True)
+      (act): SiLU(inplace=True)
+    )
+    (21): Concat()
+    (22): C3k2(
+      (cv1): Conv(
+        (conv): Conv2d(1024, 512, kernel_size=(1, 1), stride=(1, 1), bias=False)
+        (bn): BatchNorm2d(512, eps=0.001, momentum=0.03, affine=True, track_running_stats=True)
+        (act): SiLU(inplace=True)
+      )
+      (cv2): Conv(
+        (conv): Conv2d(768, 512, kernel_size=(1, 1), stride=(1, 1), bias=False)
+        (bn): BatchNorm2d(512, eps=0.001, momentum=0.03, affine=True, track_running_stats=True)
+        (act): SiLU(inplace=True)
+      )
+      (m): ModuleList(
+        (0): C3k(
+          (cv1): Conv(
+            (conv): Conv2d(256, 128, kernel_size=(1, 1), stride=(1, 1), bias=False)
+            (bn): BatchNorm2d(128, eps=0.001, momentum=0.03, affine=True, track_running_stats=True)
+            (act): SiLU(inplace=True)
+          )
+          (cv2): Conv(
+            (conv): Conv2d(256, 128, kernel_size=(1, 1), stride=(1, 1), bias=False)
+            (bn): BatchNorm2d(128, eps=0.001, momentum=0.03, affine=True, track_running_stats=True)
+            (act): SiLU(inplace=True)
+          )
+          (cv3): Conv(
+            (conv): Conv2d(256, 256, kernel_size=(1, 1), stride=(1, 1), bias=False)
+            (bn): BatchNorm2d(256, eps=0.001, momentum=0.03, affine=True, track_running_stats=True)
+            (act): SiLU(inplace=True)
+          )
+          (m): Sequential(
+            (0): Bottleneck(
+              (cv1): Conv(
+                (conv): Conv2d(128, 128, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1), bias=False)
+                (bn): BatchNorm2d(128, eps=0.001, momentum=0.03, affine=True, track_running_stats=True)
+                (act): SiLU(inplace=True)
+              )
+              (cv2): Conv(
+                (conv): Conv2d(128, 128, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1), bias=False)
+                (bn): BatchNorm2d(128, eps=0.001, momentum=0.03, affine=True, track_running_stats=True)
+                (act): SiLU(inplace=True)
+              )
+            )
+            (1): Bottleneck(
+              (cv1): Conv(
+                (conv): Conv2d(128, 128, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1), bias=False)
+                (bn): BatchNorm2d(128, eps=0.001, momentum=0.03, affine=True, track_running_stats=True)
+                (act): SiLU(inplace=True)
+              )
+              (cv2): Conv(
+                (conv): Conv2d(128, 128, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1), bias=False)
+                (bn): BatchNorm2d(128, eps=0.001, momentum=0.03, affine=True, track_running_stats=True)
+                (act): SiLU(inplace=True)
+              )
+            )
+          )
+        )
+      )
+    )
+    (23): Pose(
+      (cv2): ModuleList(
+        (0): Sequential(
+          (0): Conv(
+            (conv): Conv2d(256, 64, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1), bias=False)
+            (bn): BatchNorm2d(64, eps=0.001, momentum=0.03, affine=True, track_running_stats=True)
+            (act): SiLU(inplace=True)
+          )
+          (1): Conv(
+            (conv): Conv2d(64, 64, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1), bias=False)
+            (bn): BatchNorm2d(64, eps=0.001, momentum=0.03, affine=True, track_running_stats=True)
+            (act): SiLU(inplace=True)
+          )
+          (2): Conv2d(64, 64, kernel_size=(1, 1), stride=(1, 1))
+        )
+        (1-2): 2 x Sequential(
+          (0): Conv(
+            (conv): Conv2d(512, 64, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1), bias=False)
+            (bn): BatchNorm2d(64, eps=0.001, momentum=0.03, affine=True, track_running_stats=True)
+            (act): SiLU(inplace=True)
+          )
+          (1): Conv(
+            (conv): Conv2d(64, 64, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1), bias=False)
+            (bn): BatchNorm2d(64, eps=0.001, momentum=0.03, affine=True, track_running_stats=True)
+            (act): SiLU(inplace=True)
+          )
+          (2): Conv2d(64, 64, kernel_size=(1, 1), stride=(1, 1))
+        )
+      )
+      (cv3): ModuleList(
+        (0): Sequential(
+          (0): Sequential(
+            (0): DWConv(
+              (conv): Conv2d(256, 256, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1), groups=256, bias=False)
+              (bn): BatchNorm2d(256, eps=0.001, momentum=0.03, affine=True, track_running_stats=True)
+              (act): SiLU(inplace=True)
+            )
+            (1): Conv(
+              (conv): Conv2d(256, 256, kernel_size=(1, 1), stride=(1, 1), bias=False)
+              (bn): BatchNorm2d(256, eps=0.001, momentum=0.03, affine=True, track_running_stats=True)
+              (act): SiLU(inplace=True)
+            )
+          )
+          (1): Sequential(
+            (0): DWConv(
+              (conv): Conv2d(256, 256, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1), groups=256, bias=False)
+              (bn): BatchNorm2d(256, eps=0.001, momentum=0.03, affine=True, track_running_stats=True)
+              (act): SiLU(inplace=True)
+            )
+            (1): Conv(
+              (conv): Conv2d(256, 256, kernel_size=(1, 1), stride=(1, 1), bias=False)
+              (bn): BatchNorm2d(256, eps=0.001, momentum=0.03, affine=True, track_running_stats=True)
+              (act): SiLU(inplace=True)
+            )
+          )
+          (2): Conv2d(256, 1, kernel_size=(1, 1), stride=(1, 1))
+        )
+        (1-2): 2 x Sequential(
+          (0): Sequential(
+            (0): DWConv(
+              (conv): Conv2d(512, 512, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1), groups=512, bias=False)
+              (bn): BatchNorm2d(512, eps=0.001, momentum=0.03, affine=True, track_running_stats=True)
+              (act): SiLU(inplace=True)
+            )
+            (1): Conv(
+              (conv): Conv2d(512, 256, kernel_size=(1, 1), stride=(1, 1), bias=False)
+              (bn): BatchNorm2d(256, eps=0.001, momentum=0.03, affine=True, track_running_stats=True)
+              (act): SiLU(inplace=True)
+            )
+          )
+          (1): Sequential(
+            (0): DWConv(
+              (conv): Conv2d(256, 256, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1), groups=256, bias=False)
+              (bn): BatchNorm2d(256, eps=0.001, momentum=0.03, affine=True, track_running_stats=True)
+              (act): SiLU(inplace=True)
+            )
+            (1): Conv(
+              (conv): Conv2d(256, 256, kernel_size=(1, 1), stride=(1, 1), bias=False)
+              (bn): BatchNorm2d(256, eps=0.001, momentum=0.03, affine=True, track_running_stats=True)
+              (act): SiLU(inplace=True)
+            )
+          )
+          (2): Conv2d(256, 1, kernel_size=(1, 1), stride=(1, 1))
+        )
+      )
+      (dfl): DFL(
+        (conv): Conv2d(16, 1, kernel_size=(1, 1), stride=(1, 1), bias=False)
+      )
+      (cv4): ModuleList(
+        (0): Sequential(
+          (0): Conv(
+            (conv): Conv2d(256, 64, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1), bias=False)
+            (bn): BatchNorm2d(64, eps=0.001, momentum=0.03, affine=True, track_running_stats=True)
+            (act): SiLU(inplace=True)
+          )
+          (1): Conv(
+            (conv): Conv2d(64, 64, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1), bias=False)
+            (bn): BatchNorm2d(64, eps=0.001, momentum=0.03, affine=True, track_running_stats=True)
+            (act): SiLU(inplace=True)
+          )
+          (2): Conv2d(64, 51, kernel_size=(1, 1), stride=(1, 1))
+        )
+        (1-2): 2 x Sequential(
+          (0): Conv(
+            (conv): Conv2d(512, 64, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1), bias=False)
+            (bn): BatchNorm2d(64, eps=0.001, momentum=0.03, affine=True, track_running_stats=True)
+            (act): SiLU(inplace=True)
+          )
+          (1): Conv(
+            (conv): Conv2d(64, 64, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1), bias=False)
+            (bn): BatchNorm2d(64, eps=0.001, momentum=0.03, affine=True, track_running_stats=True)
+            (act): SiLU(inplace=True)
+          )
+          (2): Conv2d(64, 51, kernel_size=(1, 1), stride=(1, 1))
+        )
+      )
+    )
+  )
+), distill=2.5, freezeAllBN=False, loss_function=pose_loss2, lr0=0.01, lrf=0.001, momentum=0.937, weight_decay=0.0005, warmup_epochs=5, warmup_momentum=0.8, warmup_bias_lr=0.1, box=8.0, cls=0.5, dfl=1.5, pose=15.0, kobj=1.5, nbs=64, hsv_h=0.015, hsv_s=0.7, hsv_v=0.4, degrees=0.0, translate=0.1, scale=0.5, shear=0.0, perspective=0.0, flipud=0.0, fliplr=0.5, bgr=0.0, mosaic=1.0, mixup=0.1, copy_paste=0.1, copy_paste_mode=flip, auto_augment=randaugment, erasing=0.4, crop_fraction=1.0, cfg=None, tracker=botsort.yaml, save_dir=yolo11n-pose-distill2/train
+初始化教師模型已完成，設為訓練模式但凍結BN層
+Overriding model.yaml nc=80 with nc=1
+
+                   from  n    params  module                                       arguments
+  0                  -1  1       464  ultralytics.nn.modules.conv.Conv             [3, 16, 3, 2]
+  1                  -1  1      4672  ultralytics.nn.modules.conv.Conv             [16, 32, 3, 2]
+  2                  -1  1      6640  ultralytics.nn.modules.block.C3k2            [32, 64, 1, False, 0.25]
+  3                  -1  1     36992  ultralytics.nn.modules.conv.Conv             [64, 64, 3, 2]
+  4                  -1  1     26080  ultralytics.nn.modules.block.C3k2            [64, 128, 1, False, 0.25]
+  5                  -1  1    147712  ultralytics.nn.modules.conv.Conv             [128, 128, 3, 2]
+  6                  -1  1     87040  ultralytics.nn.modules.block.C3k2            [128, 128, 1, True]
+  7                  -1  1    295424  ultralytics.nn.modules.conv.Conv             [128, 256, 3, 2]
+  8                  -1  1    346112  ultralytics.nn.modules.block.C3k2            [256, 256, 1, True]
+  9                  -1  1    164608  ultralytics.nn.modules.block.SPPF            [256, 256, 5]
+ 10                  -1  1    249728  ultralytics.nn.modules.block.C2PSA           [256, 256, 1]
+ 11                  -1  1         0  torch.nn.modules.upsampling.Upsample         [None, 2, 'nearest']
+ 12             [-1, 6]  1         0  ultralytics.nn.modules.conv.Concat           [1]
+ 13                  -1  1    111296  ultralytics.nn.modules.block.C3k2            [384, 128, 1, False]
+ 14                  -1  1         0  torch.nn.modules.upsampling.Upsample         [None, 2, 'nearest']
+ 15             [-1, 4]  1         0  ultralytics.nn.modules.conv.Concat           [1]
+ 16                  -1  1     32096  ultralytics.nn.modules.block.C3k2            [256, 64, 1, False]
+ 17                  -1  1     36992  ultralytics.nn.modules.conv.Conv             [64, 64, 3, 2]
+ 18            [-1, 13]  1         0  ultralytics.nn.modules.conv.Concat           [1]
+ 19                  -1  1     86720  ultralytics.nn.modules.block.C3k2            [192, 128, 1, False]
+ 20                  -1  1    147712  ultralytics.nn.modules.conv.Conv             [128, 128, 3, 2]
+ 21            [-1, 10]  1         0  ultralytics.nn.modules.conv.Concat           [1]
+ 22                  -1  1    378880  ultralytics.nn.modules.block.C3k2            [384, 256, 1, True]
+ 23        [16, 19, 22]  1    715294  ultralytics.nn.modules.head.Pose             [1, [17, 3], [64, 128, 256]]
+YOLO11n-pose summary: 196 layers, 2,874,462 parameters, 2,874,446 gradients, 7.5 GFLOPs
+
+Freezing layer 'model.23.dfl.conv.weight'
+AMP: running Automatic Mixed Precision (AMP) checks...
+AMP: checks passed ✅
+train: Scanning /root/autodl-tmp/datasets/coco-pose/labels/train2017.cache... 56599 images, 0 backgrounds, 0 corrupt: 100%|██████████| 56599/56599 [00:00<?, ?it/s]
+train: Caching images (43.7GB Disk): 100%|██████████| 56599/56599 [00:01<00:00, 47474.37it/s]
+val: Scanning /root/autodl-tmp/datasets/coco-pose/labels/val2017.cache... 2346 images, 0 backgrounds, 0 corrupt: 100%|██████████| 2346/2346 [00:00<?, ?it/s]
+val: Caching images (1.8GB Disk): 100%|██████████| 2346/2346 [00:00<00:00, 29559.45it/s]
+Plotting labels to yolo11n-pose-distill2/train/labels.jpg...
+optimizer: 'optimizer=auto' found, ignoring 'lr0=0.01' and 'momentum=0.937' and determining best 'optimizer', 'lr0' and 'momentum' automatically...
+optimizer: SGD(lr=0.01, momentum=0.9) with parameter groups 87 weight(decay=0.0), 97 weight(decay=0.0005), 96 bias(decay=0.0)
+Image sizes 640 train, 640 val
+Using 8 dataloader workers
+Logging results to yolo11n-pose-distill2/train
+Starting training for 500 epochs...
+
+      Epoch    GPU_mem   box_loss  pose_loss  kobj_loss   cls_loss   dfl_loss     d_loss  Instances       Size
+  0%|          | 0/1769 [00:00<?, ?it/s]
+Epoch 0/500 (Progress: 0.00)
+Dynamic feature layers: [0]
+Layer weights: [0.8]
+
+--- Loss Values (Epoch 0/500, T=4.00) ---
+coord_loss: 3.1341
+structure_loss: 0.9296
+conf_loss: 1.2187
+rel_pos_loss: 0.9420
+feat_loss: 0.1161 (raw: 2.3223)
+total_loss: 6.7479
+teacher_conf: 0.3665
+feat_weight: 0.0570, pred_weight: 0.2199
+consistency_loss: 0.1444
+pose_structure_loss: 3.6482
+極小誤差比例 (x<0.001): 0.0253, (y<0.001): 0.0125
+小誤差比例 (x<0.005): 0.0514, (y<0.005): 0.0255
+坐標誤差統計 - X軸: 均值=0.508789, 標準差=0.459961
+坐標誤差統計 - Y軸: 均值=1.045898, 標準差=0.861328
+
+--- 坐標精度統計 ---
+精度等級: 0.01%, 0.05%, 0.1%, 0.5%, 1%, 5%
+X軸精度: 0.01%, 0.07%, 0.13%, 0.66%, 1.31%, 6.58%
+Y軸精度: 0.01%, 0.03%, 0.07%, 0.32%, 0.64%, 3.25%
+對應mAP50的點比例 (誤差<5%): 0.22%
+對應mAP90的點比例 (誤差<1%): 0.01%
+對應mAP95的點比例 (誤差<0.5%): 0.00%
+超微小誤差比例 (x<0.0001): 0.0131, (y<0.0001): 0.0064
+Y/X軸誤差比例: 2.0557
+
+--- 高IoU精度統計 ---
+IoU閾值對應精度 - IoU75/80/90/95
+X軸精度比例: 0.0588/0.0510/0.0417/0.0295
+Y軸精度比例: 0.0291/0.0252/0.0206/0.0146
+綜合精度目標達成率: 0.73
+      1/500      13.8G      2.965      9.878     0.8484      2.822      3.209      2.652        127        480: 100%|██████████| 1769/1769 [08:09<00:00,  3.62it/s]
+                 Class     Images  Instances      Box(P          R      mAP50  mAP50-95)     Pose(P          R      mAP50  mAP50-95): 100%|██████████| 37/37 [00:09<00:00,  3.90it/s]
+                   all       2346       6352      0.188     0.0969     0.0789      0.023     0.0191    0.00803    0.00168     0.0004
+
+      Epoch    GPU_mem   box_loss  pose_loss  kobj_loss   cls_loss   dfl_loss     d_loss  Instances       Size
+  0%|          | 0/1769 [00:00<?, ?it/s]
+Epoch 1/500 (Progress: 0.00)
+Dynamic feature layers: [0]
+Layer weights: [0.8]
+
+--- Loss Values (Epoch 1/500, T=4.00) ---
+coord_loss: 1.8472
+structure_loss: 0.3072
+conf_loss: 1.1526
+rel_pos_loss: 0.3693
+feat_loss: 1.6517
+total_loss: 4.1047
+teacher_conf: 0.3665
+feat_weight: 0.0570, pred_weight: 0.2199
+consistency_loss: 0.0763
+pose_structure_loss: 1.8098
+極小誤差比例 (x<0.001): 0.0405, (y<0.001): 0.0186
+小誤差比例 (x<0.005): 0.0808, (y<0.005): 0.0374
+坐標誤差統計 - X軸: 均值=0.373291, 標準差=0.345703
+坐標誤差統計 - Y軸: 均值=0.746094, 標準差=0.632812
+
+--- 坐標精度統計 ---
+精度等級: 0.01%, 0.05%, 0.1%, 0.5%, 1%, 5%
+X軸精度: 0.02%, 0.12%, 0.22%, 1.05%, 2.10%, 10.47%
+Y軸精度: 0.02%, 0.06%, 0.11%, 0.49%, 0.96%, 4.80%
+對應mAP50的點比例 (誤差<5%): 0.57%
+對應mAP90的點比例 (誤差<1%): 0.02%
+對應mAP95的點比例 (誤差<0.5%): 0.01%
+超微小誤差比例 (x<0.0001): 0.0210, (y<0.0001): 0.0096
+Y/X軸誤差比例: 1.9987
+
+--- 高IoU精度統計 ---
+IoU閾值對應精度 - IoU75/80/90/95
+X軸精度比例: 0.0939/0.0815/0.0666/0.0472
+Y軸精度比例: 0.0428/0.0371/0.0303/0.0213
+綜合精度目標達成率: 1.14
+      2/500        14G      1.953      8.574     0.7547      1.998      2.167      1.769         98        608: 100%|██████████| 1769/1769 [08:06<00:00,  3.64it/s]
+                 Class     Images  Instances      Box(P          R      mAP50  mAP50-95)     Pose(P          R      mAP50  mAP50-95): 100%|██████████| 37/37 [00:07<00:00,  4.87it/s]
+                   all       2346       6352      0.554      0.449      0.484       0.22      0.197      0.131     0.0599     0.0121
+
+      Epoch    GPU_mem   box_loss  pose_loss  kobj_loss   cls_loss   dfl_loss     d_loss  Instances       Size
+  0%|          | 0/1769 [00:00<?, ?it/s]
+Epoch 2/500 (Progress: 0.01)
+Dynamic feature layers: [0]
+Layer weights: [0.8]
+
+--- Loss Values (Epoch 2/500, T=4.00) ---
+coord_loss: 1.3723
+structure_loss: 0.1981
+conf_loss: 0.8918
+rel_pos_loss: 0.3693
+feat_loss: 2.0305
+total_loss: 3.1786
+teacher_conf: 0.3499
+feat_weight: 0.0585, pred_weight: 0.2099
+consistency_loss: 0.0648
+pose_structure_loss: 1.7057
+極小誤差比例 (x<0.001): 0.0422, (y<0.001): 0.0231
+小誤差比例 (x<0.005): 0.0837, (y<0.005): 0.0466
+坐標誤差統計 - X軸: 均值=0.358643, 標準差=0.333008
+坐標誤差統計 - Y軸: 均值=0.617676, 標準差=0.553711
+
+--- 坐標精度統計 ---
+精度等級: 0.01%, 0.05%, 0.1%, 0.5%, 1%, 5%
+X軸精度: 0.02%, 0.13%, 0.24%, 1.10%, 2.19%, 10.97%
+Y軸精度: 0.03%, 0.07%, 0.14%, 0.60%, 1.18%, 5.97%
+對應mAP50的點比例 (誤差<5%): 0.71%
+對應mAP90的點比例 (誤差<1%): 0.03%
+對應mAP95的點比例 (誤差<0.5%): 0.01%
+超微小誤差比例 (x<0.0001): 0.0219, (y<0.0001): 0.0118
+Y/X軸誤差比例: 1.7223
+
+--- 高IoU精度統計 ---
+IoU閾值對應精度 - IoU75/80/90/95
+X軸精度比例: 0.0984/0.0853/0.0699/0.0495
+Y軸精度比例: 0.0533/0.0462/0.0377/0.0264
+綜合精度目標達成率: 1.27
+      3/500        14G      1.606      7.603     0.6339      1.585       1.75      1.538        126        672: 100%|██████████| 1769/1769 [07:52<00:00,  3.75it/s]
+                 Class     Images  Instances      Box(P          R      mAP50  mAP50-95)     Pose(P          R      mAP50  mAP50-95): 100%|██████████| 37/37 [00:07<00:00,  4.84it/s]
+                   all       2346       6352      0.694      0.553      0.638      0.342      0.404       0.25      0.191     0.0445
+
+      Epoch    GPU_mem   box_loss  pose_loss  kobj_loss   cls_loss   dfl_loss     d_loss  Instances       Size
+  0%|          | 0/1769 [00:00<?, ?it/s]
+Epoch 3/500 (Progress: 0.01)
+Dynamic feature layers: [0, 1]
+Layer weights: [0.8, 1.0]
+
+--- Loss Values (Epoch 3/500, T=4.00) ---
+coord_loss: 1.2751
+structure_loss: 0.1962
+conf_loss: 0.6828
+rel_pos_loss: 0.3154
+feat_loss: 1.5894
+total_loss: 2.8607
+teacher_conf: 0.3518
+feat_weight: 0.0297, pred_weight: 0.2111
+consistency_loss: 0.0570
+pose_structure_loss: 1.4547
+極小誤差比例 (x<0.001): 0.0455, (y<0.001): 0.0268
+小誤差比例 (x<0.005): 0.0906, (y<0.005): 0.0536
+坐標誤差統計 - X軸: 均值=0.343018, 標準差=0.325439
+坐標誤差統計 - Y軸: 均值=0.564453, 標準差=0.513184
+
+--- 坐標精度統計 ---
+精度等級: 0.01%, 0.05%, 0.1%, 0.5%, 1%, 5%
+X軸精度: 0.03%, 0.14%, 0.26%, 1.18%, 2.36%, 11.81%
+Y軸精度: 0.04%, 0.08%, 0.16%, 0.70%, 1.39%, 6.89%
+對應mAP50的點比例 (誤差<5%): 0.91%
+對應mAP90的點比例 (誤差<1%): 0.04%
+對應mAP95的點比例 (誤差<0.5%): 0.01%
+超微小誤差比例 (x<0.0001): 0.0236, (y<0.0001): 0.0139
+Y/X軸誤差比例: 1.6456
+
+--- 高IoU精度統計 ---
+IoU閾值對應精度 - IoU75/80/90/95
+X軸精度比例: 0.1058/0.0918/0.0750/0.0532
+Y軸精度比例: 0.0614/0.0533/0.0437/0.0307
+綜合精度目標達成率: 1.40
+      4/500        14G      1.486       7.06     0.5913       1.44      1.606      1.437        141        352: 100%|██████████| 1769/1769 [07:49<00:00,  3.77it/s]
+                 Class     Images  Instances      Box(P          R      mAP50  mAP50-95)     Pose(P          R      mAP50  mAP50-95): 100%|██████████| 37/37 [00:07<00:00,  4.94it/s]
+                   all       2346       6352      0.719      0.599      0.694      0.387        0.5      0.344      0.296     0.0823
+
+      Epoch    GPU_mem   box_loss  pose_loss  kobj_loss   cls_loss   dfl_loss     d_loss  Instances       Size
+  0%|          | 0/1769 [00:00<?, ?it/s]
+Epoch 4/500 (Progress: 0.01)
+Dynamic feature layers: [0, 1]
+Layer weights: [0.8, 1.0]
+
+--- Loss Values (Epoch 4/500, T=4.00) ---
+coord_loss: 1.2278
+structure_loss: 0.1873
+conf_loss: 0.5403
+rel_pos_loss: 0.3147
+feat_loss: 1.5150
+total_loss: 2.7679
+teacher_conf: 0.3574
+feat_weight: 0.0299, pred_weight: 0.2145
+consistency_loss: 0.0556
+pose_structure_loss: 1.4026
+極小誤差比例 (x<0.001): 0.0467, (y<0.001): 0.0289
+小誤差比例 (x<0.005): 0.0919, (y<0.005): 0.0575
+坐標誤差統計 - X軸: 均值=0.332764, 標準差=0.311279
+坐標誤差統計 - Y軸: 均值=0.538574, 標準差=0.503906
+
+--- 坐標精度統計 ---
+精度等級: 0.01%, 0.05%, 0.1%, 0.5%, 1%, 5%
+X軸精度: 0.03%, 0.15%, 0.27%, 1.22%, 2.42%, 12.04%
+Y軸精度: 0.04%, 0.09%, 0.18%, 0.76%, 1.50%, 7.40%
+對應mAP50的點比例 (誤差<5%): 0.99%
+對應mAP90的點比例 (誤差<1%): 0.04%
+對應mAP95的點比例 (誤差<0.5%): 0.01%
+超微小誤差比例 (x<0.0001): 0.0242, (y<0.0001): 0.0150
+Y/X軸誤差比例: 1.6185
+
+--- 高IoU精度統計 ---
+IoU閾值對應精度 - IoU75/80/90/95
+X軸精度比例: 0.1080/0.0937/0.0767/0.0543
+Y軸精度比例: 0.0660/0.0572/0.0468/0.0329
+綜合精度目標達成率: 1.45
+      5/500        14G      1.427      6.756     0.5693      1.365      1.517      1.392        130        736: 100%|██████████| 1769/1769 [07:42<00:00,  3.83it/s]
+                 Class     Images  Instances      Box(P          R      mAP50  mAP50-95)     Pose(P          R      mAP50  mAP50-95): 100%|██████████| 37/37 [00:07<00:00,  4.73it/s]
+                   all       2346       6352      0.748      0.627      0.724      0.423      0.563      0.403      0.373      0.115
+
+      Epoch    GPU_mem   box_loss  pose_loss  kobj_loss   cls_loss   dfl_loss     d_loss  Instances       Size
+  0%|          | 0/1769 [00:00<?, ?it/s]
+Epoch 5/500 (Progress: 0.01)
+Dynamic feature layers: [0, 1]
+Layer weights: [0.8, 1.0]
+
+--- Loss Values (Epoch 5/500, T=3.99) ---
+coord_loss: 1.2073
+structure_loss: 0.2063
+conf_loss: 0.4786
+rel_pos_loss: 0.2951
+feat_loss: 1.1228
+total_loss: 2.6934
+teacher_conf: 0.3826
+feat_weight: 0.0292, pred_weight: 0.2295
+consistency_loss: 0.0542
+pose_structure_loss: 1.3559
+極小誤差比例 (x<0.001): 0.0508, (y<0.001): 0.0306
+小誤差比例 (x<0.005): 0.0999, (y<0.005): 0.0606
+坐標誤差統計 - X軸: 均值=0.320557, 標準差=0.322021
+坐標誤差統計 - Y軸: 均值=0.522949, 標準差=0.499512
+
+--- 坐標精度統計 ---
+精度等級: 0.01%, 0.05%, 0.1%, 0.5%, 1%, 5%
+X軸精度: 0.03%, 0.16%, 0.29%, 1.33%, 2.65%, 13.13%
+Y軸精度: 0.05%, 0.10%, 0.19%, 0.81%, 1.58%, 7.82%
+對應mAP50的點比例 (誤差<5%): 1.20%
+對應mAP90的點比例 (誤差<1%): 0.05%
+對應mAP95的點比例 (誤差<0.5%): 0.01%
+超微小誤差比例 (x<0.0001): 0.0265, (y<0.0001): 0.0158
+Y/X軸誤差比例: 1.6314
+
+--- 高IoU精度統計 ---
+IoU閾值對應精度 - IoU75/80/90/95
+X軸精度比例: 0.1178/0.1023/0.0836/0.0593
+Y軸精度比例: 0.0697/0.0605/0.0496/0.0349
+綜合精度目標達成率: 1.57
+      6/500        14G      1.025      4.841     0.4138     0.9616      1.076      2.437        126        480: 100%|██████████| 1769/1769 [07:45<00:00,  3.80it/s]
+                 Class     Images  Instances      Box(P          R      mAP50  mAP50-95)     Pose(P          R      mAP50  mAP50-95): 100%|██████████| 37/37 [00:07<00:00,  4.96it/s]
+                   all       2346       6352      0.764      0.658      0.753      0.462      0.611      0.459      0.438      0.145
+
+      Epoch    GPU_mem   box_loss  pose_loss  kobj_loss   cls_loss   dfl_loss     d_loss  Instances       Size
+  0%|          | 0/1769 [00:00<?, ?it/s]
+Epoch 6/500 (Progress: 0.01)
+Dynamic feature layers: [0, 1, 2]
+Layer weights: [0.8, 1.0, 1.2]
+
+--- Loss Values (Epoch 6/500, T=3.99) ---
+coord_loss: 1.0781
+structure_loss: 0.1435
+conf_loss: 0.4077
+rel_pos_loss: 0.2974
+feat_loss: 1.1379
+total_loss: 2.1441
+teacher_conf: 0.3433
+feat_weight: 0.0316, pred_weight: 0.2060
+consistency_loss: 0.0515
+pose_structure_loss: 1.3260
+極小誤差比例 (x<0.001): 0.0519, (y<0.001): 0.0353
+小誤差比例 (x<0.005): 0.1012, (y<0.005): 0.0693
+坐標誤差統計 - X軸: 均值=0.310791, 標準差=0.301514
+坐標誤差統計 - Y軸: 均值=0.470215, 標準差=0.457031
+
+--- 坐標精度統計 ---
+精度等級: 0.01%, 0.05%, 0.1%, 0.5%, 1%, 5%
+X軸精度: 0.03%, 0.16%, 0.29%, 1.36%, 2.68%, 13.39%
+Y軸精度: 0.05%, 0.11%, 0.21%, 0.93%, 1.82%, 9.04%
+對應mAP50的點比例 (誤差<5%): 1.35%
+對應mAP90的點比例 (誤差<1%): 0.05%
+對應mAP95的點比例 (誤差<0.5%): 0.01%
+超微小誤差比例 (x<0.0001): 0.0268, (y<0.0001): 0.0182
+Y/X軸誤差比例: 1.5130
+
+--- 高IoU精度統計 ---
+IoU閾值對應精度 - IoU75/80/90/95
+X軸精度比例: 0.1201/0.1044/0.0853/0.0603
+Y軸精度比例: 0.0807/0.0701/0.0576/0.0405
+綜合精度目標達成率: 1.68
+      7/500        14G     0.9825      4.641     0.4023     0.9054      1.028      2.331        116        960: 100%|██████████| 1769/1769 [07:49<00:00,  3.77it/s]
+                 Class     Images  Instances      Box(P          R      mAP50  mAP50-95)     Pose(P          R      mAP50  mAP50-95): 100%|██████████| 37/37 [00:07<00:00,  4.89it/s]
+                   all       2346       6352      0.783      0.669      0.774      0.488      0.657      0.485      0.479      0.168
+
+      Epoch    GPU_mem   box_loss  pose_loss  kobj_loss   cls_loss   dfl_loss     d_loss  Instances       Size
+  0%|          | 0/1769 [00:00<?, ?it/s]
+Epoch 7/500 (Progress: 0.02)
+Dynamic feature layers: [0, 1, 2]
+Layer weights: [0.8, 1.0, 1.2]
+
+--- Loss Values (Epoch 7/500, T=3.99) ---
+coord_loss: 1.1258
+structure_loss: 0.1393
+conf_loss: 0.3811
+rel_pos_loss: 0.2929
+feat_loss: 0.9964
+total_loss: 2.1763
+teacher_conf: 0.3423
+feat_weight: 0.0321, pred_weight: 0.2054
+consistency_loss: 0.0503
+pose_structure_loss: 1.2847
+極小誤差比例 (x<0.001): 0.0518, (y<0.001): 0.0363
+小誤差比例 (x<0.005): 0.1013, (y<0.005): 0.0710
+坐標誤差統計 - X軸: 均值=0.313721, 標準差=0.310059
+坐標誤差統計 - Y軸: 均值=0.474609, 標準差=0.468506
+
+--- 坐標精度統計 ---
+精度等級: 0.01%, 0.05%, 0.1%, 0.5%, 1%, 5%
+X軸精度: 0.03%, 0.16%, 0.29%, 1.36%, 2.70%, 13.34%
+Y軸精度: 0.06%, 0.12%, 0.23%, 0.95%, 1.87%, 9.30%
+對應mAP50的點比例 (誤差<5%): 1.40%
+對應mAP90的點比例 (誤差<1%): 0.06%
+對應mAP95的點比例 (誤差<0.5%): 0.01%
+超微小誤差比例 (x<0.0001): 0.0270, (y<0.0001): 0.0187
+Y/X軸誤差比例: 1.5128
+
+--- 高IoU精度統計 ---
+IoU閾值對應精度 - IoU75/80/90/95
+X軸精度比例: 0.1197/0.1040/0.0851/0.0603
+Y軸精度比例: 0.0831/0.0722/0.0592/0.0416
+綜合精度目標達成率: 1.70
+      8/500        14G     0.9461       4.47     0.3921     0.8657     0.9931      2.272        134        384: 100%|██████████| 1769/1769 [07:55<00:00,  3.72it/s]
+                 Class     Images  Instances      Box(P          R      mAP50  mAP50-95)     Pose(P          R      mAP50  mAP50-95): 100%|██████████| 37/37 [00:07<00:00,  4.98it/s]
+                   all       2346       6352      0.796      0.689      0.794      0.512      0.672      0.512      0.513      0.189
+
+      Epoch    GPU_mem   box_loss  pose_loss  kobj_loss   cls_loss   dfl_loss     d_loss  Instances       Size
+  0%|          | 0/1769 [00:00<?, ?it/s]
+Epoch 8/500 (Progress: 0.02)
+Dynamic feature layers: [0, 1, 2]
+Layer weights: [0.8, 1.0, 1.2]
+
+--- Loss Values (Epoch 8/500, T=3.99) ---
+coord_loss: 1.1024
+structure_loss: 0.1672
+conf_loss: 0.2791
+rel_pos_loss: 0.2650
+feat_loss: 0.6416
+total_loss: 2.3322
+teacher_conf: 0.3782
+feat_weight: 0.0308, pred_weight: 0.2269
+consistency_loss: 0.0486
+pose_structure_loss: 1.1540
+極小誤差比例 (x<0.001): 0.0565, (y<0.001): 0.0375
+小誤差比例 (x<0.005): 0.1095, (y<0.005): 0.0730
+坐標誤差統計 - X軸: 均值=0.291992, 標準差=0.291504
+坐標誤差統計 - Y軸: 均值=0.466309, 標準差=0.460938
+
+--- 坐標精度統計 ---
+精度等級: 0.01%, 0.05%, 0.1%, 0.5%, 1%, 5%
+X軸精度: 0.04%, 0.17%, 0.32%, 1.47%, 2.94%, 14.54%
+Y軸精度: 0.06%, 0.12%, 0.24%, 0.99%, 1.95%, 9.54%
+對應mAP50的點比例 (誤差<5%): 1.63%
+對應mAP90的點比例 (誤差<1%): 0.07%
+對應mAP95的點比例 (誤差<0.5%): 0.02%
+超微小誤差比例 (x<0.0001): 0.0294, (y<0.0001): 0.0195
+Y/X軸誤差比例: 1.5970
+
+--- 高IoU精度統計 ---
+IoU閾值對應精度 - IoU75/80/90/95
+X軸精度比例: 0.1307/0.1135/0.0930/0.0659
+Y軸精度比例: 0.0851/0.0739/0.0607/0.0427
+綜合精度目標達成率: 1.81
+      9/500        14G     0.9273      4.373      0.387     0.8353     0.9662      2.226        129        640: 100%|██████████| 1769/1769 [07:51<00:00,  3.75it/s]
+                 Class     Images  Instances      Box(P          R      mAP50  mAP50-95)     Pose(P          R      mAP50  mAP50-95): 100%|██████████| 37/37 [00:07<00:00,  4.95it/s]
+                   all       2346       6352      0.792      0.703      0.803      0.526      0.687      0.531       0.53      0.202
+
+      Epoch    GPU_mem   box_loss  pose_loss  kobj_loss   cls_loss   dfl_loss     d_loss  Instances       Size
+  0%|          | 0/1769 [00:00<?, ?it/s]
+Epoch 9/500 (Progress: 0.02)
+Dynamic feature layers: [0, 1, 2]
+Layer weights: [0.8, 1.0, 1.2]
+
+--- Loss Values (Epoch 9/500, T=3.99) ---
+coord_loss: 1.0475
+structure_loss: 0.1392
+conf_loss: 0.3237
+rel_pos_loss: 0.2754
+feat_loss: 0.7351
+total_loss: 2.0902
+teacher_conf: 0.3574
+feat_weight: 0.0324, pred_weight: 0.2145
+consistency_loss: 0.0480
+pose_structure_loss: 1.1942
+極小誤差比例 (x<0.001): 0.0564, (y<0.001): 0.0391
+小誤差比例 (x<0.005): 0.1089, (y<0.005): 0.0770
+坐標誤差統計 - X軸: 均值=0.292236, 標準差=0.291016
+坐標誤差統計 - Y軸: 均值=0.445068, 標準差=0.451416
+
+--- 坐標精度統計 ---
+精度等級: 0.01%, 0.05%, 0.1%, 0.5%, 1%, 5%
+X軸精度: 0.04%, 0.17%, 0.32%, 1.48%, 2.93%, 14.46%
+Y軸精度: 0.06%, 0.13%, 0.24%, 1.03%, 2.03%, 10.03%
+對應mAP50的點比例 (誤差<5%): 1.64%
+對應mAP90的點比例 (誤差<1%): 0.07%
+對應mAP95的點比例 (誤差<0.5%): 0.02%
+超微小誤差比例 (x<0.0001): 0.0293, (y<0.0001): 0.0203
+Y/X軸誤差比例: 1.5230
+
+--- 高IoU精度統計 ---
+IoU閾值對應精度 - IoU75/80/90/95
+X軸精度比例: 0.1299/0.1129/0.0926/0.0655
+Y軸精度比例: 0.0894/0.0775/0.0637/0.0449
+綜合精度目標達成率: 1.84
+     10/500        14G     0.9099      4.301     0.3821     0.8143     0.9465      2.197        103        640: 100%|██████████| 1769/1769 [07:48<00:00,  3.78it/s]
+                 Class     Images  Instances      Box(P          R      mAP50  mAP50-95)     Pose(P          R      mAP50  mAP50-95): 100%|██████████| 37/37 [00:07<00:00,  4.89it/s]
+                   all       2346       6352      0.806      0.714      0.814      0.536      0.704      0.544      0.554      0.215
+
+      Epoch    GPU_mem   box_loss  pose_loss  kobj_loss   cls_loss   dfl_loss     d_loss  Instances       Size
+  0%|          | 0/1769 [00:00<?, ?it/s]
+Epoch 10/500 (Progress: 0.03)
+Dynamic feature layers: [0, 1, 2]
+Layer weights: [0.8, 1.0, 1.2]
+目標超精細比例: 0.0200, 當前X: 0.0737, Y: 0.0526
+
+--- Loss Values (Epoch 10/500, T=3.99) ---
+coord_loss: 1.0921
+structure_loss: 0.1426
+conf_loss: 0.2866
+rel_pos_loss: 0.3008
+feat_loss: 0.6293
+total_loss: 2.1195
+teacher_conf: 0.3474
+feat_weight: 0.0334, pred_weight: 0.2084
+consistency_loss: 0.0498
+pose_structure_loss: 1.2553
+極小誤差比例 (x<0.001): 0.0524, (y<0.001): 0.0381
+小誤差比例 (x<0.005): 0.1030, (y<0.005): 0.0742
+坐標誤差統計 - X軸: 均值=0.303467, 標準差=0.295898
+坐標誤差統計 - Y軸: 均值=0.458984, 標準差=0.453369
+
+--- 坐標精度統計 ---
+精度等級: 0.01%, 0.05%, 0.1%, 0.5%, 1%, 5%
+X軸精度: 0.03%, 0.16%, 0.30%, 1.37%, 2.73%, 13.55%
+Y軸精度: 0.06%, 0.12%, 0.23%, 1.00%, 1.97%, 9.70%
+對應mAP50的點比例 (誤差<5%): 1.51%
+對應mAP90的點比例 (誤差<1%): 0.06%
+對應mAP95的點比例 (誤差<0.5%): 0.01%
+超微小誤差比例 (x<0.0001): 0.0273, (y<0.0001): 0.0197
+Y/X軸誤差比例: 1.5125
+
+--- 高IoU精度統計 ---
+IoU閾值對應精度 - IoU75/80/90/95
+X軸精度比例: 0.1217/0.1054/0.0863/0.0612
+Y軸精度比例: 0.0867/0.0753/0.0619/0.0434
+綜合精度目標達成率: 1.74
+     11/500        14G      0.899      4.244     0.3787     0.7971     0.9323      2.173        127        704: 100%|██████████| 1769/1769 [07:45<00:00,  3.80it/s]
+                 Class     Images  Instances      Box(P          R      mAP50  mAP50-95)     Pose(P          R      mAP50  mAP50-95): 100%|██████████| 37/37 [00:07<00:00,  4.74it/s]
+                   all       2346       6352      0.801      0.724      0.819      0.547      0.712      0.559      0.567      0.224
+
+      Epoch    GPU_mem   box_loss  pose_loss  kobj_loss   cls_loss   dfl_loss     d_loss  Instances       Size
+  0%|          | 0/1769 [00:00<?, ?it/s]
+Epoch 11/500 (Progress: 0.03)
+Dynamic feature layers: [0, 1, 2]
+Layer weights: [0.8, 1.0, 1.2]
+目標超精細比例: 0.0220, 當前X: 0.0784, Y: 0.0540
+
+--- Loss Values (Epoch 11/500, T=3.99) ---
+coord_loss: 1.0623
+structure_loss: 0.1416
+conf_loss: 0.3184
+rel_pos_loss: 0.2729
+feat_loss: 0.6489
+total_loss: 2.0428
+teacher_conf: 0.3442
+feat_weight: 0.0340, pred_weight: 0.2065
+consistency_loss: 0.0481
+pose_structure_loss: 1.1503
+極小誤差比例 (x<0.001): 0.0558, (y<0.001): 0.0392
+小誤差比例 (x<0.005): 0.1084, (y<0.005): 0.0759
+坐標誤差統計 - X軸: 均值=0.296143, 標準差=0.296143
+坐標誤差統計 - Y軸: 均值=0.448486, 標準差=0.448730
+
+--- 坐標精度統計 ---
+精度等級: 0.01%, 0.05%, 0.1%, 0.5%, 1%, 5%
+X軸精度: 0.04%, 0.17%, 0.31%, 1.46%, 2.91%, 14.36%
+Y軸精度: 0.06%, 0.13%, 0.24%, 1.03%, 2.03%, 9.96%
+對應mAP50的點比例 (誤差<5%): 1.69%
+對應mAP90的點比例 (誤差<1%): 0.07%
+對應mAP95的點比例 (誤差<0.5%): 0.02%
+超微小誤差比例 (x<0.0001): 0.0291, (y<0.0001): 0.0203
+Y/X軸誤差比例: 1.5144
+
+--- 高IoU精度統計 ---
+IoU閾值對應精度 - IoU75/80/90/95
+X軸精度比例: 0.1289/0.1120/0.0917/0.0651
+Y軸精度比例: 0.0890/0.0773/0.0635/0.0445
+綜合精度目標達成率: 1.83
+     12/500        14G     0.8836      4.155     0.3738      0.779     0.9175      2.154        179        864: 100%|██████████| 1769/1769 [07:46<00:00,  3.79it/s]
+                 Class     Images  Instances      Box(P          R      mAP50  mAP50-95)     Pose(P          R      mAP50  mAP50-95): 100%|██████████| 37/37 [00:07<00:00,  4.96it/s]
+                   all       2346       6352      0.814      0.721      0.824      0.555      0.715      0.572      0.578      0.233
+
+      Epoch    GPU_mem   box_loss  pose_loss  kobj_loss   cls_loss   dfl_loss     d_loss  Instances       Size
+  0%|          | 0/1769 [00:00<?, ?it/s]
+Epoch 12/500 (Progress: 0.03)
+Dynamic feature layers: [0, 1, 2]
+Layer weights: [0.8, 1.0, 1.2]
+目標超精細比例: 0.0240, 當前X: 0.0789, Y: 0.0566
+
+--- Loss Values (Epoch 12/500, T=3.99) ---
+coord_loss: 1.0479
+structure_loss: 0.1387
+conf_loss: 0.2632
+rel_pos_loss: 0.2860
+feat_loss: 0.5913
+total_loss: 2.0277
+teacher_conf: 0.3533
+feat_weight: 0.0341, pred_weight: 0.2120
+consistency_loss: 0.0483
+pose_structure_loss: 1.1666
+極小誤差比例 (x<0.001): 0.0560, (y<0.001): 0.0410
+小誤差比例 (x<0.005): 0.1089, (y<0.005): 0.0790
+坐標誤差統計 - X軸: 均值=0.288574, 標準差=0.282959
+坐標誤差統計 - Y軸: 均值=0.434814, 標準差=0.437256
+
+--- 坐標精度統計 ---
+精度等級: 0.01%, 0.05%, 0.1%, 0.5%, 1%, 5%
+X軸精度: 0.04%, 0.17%, 0.32%, 1.47%, 2.93%, 14.43%
+Y軸精度: 0.07%, 0.14%, 0.26%, 1.09%, 2.14%, 10.43%
+對應mAP50的點比例 (誤差<5%): 1.77%
+對應mAP90的點比例 (誤差<1%): 0.07%
+對應mAP95的點比例 (誤差<0.5%): 0.02%
+超微小誤差比例 (x<0.0001): 0.0293, (y<0.0001): 0.0214
+Y/X軸誤差比例: 1.5068
+
+--- 高IoU精度統計 ---
+IoU閾值對應精度 - IoU75/80/90/95
+X軸精度比例: 0.1295/0.1125/0.0923/0.0655
+Y軸精度比例: 0.0932/0.0810/0.0664/0.0468
+綜合精度目標達成率: 1.87
+     13/500        14G     0.8746      4.114     0.3716     0.7687     0.9084      2.139        117        736: 100%|██████████| 1769/1769 [07:47<00:00,  3.79it/s]
+                 Class     Images  Instances      Box(P          R      mAP50  mAP50-95)     Pose(P          R      mAP50  mAP50-95): 100%|██████████| 37/37 [00:07<00:00,  4.85it/s]
+                   all       2346       6352      0.809      0.734      0.829      0.563      0.721      0.575      0.586      0.241
+
+      Epoch    GPU_mem   box_loss  pose_loss  kobj_loss   cls_loss   dfl_loss     d_loss  Instances       Size
+  0%|          | 0/1769 [00:00<?, ?it/s]
+Epoch 13/500 (Progress: 0.03)
+Dynamic feature layers: [0, 1, 2]
+Layer weights: [0.8, 1.0, 1.2]
+目標超精細比例: 0.0260, 當前X: 0.0873, Y: 0.0572
+
+--- Loss Values (Epoch 13/500, T=3.99) ---
+coord_loss: 1.0659
+structure_loss: 0.1431
+conf_loss: 0.2436
+rel_pos_loss: 0.2352
+feat_loss: 0.5309
+total_loss: 2.1911
+teacher_conf: 0.3762
+feat_weight: 0.0333, pred_weight: 0.2257
+consistency_loss: 0.0462
+pose_structure_loss: 1.0545
+極小誤差比例 (x<0.001): 0.0621, (y<0.001): 0.0414
+小誤差比例 (x<0.005): 0.1195, (y<0.005): 0.0799
+坐標誤差統計 - X軸: 均值=0.272461, 標準差=0.279785
+坐標誤差統計 - Y軸: 均值=0.430420, 標準差=0.436279
+
+--- 坐標精度統計 ---
+精度等級: 0.01%, 0.05%, 0.1%, 0.5%, 1%, 5%
+X軸精度: 0.04%, 0.19%, 0.36%, 1.63%, 3.24%, 15.97%
+Y軸精度: 0.07%, 0.14%, 0.26%, 1.10%, 2.15%, 10.51%
+對應mAP50的點比例 (誤差<5%): 2.03%
+對應mAP90的點比例 (誤差<1%): 0.08%
+對應mAP95的點比例 (誤差<0.5%): 0.02%
+超微小誤差比例 (x<0.0001): 0.0324, (y<0.0001): 0.0215
+Y/X軸誤差比例: 1.5797
+
+--- 高IoU精度統計 ---
+IoU閾值對應精度 - IoU75/80/90/95
+X軸精度比例: 0.1436/0.1247/0.1022/0.0725
+Y軸精度比例: 0.0939/0.0816/0.0671/0.0472
+綜合精度目標達成率: 2.00
+     14/500        14G     0.8641       4.06     0.3691     0.7586        0.9      2.131        127        896: 100%|██████████| 1769/1769 [07:54<00:00,  3.73it/s]
+                 Class     Images  Instances      Box(P          R      mAP50  mAP50-95)     Pose(P          R      mAP50  mAP50-95): 100%|██████████| 37/37 [00:07<00:00,  4.93it/s]
+                   all       2346       6352      0.817      0.734      0.834      0.568      0.725      0.587      0.597      0.248
+
+      Epoch    GPU_mem   box_loss  pose_loss  kobj_loss   cls_loss   dfl_loss     d_loss  Instances       Size
+  0%|          | 0/1769 [00:00<?, ?it/s]
+Epoch 14/500 (Progress: 0.04)
+Dynamic feature layers: [0, 1, 2]
+Layer weights: [0.8, 1.0, 1.2]
+目標超精細比例: 0.0280, 當前X: 0.0862, Y: 0.0534
+
+--- Loss Values (Epoch 14/500, T=3.98) ---
+coord_loss: 1.1106
+structure_loss: 0.1721
+conf_loss: 0.2454
+rel_pos_loss: 0.2589
+feat_loss: 0.5346
+total_loss: 2.2639
+teacher_conf: 0.3723
+feat_weight: 0.0340, pred_weight: 0.2234
+consistency_loss: 0.0479
+pose_structure_loss: 1.1135
+極小誤差比例 (x<0.001): 0.0612, (y<0.001): 0.0387
+小誤差比例 (x<0.005): 0.1176, (y<0.005): 0.0754
+坐標誤差統計 - X軸: 均值=0.282471, 標準差=0.296387
+坐標誤差統計 - Y軸: 均值=0.458252, 標準差=0.466064
+
+--- 坐標精度統計 ---
+精度等級: 0.01%, 0.05%, 0.1%, 0.5%, 1%, 5%
+X軸精度: 0.04%, 0.19%, 0.35%, 1.60%, 3.19%, 15.73%
+Y軸精度: 0.06%, 0.13%, 0.24%, 1.02%, 2.00%, 9.88%
+對應mAP50的點比例 (誤差<5%): 1.87%
+對應mAP90的點比例 (誤差<1%): 0.08%
+對應mAP95的點比例 (誤差<0.5%): 0.02%
+超微小誤差比例 (x<0.0001): 0.0319, (y<0.0001): 0.0200
+Y/X軸誤差比例: 1.6223
+
+--- 高IoU精度統計 ---
+IoU閾值對應精度 - IoU75/80/90/95
+X軸精度比例: 0.1414/0.1229/0.1008/0.0715
+Y軸精度比例: 0.0882/0.0766/0.0628/0.0441
+綜合精度目標達成率: 1.93
+     15/500        14G     0.8598       4.03      0.367     0.7505     0.8911      2.116        142        704: 100%|██████████| 1769/1769 [07:49<00:00,  3.77it/s]
+                 Class     Images  Instances      Box(P          R      mAP50  mAP50-95)     Pose(P          R      mAP50  mAP50-95): 100%|██████████| 37/37 [00:07<00:00,  4.96it/s]
+                   all       2346       6352      0.821      0.737      0.837      0.574      0.733      0.588      0.602      0.254
