@@ -1,7 +1,7 @@
 from ultralytics import YOLO
 
 # 載入新模型
-model = YOLO("lite.yaml")
+model = YOLO("slim.yaml")
 
 # 訓練模型
 results = model.train(
@@ -25,7 +25,7 @@ results = model.train(
     kobj=1.5,
     plots=True,
     save_period=1,              # 每10個epoch保存一次
-    project="lite",
+    project="pose-slim",
     name="train",
     exist_ok=True,
     # multi_scale=True,            # 重新啟用多尺度訓練

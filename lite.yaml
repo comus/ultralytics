@@ -1,51 +1,53 @@
 # Ultralytics 🚀 AGPL-3.0 License - https://ultralytics.com/license
 
-# YOLOv11n-pose-lite: 輕量高效多人姿態檢測模型
+# YOLOv11n-pose-lite-psa: 輕量高效多人姿態檢測模型 (添加PSA注意力)
 # Parameters
 nc: 80  # number of classes
 kpt_shape: [17, 3]  # [number of keypoints, number of dims per keypoint]
 
 # 模型縮放係數設定
 scales: # model compound scaling constants
-  lite: [0.50, 0.25, 1024]  # 輕量版: ~1.15M params, ~2.9 GFLOPs
+  # [depth, width, max_channels]
+  lite: [1, 1, 1024]  # 輕量版: ~1.2M params, ~3.0 GFLOPs
 
-# 輕量化骨幹
+# 輕量化骨幹 (添加PSA)
 backbone:
   # [from, repeats, module, args]
-  - [-1, 1, Conv, [32, 3, 2]]  # 0-P1/2
-  - [-1, 1, Conv, [64, 3, 2]]  # 1-P2/4
-  - [-1, 1, C3k2, [64, False, 0.5]]  # 2
-  - [-1, 1, SCDown, [128, 3, 2]]  # 3-P3/8
-  - [-1, 1, C3k2, [128, False, 0.6]]  # 4
-  - [-1, 1, SCDown, [256, 3, 2]]  # 5-P4/16
-  - [-1, 1, C3k2, [256, False, 0.6]]  # 6
-  - [-1, 1, SCDown, [512, 3, 2]]  # 7-P5/32  # 從256/384調整為標準值512
-  - [-1, 1, C3k2, [512, False, 0.5]]  # 8     # 調整為512通道
-  - [-1, 1, SPPF, [512, 5]]  # 9             # 調整為512通道
+  - [-1, 1, Conv, [16, 3, 2]]  # 0-P1/2
+  - [-1, 1, Conv, [32, 3, 2]]  # 1-P2/4
+  - [-1, 1, C3k2, [32, False, 0.5]]  # 2
+  - [-1, 1, SCDown, [32, 3, 2]]  # 3-P3/8
+  - [-1, 1, C3k2, [32, False, 0.6]]  # 4
+  - [-1, 1, SCDown, [64, 3, 2]]  # 5-P4/16
+  - [-1, 1, C3k2, [64, False, 0.6]]  # 6
+  - [-1, 1, SCDown, [128, 3, 2]]  # 7-P5/32
+  - [-1, 1, C3k2, [128, False, 0.5]]  # 8
+  - [-1, 1, SPPF, [128, 5]]  # 9
+  - [-1, 1, C2PSA, [128, 1]]  # 10 - 添加PSA注意力模塊，確保通道數是64的倍數
 
 # 輕量化頭部
 head:
   # 上採樣路徑
-  - [-1, 1, nn.Upsample, [None, 2, "nearest"]]  # 10
-  - [[-1, 6], 1, Concat, [1]]  # 11 
-  - [-1, 1, Conv, [256, 1, 1]]  # 12
-  - [-1, 1, C3k2, [256, False, 0.6]]  # 13
+  - [-1, 1, nn.Upsample, [None, 2, "nearest"]]  # 11
+  - [[-1, 6], 1, Concat, [1]]  # 12
+  - [-1, 1, Conv, [64, 1, 1]]  # 13
+  - [-1, 1, C3k2, [64, False, 0.6]]  # 14
 
-  - [-1, 1, nn.Upsample, [None, 2, "nearest"]]  # 14
-  - [[-1, 4], 1, Concat, [1]]  # 15
-  - [-1, 1, Conv, [128, 1, 1]]  # 16
-  - [-1, 1, C3k2, [128, False, 0.6]]  # 17
+  - [-1, 1, nn.Upsample, [None, 2, "nearest"]]  # 15
+  - [[-1, 4], 1, Concat, [1]]  # 16
+  - [-1, 1, Conv, [32, 1, 1]]  # 17
+  - [-1, 1, C3k2, [32, False, 0.6]]  # 18
 
   # 下採樣路徑
-  - [-1, 1, SCDown, [128, 3, 2]]  # 18
-  - [[-1, 13], 1, Concat, [1]]  # 19
-  - [-1, 1, Conv, [256, 1, 1]]  # 20
-  - [-1, 1, C3k2, [256, False, 0.6]]  # 21
+  - [-1, 1, SCDown, [32, 3, 2]]  # 19
+  - [[-1, 14], 1, Concat, [1]]  # 20
+  - [-1, 1, Conv, [64, 1, 1]]  # 21
+  - [-1, 1, C3k2, [64, False, 0.6]]  # 22
 
-  - [-1, 1, SCDown, [256, 3, 2]]  # 22
-  - [[-1, 9], 1, Concat, [1]]  # 23
-  - [-1, 1, Conv, [512, 1, 1]]  # 24        # 調整為512通道
-  - [-1, 1, C3k2, [512, False, 0.5]]  # 25  # 調整為512通道
+  - [-1, 1, SCDown, [64, 3, 2]]  # 23
+  - [[-1, 10], 1, Concat, [1]]  # 24 - 連接到添加PSA的層
+  - [-1, 1, Conv, [128, 1, 1]]  # 25
+  - [-1, 1, C3k2, [128, False, 0.5]]  # 26
 
   # 姿態檢測頭
-  - [[17, 21, 25], 1, Pose, [nc, kpt_shape]]  # 26
+  - [[18, 22, 26], 1, Pose, [nc, kpt_shape]]  # 27
