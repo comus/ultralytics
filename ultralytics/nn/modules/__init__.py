@@ -21,8 +21,6 @@ from .block import (
     C1,
     C2,
     C2PSA,
-    C2LitePSA,
-    LightC2f,
     C3,
     C3TR,
     CIB,
