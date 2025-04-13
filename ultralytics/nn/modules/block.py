@@ -359,7 +359,7 @@ class C3x(C3):
 class RepC3(nn.Module):
     """Rep C3."""
 
-    def __init__(self, c1, c2, n=3, e=1.0, *args):
+    def __init__(self, c1, c2, n=3, e=1.0):
         """
         Initialize CSP Bottleneck with a single convolution.
 
@@ -1437,86 +1437,6 @@ class PSA(nn.Module):
         b = b + self.ffn(b)
         return self.cv2(torch.cat((a, b), 1))
 
-
-# 1. 輕量級PSA模組實現
-class LitePSA(nn.Module):
-    """輕量級部分自注意力模組"""
-    
-    def __init__(self, c1, e=0.5):
-        super().__init__()
-        self.c = int(c1 * e)  # 隱藏通道數
-        self.cv1 = Conv(c1, 2 * self.c, 1, 1)
-        self.cv2 = Conv(2 * self.c, c1, 1)
-        
-        # 使用輕量級空間注意力機制
-        self.attn = nn.Sequential(
-            nn.Conv2d(self.c, self.c, kernel_size=5, padding=2, groups=self.c),
-            nn.BatchNorm2d(self.c),
-            nn.SiLU(),
-            nn.Conv2d(self.c, self.c, kernel_size=1)
-        )
-    
-    def forward(self, x):
-        a, b = self.cv1(x).split((self.c, self.c), dim=1)
-        b = b + self.attn(b)
-        return self.cv2(torch.cat((a, b), 1))
-
-class C2LitePSA(nn.Module):
-    """輕量級C2PSA模組，仿照原生C2PSA設計但更輕量"""
-    
-    def __init__(self, c1, c2=None, n=1, e=0.5):
-        super().__init__()
-        c2 = c2 or c1
-        self.c = int(c1 * e)  # 隱藏通道數
-        self.cv1 = Conv(c1, 2 * self.c, 1, 1)
-        self.cv2 = Conv(2 * self.c, c2, 1)
-        self.m = LitePSA(self.c, e=0.5)
-    
-    def forward(self, x):
-        a, b = self.cv1(x).split((self.c, self.c), 1)
-        b = self.m(b)
-        return self.cv2(torch.cat((a, b), 1))
-
-class LightC2f(nn.Module):
-    """輕量化C2f，替代C2PSA"""
-    
-    def __init__(self, c1, c2=None, n=1, shortcut=False, g=1, e=0.5):
-        super().__init__()
-        c2 = c2 or c1
-        self.c = int(c1 * e)  # 隱藏通道
-        self.cv1 = Conv(c1, 2 * self.c, 1, 1)
-        self.cv2 = Conv((2 + n) * self.c, c2, 1)
-        
-        # 使用官方RepConv
-        self.m = nn.ModuleList(RepConv(self.c, self.c) for _ in range(n))
-        
-        # 加入輕量注意力
-        self.se = SELayer(c2, reduction=16)
-        
-    def forward(self, x):
-        """前向傳播，高效特徵融合"""
-        y = list(self.cv1(x).chunk(2, 1))
-        y.extend(m(y[-1]) for m in self.m)
-        out = self.cv2(torch.cat(y, 1))
-        return self.se(out)  # 應用通道注意力
-
-class SELayer(nn.Module):
-    """Squeeze-and-Excitation注意力"""
-    def __init__(self, channel, reduction=16):
-        super().__init__()
-        self.avg_pool = nn.AdaptiveAvgPool2d(1)
-        self.fc = nn.Sequential(
-            nn.Linear(channel, channel // reduction, bias=False),
-            nn.SiLU(inplace=True),
-            nn.Linear(channel // reduction, channel, bias=False),
-            nn.Sigmoid()
-        )
-
-    def forward(self, x):
-        b, c, _, _ = x.shape
-        y = self.avg_pool(x).view(b, c)
-        y = self.fc(y).view(b, c, 1, 1)
-        return x * y.expand_as(x)
 
 class C2PSA(nn.Module):
     """
