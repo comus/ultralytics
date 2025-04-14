@@ -163,7 +163,10 @@ class v8PoseLoss(v8DetectionLoss):
             else:
                 loss[5] = self.pose_distillation_loss_enhanced(preds, batch["teacher_preds"], T)
 
-            if hasattr(self.model, 'epoch') and self.model.epoch < 5:  # 0, 1, 2, 3, 4
+            if "pure_distill" in batch and batch["pure_distill"]:
+                supervision_weight = 0.0
+                distill_weight = 1.0
+            elif hasattr(self.model, 'epoch') and self.model.epoch < 5:  # 0, 1, 2, 3, 4
                 supervision_weight = 0.8  # 監督為主
                 distill_weight = 0.2      # 蒸餾為輔
             else:  # 5及以上

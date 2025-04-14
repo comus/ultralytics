@@ -21,15 +21,20 @@ results = model.train(
     close_mosaic=20,            # 最後10個epoch關閉mosaic增強
     amp=True,                   # 啟用自動混合精度加速訓練
     optimizer="AdamW",          # 使用AdamW優化器
-    pose=12.0,                  # 姿態檢測損失權重
-    kobj=1.5,                   # 關鍵點目標性損失權重
     plots=True,                 # 生成訓練過程圖表
     save_period=1,              # 每個epoch保存一次模型
     project="yolo11n-pose-pure-distill",     # 項目名稱
     name="train",               # 訓練運行名稱
     exist_ok=True,              # 允許覆蓋現有目錄
 
+    box=0, # (float) box loss gain
+    cls=0, # (float) cls loss gain (scale with pixels)
+    dfl=0, # (float) dfl loss gain
+    pose=0, # (float) pose loss gain
+    kobj=0, # (float) keypoint obj loss gain
+
     # 使用蒸餾，從更大的模型學習
     teacher=YOLO("yolo11m-pose.pt").model,  # 使用YOLO 11x作為教師模型
     distill=8,
+    pure_distill=True,
 )
