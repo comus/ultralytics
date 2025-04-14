@@ -58,6 +58,20 @@ python val.py
       - 驗證模型的數據
     - results.csv
       - 訓練過程的結果
+  - models/yolo11n-pose/train_stage3
+    - 第三次訓練，訓練了 80 個 epoch
+    - 訓練參數看 train_yolo11n_pose_stage3.py
+    - weights
+      - 訓練好的模型權重
+    - results.csv
+      - 訓練過程的結果
+  - models/yolo11n-pose/train_stage4
+    - 第四次訓練，訓練了 85 個 epoch
+    - 訓練參數看 train_yolo11n_pose_stage4.py
+    - weights
+      - 訓練好的模型權重
+    - results.csv
+      - 訓練過程的結果
 - models/yolo11n-pose-distill1 是我訓練的模型
   - 用官方 yolo11n-pose  的預訓練權重，重新訓練，數據集是 coco-pose，用了第一個版本的蒸餾損失函數
     - 損失函數請找 pose_loss.py
@@ -77,6 +91,20 @@ python val.py
       - 訓練好的模型權重
     - val.txt
       - 驗證模型的數據
+    - results.csv
+      - 訓練過程的結果
+  - models/yolo11n-pose-distill1/train_stage3
+    - 第三次訓練，訓練了 42 個 epoch
+    - 訓練參數看 train_yolo11n_pose_distill1_stage3.py
+    - weights
+      - 訓練好的模型權重
+    - results.csv
+      - 訓練過程的結果
+  - models/yolo11n-pose-distill1/train_stage4
+    - 第四次訓練，訓練了 100 個 epoch
+    - 訓練參數看 train_yolo11n_pose_distill1_stage4.py
+    - weights
+      - 訓練好的模型權重
     - results.csv
       - 訓練過程的結果
 - models/yolo11n-pose-distill2 是我訓練的模型
@@ -100,6 +128,13 @@ python val.py
       - 驗證模型的數據
     - results.csv
       - 訓練過程的結果
+  - models/yolo11n-pose-distill2/train_stage3
+    - 第三次訓練，訓練了 100 個 epoch
+    - 訓練參數看 train_yolo11n_pose_distill2_stage3.py
+    - weights
+      - 訓練好的模型權重
+    - results.csv
+      - 訓練過程的結果
 
 訓練詳情
 
@@ -107,19 +142,24 @@ python val.py
   - 第一次訓練詳情
 - log_yolo11n_pose_stage2.txt
   - 第二次訓練詳情
+- log_yolo11n_pose_stage3.txt
+  - 第三次訓練詳情
+- log_yolo11n_pose_stage4.txt
+  - 第四次訓練詳情
 - log_distill1.txt
   - 第一次訓練詳情
 - log_distill1_stage2.txt
   - 第二次訓練詳情
+- log_distill1_stage3.txt
+  - 第三次訓練詳情
+- log_distill1_stage4.txt
+  - 第四次訓練詳情
 - log_distill2.txt
   - 第一次訓練詳情
 - log_distill2_stage2.txt
   - 第二次訓練詳情
-
----
-
-第三次訓練，進行中，完成會更新在這裡
-
-
-
+- log_distill2_stage3.txt
+  - 第三次訓練詳情
+- log_distill2_stage4.txt
+  - 第四次訓練詳情
 
