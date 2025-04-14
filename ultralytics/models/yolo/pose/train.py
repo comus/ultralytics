@@ -115,15 +115,15 @@ class PoseTrainer(yolo.detect.DetectionTrainer):
 
         # 測試完要刪除以下代碼
 
-        # # 凍結學生模型參數
-        # for k, v in self.model.named_parameters():
-        #     v.requires_grad = False
+        # 凍結學生模型參數
+        for k, v in self.model.named_parameters():
+            v.requires_grad = False
 
         # 凍結BN層，讓它們的統計數據(running_mean, running_var)不會更新
-        if self.freezeAllBN:
-            for m in self.model.modules():
-                if isinstance(m, (torch.nn.BatchNorm2d, torch.nn.BatchNorm1d)):
-                    m.eval()  # 只有BN層設為評估模式
+        # if self.freezeAllBN:
+        for m in self.model.modules():
+            if isinstance(m, (torch.nn.BatchNorm2d, torch.nn.BatchNorm1d)):
+                m.eval()  # 只有BN層設為評估模式
 
         # # 列出有哪些層是訓練模式
         # print("============= 學生模型層 =============")
