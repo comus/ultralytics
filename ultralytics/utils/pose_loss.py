@@ -344,7 +344,11 @@ class v8PoseLoss(v8DetectionLoss):
                 feat_loss = weighted_sum / weight_sum
             else:
                 feat_loss = torch.tensor(0.0, device=student_preds.device, requires_grad=True)
-            
+
+            if torch.isnan(feat_loss) or torch.isinf(feat_loss):
+                print("警告: 特徵損失為NaN或Inf")
+                feat_loss = torch.tensor(0.0, device=student_preds.device, requires_grad=True)
+          
             # 2. 【改進4】置信度加權的坐標損失
             # 高置信度區域權重更大
             coord_weights = teacher_conf_mask.unsqueeze(-1)  # [B, 17, 1, grid]
@@ -441,6 +445,11 @@ class v8PoseLoss(v8DetectionLoss):
             # 修改coord_loss計算
             coord_loss = (weighted_x_diff.sum() + weighted_y_diff.sum() + 
                         weighted_precise_x.sum() + weighted_precise_y.sum()) / total_weight
+            
+            if torch.isnan(coord_loss) or torch.isinf(coord_loss):
+                print("警告: 坐標損失為NaN或Inf")
+                coord_loss = torch.tensor(0.1, device=student_preds.device, requires_grad=True)
+            
             
             # 在計算 coord_loss 之後，pred_loss 之前添加
             # 添加針對 Y 軸的特殊處理
@@ -544,6 +553,10 @@ class v8PoseLoss(v8DetectionLoss):
                 total_bone_weight = (bone_conf * skeleton_weights.unsqueeze(0).unsqueeze(-1)).sum() + epsilon
                 structure_loss = weighted_bone_diff.sum() / total_bone_weight
 
+            if torch.isnan(structure_loss) or torch.isinf(structure_loss):
+                print("警告: 結構損失為NaN或Inf")
+                structure_loss = torch.tensor(0.0, device=student_preds.device, requires_grad=True)
+          
             # 添加相對位置和方向約束
             # 使用上面已經計算的a_idx和b_idx
             rel_pos_loss = torch.tensor(0.0, device=student_preds.device)
@@ -578,7 +591,10 @@ class v8PoseLoss(v8DetectionLoss):
             # 安全平均
             rel_pos_loss = rel_pos_loss / (total_bone_weight + epsilon)
 
-            
+            if torch.isnan(rel_pos_loss) or torch.isinf(rel_pos_loss):
+                print("警告: 相對位置損失為NaN或Inf")
+                rel_pos_loss = torch.tensor(0.0, device=student_preds.device, requires_grad=True)
+          
             # 4. 【改進7】使用KL散度的置信度損失，加入溫度調節
             # 【新增】數值穩定性檢查
             # 如果概率非常接近，視為相同
@@ -599,6 +615,11 @@ class v8PoseLoss(v8DetectionLoss):
             
             # 【改進8】結合KL散度和MSE的混合置信度損失
             conf_loss = (kl_loss.mean() * T * T * 0.5) + (mse_loss.mean() * 0.5)
+
+            if torch.isnan(conf_loss) or torch.isinf(conf_loss):
+                print("警告: 置信度損失為NaN或Inf")
+                conf_loss = torch.tensor(0.0, device=student_preds.device, requires_grad=True)
+         
 
             # 2. 引入坐標一致性損失
             # 為每個關鍵點計算與鄰近點的相對位置關係
@@ -653,6 +674,10 @@ class v8PoseLoss(v8DetectionLoss):
             # 安全平均
             total_pairs = len(keypoint_topology)
             consistency_loss = consistency_loss / (total_pairs * total_weight + epsilon)
+
+            if torch.isnan(consistency_loss) or torch.isinf(consistency_loss):
+                print("警告: 一致性損失為NaN或Inf")
+                consistency_loss = torch.tensor(0.0, device=student_preds.device, requires_grad=True)
             
             # 3. 添加姿態結構空間損失 - 修訂版
             t_pose = torch.cat([t_x.unsqueeze(-1), t_y.unsqueeze(-1)], dim=2)  # [B, 17, 2, grid]
@@ -677,6 +702,11 @@ class v8PoseLoss(v8DetectionLoss):
             # 計算形狀差異，使用適當的縮放因子
             shape_diff = (t_normalized - s_normalized)**2
             pose_structure_loss = shape_diff.mean() * 5.0
+            pose_structure_loss = torch.clamp(pose_structure_loss, 0.0, 2.0)
+
+            if torch.isnan(pose_structure_loss) or torch.isinf(pose_structure_loss):
+                print("警告: 姿態結構損失為NaN或Inf")
+                pose_structure_loss = torch.tensor(0.0, device=student_preds.device, requires_grad=True)
             
             # 4. 修改損失權重 - 動態調整各項權重
             # 加速早期訓練
@@ -696,6 +726,13 @@ class v8PoseLoss(v8DetectionLoss):
                 pose_structure_weight = 1.0
                 conf_weight = 0.5
                 rel_pos_weight = 1.0
+
+            # 組合損失前再次進行數值穩定性檢查
+            # 為每個損失項添加上限
+            coord_weight = min(coord_weight, 2.0)
+            structure_weight = min(structure_weight, 1.0)
+            consistency_weight = min(consistency_weight, 1.0)
+            pose_structure_weight = min(pose_structure_weight, 0.5)  # 降低權重
             
             # 組合所有損失
             pred_loss = (
@@ -729,7 +766,10 @@ class v8PoseLoss(v8DetectionLoss):
                 feat_loss = feat_loss * 0.05  # 大幅降低特徵損失
             
             # 組合所有損失
-            total_loss = adaptive_feat_weight * feat_loss + adaptive_pred_weight * pred_loss
+            total_loss = min(
+                adaptive_feat_weight * feat_loss + adaptive_pred_weight * pred_loss,
+                10.0  # 絕對上限
+            )
 
             # 添加梯度裁剪，防止梯度爆炸
             if total_loss > 10.0:
