@@ -50,7 +50,7 @@ results = model.train(
     workers=16,                     # 數據加載線程數
     
     # 項目管理
-    project="yolo11n-pose",
+    project="yolo11n-pose-distill1",
     name="train_stage3",
     exist_ok=True,
 
