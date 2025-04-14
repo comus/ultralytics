@@ -112,7 +112,11 @@ model_names = [
     './models/official/yolo11n-pose.pt',  # Official yolo11n-pose
     './models/yolo11n-pose/train/weights/best.pt',  # Our trained version yolo11n-pose-stage1
     './models/yolo11n-pose-distill1/train/weights/best.pt',  # yolo11n-pose-distill1-stage1
-    './models/yolo11n-pose-distill2/train/weights/best.pt'   # yolo11n-pose-distill2-stage1
+    './models/yolo11n-pose-distill2/train/weights/best.pt',   # yolo11n-pose-distill2-stage1
+    './models/official/yolo11m-pose.pt',  # Official yolo11m-pose
+    './models/yolo11n-pose/train_stage2/weights/best.pt',  # Our trained version yolo11n-pose-stage2
+    './models/yolo11n-pose-distill1/train_stage2/weights/best.pt',  # yolo11n-pose-distill1-stage2
+    './models/yolo11n-pose-distill2/train_stage2/weights/best.pt'   # yolo11n-pose-distill2-stage2
 ]
 
 # Display names for each model
@@ -120,7 +124,11 @@ display_names = [
     'official yolo11n-pose',
     'yolo11n-pose-stage1',
     'yolo11n-pose-distill1-stage1',
-    'yolo11n-pose-distill2-stage1'
+    'yolo11n-pose-distill2-stage1',
+    'official yolo11m-pose',
+    'yolo11n-pose-stage2',
+    'yolo11n-pose-distill1-stage2',
+    'yolo11n-pose-distill2-stage2'
 ]
 
 # Load local image
@@ -149,15 +157,15 @@ for i, model_path in enumerate(model_names):
 
 # Only create comparison if we have results
 if results_images:
-    # Combine images into a grid with one row and 4 columns
-    rows = 1
-    cols = len(results_images)  # Should be 4 for the four models
+    # Combine images into a grid with two rows and 4 columns
+    rows = 2
+    cols = 4  # 4 models per row
     cell_height, cell_width = original_img.shape[:2]
     grid_img = np.zeros((cell_height * rows, cell_width * cols, 3), dtype=np.uint8)
 
     # Place images in grid
     for idx, img in enumerate(results_images):
-        i, j = 0, idx  # Always in row 0, column based on index
+        i, j = idx // cols, idx % cols  # Row, column in a 2×4 grid
         grid_img[i*cell_height:(i+1)*cell_height, j*cell_width:(j+1)*cell_width] = img
 
     # Save the comparison grid

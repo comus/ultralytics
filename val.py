@@ -1,7 +1,7 @@
 from ultralytics import YOLO
 
 # Load a model
-model = YOLO("models/yolo11n-pose-distill1/train/weights/best.pt")  # load a custom model
+model = YOLO("models/yolo11n-pose/train_stage2/weights/best.pt")  # load a custom model
 
 # Validate the model
 metrics = model.val(
