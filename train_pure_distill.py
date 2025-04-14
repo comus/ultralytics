@@ -36,7 +36,7 @@ results = model.train(
     kobj=0,
     
     # 蒸餾設定
-    teacher=YOLO("yolo11s-pose.pt").model,
+    teacher=YOLO("yolo11n-pose.pt").model,
     distill=12,                 # 提高蒸餾損失權重
     loss_function="pose_loss3",
     
