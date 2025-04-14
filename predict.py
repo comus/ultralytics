@@ -154,7 +154,7 @@ display_names = [
 ]
 
 # Load local image
-original_img = cv2.imread('image.jpg')
+original_img = cv2.imread('image2.jpg')
 if original_img is None:
     raise ValueError("Could not load bus.jpg. Make sure it exists in the current directory.")
 
