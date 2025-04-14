@@ -232,6 +232,8 @@ class v8PoseLoss(v8DetectionLoss):
             try:
                 if "loss_function" in batch and batch["loss_function"] == "pose_loss2":
                     loss[5] = self.pose_distillation_loss_enhanced2(preds, batch["teacher_preds"], T)
+                elif "loss_function" in batch and batch["loss_function"] == "pose_loss3":
+                    loss[5] = self.map_focused_loss(preds, batch["teacher_preds"], T)
                 else:
                     loss[5] = self.pose_distillation_loss_enhanced(preds, batch["teacher_preds"], T)
                 
@@ -1766,6 +1768,214 @@ class v8PoseLoss(v8DetectionLoss):
             traceback.print_exc()  # 打印詳細錯誤堆棧
             return torch.tensor(0.1, device=student_outputs[1].device, requires_grad=True)
 
+    def map_focused_loss(self, student_outputs, teacher_outputs):
+        """
+        專注於提升 mAP50、mAP90 和 mAP95 的損失函數。
+        直接優化對應這些評估指標的點比例。
+        
+        Args:
+            student_outputs: 學生模型輸出 (features, predictions)
+            teacher_outputs: 教師模型輸出 (features, predictions)
+            
+        Returns:
+            combined_loss: 針對 mAP 優化的損失值
+        """
+        # 提取學生和教師模型的預測
+        _, student_preds = student_outputs
+        _, teacher_preds = teacher_outputs
+        
+        # 重塑預測張量以獲取關鍵點坐標和置信度
+        batch_size = student_preds.shape[0]
+        s_preds = student_preds.reshape(batch_size, 17, 3, -1)  # 假設17個關鍵點，每個點有x,y,conf三個值
+        t_preds = teacher_preds.reshape(batch_size, 17, 3, -1)
+        
+        # 提取坐標和置信度
+        s_x, s_y, s_conf = s_preds[:, :, 0], s_preds[:, :, 1], s_preds[:, :, 2]
+        t_x, t_y, t_conf = t_preds[:, :, 0], t_preds[:, :, 1], t_preds[:, :, 2]
+        
+        # 計算教師模型的置信度掩碼，用於後續加權
+        teacher_conf = torch.sigmoid(t_conf)
+        
+        # 計算 X 和 Y 坐標差異
+        x_diff = torch.abs(s_x - t_x)
+        y_diff = torch.abs(s_y - t_y)
+        
+        # 計算歐幾里得距離（用於綜合評估誤差）
+        # 添加微小值防止零除
+        epsilon = 1e-8
+        combined_diff = torch.sqrt(x_diff**2 + y_diff**2 + epsilon)
+        
+        # 區分不同精度區間的點
+        # mAP95: 誤差 < 0.5%
+        map95_mask = (combined_diff < 0.005)
+        # mAP90: 誤差 < 1%
+        map90_mask = (combined_diff < 0.01)
+        # mAP50: 誤差 < 5%
+        map50_mask = (combined_diff < 0.05)
+        
+        # 額外添加更精細的誤差區間 - 有助於訓練的漸進性
+        map98_mask = (combined_diff < 0.002)  # 超高精度點
+        map80_mask = (combined_diff < 0.02)   # 中高精度點
+        map60_mask = (combined_diff < 0.04)   # 中精度點
+        
+        # 每個精度等級的掩碼需排除更高精度區間的點
+        map90_only_mask = map90_mask & ~map95_mask
+        map50_only_mask = map50_mask & ~map90_mask
+        map80_only_mask = map80_mask & ~map90_mask
+        map60_only_mask = map60_mask & ~map80_mask
+        
+        # 計算每個精度等級的點比例
+        total_points = combined_diff.numel()
+        map95_ratio = map95_mask.sum().float() / total_points
+        map90_ratio = map90_mask.sum().float() / total_points
+        map50_ratio = map50_mask.sum().float() / total_points
+        
+        # 優化目標：不同精度的目標比例
+        # 根據訓練進度調整這些目標可能是有益的
+        current_epoch = getattr(self, 'epoch', 0)
+        total_epochs = getattr(self, 'epochs', 100)
+        progress = current_epoch / total_epochs
+        
+        # 訓練開始時設置較低目標，隨著訓練進行提高目標
+        base_map50_target = 0.15  # 基準目標: 15% 的點達到 mAP50 精度
+        base_map90_target = 0.03  # 基準目標: 3% 的點達到 mAP90 精度
+        base_map95_target = 0.01  # 基準目標: 1% 的點達到 mAP95 精度
+        
+        # 根據訓練進度提高目標
+        map50_target = min(0.75, base_map50_target + 0.60 * progress)  # 最終目標: 75%
+        map90_target = min(0.40, base_map90_target + 0.37 * progress)  # 最終目標: 40%
+        map95_target = min(0.25, base_map95_target + 0.24 * progress)  # 最終目標: 25%
+        
+        # ===== 核心創新: mAP 驅動損失 =====
+        
+        # 1. 差距損失：當前比例與目標比例的差距
+        map50_gap = torch.relu(torch.tensor(map50_target, device=combined_diff.device) - map50_ratio)
+        map90_gap = torch.relu(torch.tensor(map90_target, device=combined_diff.device) - map90_ratio)
+        map95_gap = torch.relu(torch.tensor(map95_target, device=combined_diff.device) - map95_ratio)
+        
+        # 2. 加權誤差損失：依精度目標加權的均方誤差
+        # 各精度區間權重設定 - 更精確區間獲得更高權重
+        w_map95 = 16.0    # mAP95 區間權重
+        w_map90 = 8.0     # mAP90 區間權重
+        w_map80 = 4.0     # mAP80 區間權重
+        w_map60 = 2.0     # mAP60 區間權重
+        w_map50 = 1.0     # mAP50 區間權重
+        w_above = 0.25    # 超出 mAP50 的區間權重
+        
+        # 計算精度加權的點損失
+        weighted_diff = torch.zeros_like(combined_diff)
+        weighted_diff = torch.where(map98_mask, w_map95 * 1.5 * combined_diff, weighted_diff)  # 超高精度區間
+        weighted_diff = torch.where(map95_mask & ~map98_mask, w_map95 * combined_diff, weighted_diff)  # mAP95 區間
+        weighted_diff = torch.where(map90_only_mask, w_map90 * combined_diff, weighted_diff)  # mAP90 區間
+        weighted_diff = torch.where(map80_only_mask, w_map80 * combined_diff, weighted_diff)  # mAP80 區間
+        weighted_diff = torch.where(map60_only_mask, w_map60 * combined_diff, weighted_diff)  # mAP60 區間
+        weighted_diff = torch.where(map50_only_mask, w_map50 * combined_diff, weighted_diff)  # mAP50 區間
+        weighted_diff = torch.where(~map50_mask, w_above * combined_diff, weighted_diff)  # 誤差 > 5% 的區間
+        
+        # 應用教師置信度作為額外權重
+        conf_weighted_diff = weighted_diff * teacher_conf
+        
+        # 計算最終的加權誤差損失
+        mse_loss = (conf_weighted_diff ** 2).mean()
+        
+        # 3. 邊界推進損失: 針對接近精度邊界的點施加額外推力
+        # 定義邊界區域
+        boundary_width = 0.001  # 邊界寬度
+        
+        # mAP95 邊界點 (誤差接近但略大於 0.5%)
+        map95_boundary = ((combined_diff >= 0.005) & (combined_diff < 0.005 + boundary_width))
+        # mAP90 邊界點 (誤差接近但略大於 1%)
+        map90_boundary = ((combined_diff >= 0.01) & (combined_diff < 0.01 + boundary_width))
+        # mAP50 邊界點 (誤差接近但略大於 5%)
+        map50_boundary = ((combined_diff >= 0.05) & (combined_diff < 0.05 + boundary_width))
+        
+        # 對邊界點施加額外梯度推力
+        boundary_loss = 0.0
+        if map95_boundary.any():
+            # 計算邊界點與閾值的距離
+            map95_boundary_dist = combined_diff[map95_boundary] - 0.005
+            # 對邊界點施加指數梯度，距離閾值越近影響越大
+            boundary_loss = boundary_loss + (torch.exp(-map95_boundary_dist / 0.001) * teacher_conf[map95_boundary]).mean() * 2.0
+        
+        if map90_boundary.any():
+            map90_boundary_dist = combined_diff[map90_boundary] - 0.01
+            boundary_loss = boundary_loss + (torch.exp(-map90_boundary_dist / 0.002) * teacher_conf[map90_boundary]).mean() * 1.5
+        
+        if map50_boundary.any():
+            map50_boundary_dist = combined_diff[map50_boundary] - 0.05
+            boundary_loss = boundary_loss + (torch.exp(-map50_boundary_dist / 0.01) * teacher_conf[map50_boundary]).mean() * 1.0
+        
+        # 4. 置信度一致性損失
+        # 根據點的精度調整置信度目標
+        target_conf = torch.zeros_like(teacher_conf)
+        target_conf = torch.where(map95_mask, torch.ones_like(target_conf) * 0.95, target_conf)
+        target_conf = torch.where(map90_mask & ~map95_mask, torch.ones_like(target_conf) * 0.9, target_conf)
+        target_conf = torch.where(map80_mask & ~map90_mask, torch.ones_like(target_conf) * 0.8, target_conf)
+        target_conf = torch.where(map60_mask & ~map80_mask, torch.ones_like(target_conf) * 0.6, target_conf)
+        target_conf = torch.where(map50_mask & ~map60_mask, torch.ones_like(target_conf) * 0.5, target_conf)
+        
+        # 計算學生模型的置信度
+        student_conf = torch.sigmoid(s_conf)
+        
+        # 置信度損失：高精度的點應有高置信度
+        conf_loss = torch.abs(student_conf - target_conf).mean()
+        
+        # 5. 組合所有損失項
+        # 差距損失權重 - 直接針對精度目標比例的差距
+        gap_weights = torch.tensor([6.0, 3.0, 1.5], device=combined_diff.device)  # mAP95, mAP90, mAP50
+        gap_loss = (gap_weights[0] * map95_gap + 
+                    gap_weights[1] * map90_gap + 
+                    gap_weights[2] * map50_gap)
+        
+        # 根據訓練進度動態調整各損失項權重
+        if progress < 0.3:
+            # 早期階段：專注於提高基本精度 (mAP50)
+            mse_weight = 1.0
+            gap_weight = 3.0
+            boundary_weight = 0.5
+            conf_weight = 0.2
+        elif progress < 0.7:
+            # 中期階段：平衡提高各精度等級
+            mse_weight = 1.0
+            gap_weight = 2.0
+            boundary_weight = 1.0
+            conf_weight = 0.5
+        else:
+            # 後期階段：更專注於高精度優化 (mAP90, mAP95)
+            mse_weight = 1.0
+            gap_weight = 1.5
+            boundary_weight = 1.5
+            conf_weight = 0.8
+        
+        # 組合最終損失
+        combined_loss = (
+            mse_weight * mse_loss + 
+            gap_weight * gap_loss + 
+            boundary_weight * boundary_loss + 
+            conf_weight * conf_loss
+        )
+        
+        # 紀錄當前精度比例和損失值 - 用於監控訓練進度
+        if hasattr(self, 'epoch') and getattr(self, 'is_first_batch_in_epoch', False):
+            print(f"\n--- 精度統計 (Epoch {current_epoch}/{total_epochs}) ---")
+            print(f"mAP50比例: {map50_ratio.item():.4f} (目標: {map50_target:.4f})")
+            print(f"mAP90比例: {map90_ratio.item():.4f} (目標: {map90_target:.4f})")
+            print(f"mAP95比例: {map95_ratio.item():.4f} (目標: {map95_target:.4f})")
+            print(f"損失分解 - MSE: {mse_loss.item():.4f}, 差距: {gap_loss.item():.4f}, "
+                f"邊界: {boundary_loss:.4f}, 置信度: {conf_loss.item():.4f}")
+            print(f"總損失: {combined_loss.item():.4f}")
+            
+            # 精度等級統計
+            print(f"\n--- 精度等級分佈 ---")
+            print(f"超高精度 (<0.2%): {map98_mask.float().mean().item()*100:.2f}%")
+            print(f"極高精度 (0.2-0.5%): {(map95_mask & ~map98_mask).float().mean().item()*100:.2f}%")
+            print(f"高精度 (0.5-1%): {map90_only_mask.float().mean().item()*100:.2f}%")
+            print(f"中高精度 (1-2%): {(map80_mask & ~map90_mask).float().mean().item()*100:.2f}%")
+            print(f"中精度 (2-4%): {map60_only_mask.float().mean().item()*100:.2f}%")
+            print(f"基本精度 (4-5%): {(map50_mask & ~map60_mask).float().mean().item()*100:.2f}%")
+            print(f"低精度 (>5%): {(~map50_mask).float().mean().item()*100:.2f}%")
+        
+        return combined_loss
 
     def log_precision_stats(self, x_diff, y_diff):
         """記錄坐標精度統計信息"""
