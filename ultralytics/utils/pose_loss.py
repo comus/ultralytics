@@ -233,7 +233,7 @@ class v8PoseLoss(v8DetectionLoss):
                 if "loss_function" in batch and batch["loss_function"] == "pose_loss2":
                     loss[5] = self.pose_distillation_loss_enhanced2(preds, batch["teacher_preds"], T)
                 elif "loss_function" in batch and batch["loss_function"] == "pose_loss3":
-                    loss[5] = self.coordinate_aligned_loss(preds, batch["teacher_preds"])
+                    loss[5] = self.filtered_coordinate_loss(preds, batch["teacher_preds"])
                 else:
                     loss[5] = self.pose_distillation_loss_enhanced(preds, batch["teacher_preds"], T)
                 
@@ -1769,202 +1769,220 @@ class v8PoseLoss(v8DetectionLoss):
             return torch.tensor(0.1, device=student_outputs[1].device, requires_grad=True)
 
 
-    def coordinate_aligned_loss(self, student_outputs, teacher_outputs):
+    def filtered_coordinate_loss(self, student_outputs, teacher_outputs):
         """
-        詳細檢查坐標結構並自適應對齊的損失函數
+        專注於高置信度網格位置的坐標對齊損失函數
         """
         # 1. 提取預測張量
         student_features, student_preds = student_outputs
         teacher_features, teacher_preds = teacher_outputs
         
         batch_size = student_preds.shape[0]
-        grid_size = student_preds.shape[2]  # 8400
+        num_keypoints = 17  # 假設有17個關鍵點
         
-        # 2. 關鍵點提取 - 針對YOLO姿態檢測格式
-        # 假設每個預測包含17個關鍵點，每個點有x,y,conf
-        num_keypoints = 17
+        # 2. 關鍵點格式處理 - 假設為交錯格式 [x1,y1,c1,x2,y2,c2,...]
+        s_x = student_preds[:, 0::3, :]
+        s_y = student_preds[:, 1::3, :]
+        s_conf = student_preds[:, 2::3, :]
         
-        # 假設格式為：[x1,y1,c1,x2,y2,c2,...,x17,y17,c17]
-        # 也可能是：[x1,x2,...,x17,y1,y2,...,y17,c1,c2,...,c17]
-        # 我們嘗試兩種可能的格式並測試哪個更合理
+        t_x = teacher_preds[:, 0::3, :]
+        t_y = teacher_preds[:, 1::3, :]
+        t_conf = teacher_preds[:, 2::3, :]
         
-        # 格式1: [x1,y1,c1,x2,y2,c2,...] - 最可能的格式
-        format1_s_x = student_preds[:, 0::3, :]
-        format1_s_y = student_preds[:, 1::3, :]
-        format1_s_conf = student_preds[:, 2::3, :]
+        # 3. 關鍵步驟：根據教師模型置信度過濾網格位置
+        t_conf_prob = torch.sigmoid(t_conf)
         
-        format1_t_x = teacher_preds[:, 0::3, :]
-        format1_t_y = teacher_preds[:, 1::3, :]
-        format1_t_conf = teacher_preds[:, 2::3, :]
+        # 設置置信度閾值 - 提高置信度要求可減少噪聲
+        conf_threshold = 0.5
         
-        # 格式2: [x1,x2,...,x17,y1,y2,...,y17,c1,c2,...,c17]
-        # 這是一種可能性較小的格式，但也要檢查
-        format2_s_x = student_preds[:, :num_keypoints, :]
-        format2_s_y = student_preds[:, num_keypoints:2*num_keypoints, :]
-        format2_s_conf = student_preds[:, 2*num_keypoints:3*num_keypoints, :]
+        # 創建高置信度掩碼
+        high_conf_mask = t_conf_prob > conf_threshold
         
-        format2_t_x = teacher_preds[:, :num_keypoints, :]
-        format2_t_y = teacher_preds[:, num_keypoints:2*num_keypoints, :]
-        format2_t_conf = teacher_preds[:, 2*num_keypoints:3*num_keypoints, :]
+        # 4. 如果沒有足夠的高置信度點，降低閾值重試
+        min_points_required = 100  # 至少需要這麼多點來確保可靠性
         
-        # 3. 確定實際使用的格式
-        # 我們計算兩種格式下的平均差異，選擇差異較小的
-        format1_x_diff = torch.abs(format1_s_x - format1_t_x).mean().item()
-        format1_y_diff = torch.abs(format1_s_y - format1_t_y).mean().item()
-        format1_avg_diff = (format1_x_diff + format1_y_diff) / 2
+        if high_conf_mask.sum() < min_points_required:
+            conf_threshold = 0.3
+            high_conf_mask = t_conf_prob > conf_threshold
+            print(f"警告：高置信度點不足，已降低閾值到 {conf_threshold}")
+            
+            if high_conf_mask.sum() < min_points_required:
+                conf_threshold = 0.1
+                high_conf_mask = t_conf_prob > conf_threshold
+                print(f"警告：再次降低閾值到 {conf_threshold}")
         
-        format2_x_diff = torch.abs(format2_s_x - format2_t_x).mean().item()
-        format2_y_diff = torch.abs(format2_s_y - format2_t_y).mean().item()
-        format2_avg_diff = (format2_x_diff + format2_y_diff) / 2
+        # 統計過濾後的點數
+        total_high_conf = high_conf_mask.sum().item()
+        print(f"\n===== 網格過濾 =====")
+        print(f"置信度閾值: {conf_threshold}")
+        print(f"高置信度點數: {total_high_conf} / {high_conf_mask.numel()}")
+        print(f"過濾比例: {total_high_conf / high_conf_mask.numel() * 100:.2f}%")
         
-        # 打印格式差異
-        print(f"\n===== 格式差異比較 =====")
-        print(f"格式1 (交錯) 平均差異: {format1_avg_diff:.6f}")
-        print(f"格式2 (分組) 平均差異: {format2_avg_diff:.6f}")
+        # 5. 如果過濾後點數太少，直接返回
+        if total_high_conf < 10:
+            print("警告：過濾後點數太少，無法進行可靠分析。返回零損失。")
+            return torch.tensor(0.0, device=student_preds.device, requires_grad=True)
         
-        # 選擇差異較小的格式
-        if format1_avg_diff <= format2_avg_diff:
-            # 使用格式1 (交錯排列)
-            s_x, s_y, s_conf = format1_s_x, format1_s_y, format1_s_conf
-            t_x, t_y, t_conf = format1_t_x, format1_t_y, format1_t_conf
-            print("選擇格式1: 交錯排列 [x1,y1,c1,x2,y2,c2,...]")
-        else:
-            # 使用格式2 (分組排列)
-            s_x, s_y, s_conf = format2_s_x, format2_s_y, format2_s_conf
-            t_x, t_y, t_conf = format2_t_x, format2_t_y, format2_t_conf
-            print("選擇格式2: 分組排列 [x1,x2,...,y1,y2,...,c1,c2,...]")
+        # 6. 坐標對齊策略嘗試
+        # 提取高置信度位置的坐標
+        s_x_high = torch.masked_select(s_x, high_conf_mask).reshape(-1)
+        s_y_high = torch.masked_select(s_y, high_conf_mask).reshape(-1)
+        t_x_high = torch.masked_select(t_x, high_conf_mask).reshape(-1)
+        t_y_high = torch.masked_select(t_y, high_conf_mask).reshape(-1)
+        t_conf_high = torch.masked_select(t_conf_prob, high_conf_mask).reshape(-1)
         
-        # 4. 坐標轉換嘗試 - 測試不同的坐標轉換方式
-        # 可能的轉換方式:
-        #  - 直接使用原始值 
-        #  - X軸翻轉 (-x)
-        #  - Y軸翻轉 (-y)
-        #  - 同時翻轉 (-x, -y)
+        # 嘗試不同坐標變換
+        # 原始對齊
+        diff_orig = torch.sqrt((s_x_high - t_x_high)**2 + (s_y_high - t_y_high)**2 + 1e-8)
         
-        # 計算各種轉換下的平均差異
-        diff_original = torch.sqrt(torch.abs(s_x - t_x)**2 + torch.abs(s_y - t_y)**2).mean().item()
-        diff_flip_x = torch.sqrt(torch.abs(-s_x - t_x)**2 + torch.abs(s_y - t_y)**2).mean().item()
-        diff_flip_y = torch.sqrt(torch.abs(s_x - t_x)**2 + torch.abs(-s_y - t_y)**2).mean().item()
-        diff_flip_both = torch.sqrt(torch.abs(-s_x - t_x)**2 + torch.abs(-s_y - t_y)**2).mean().item()
+        # X軸翻轉
+        diff_flip_x = torch.sqrt((-s_x_high - t_x_high)**2 + (s_y_high - t_y_high)**2 + 1e-8)
         
-        # 打印轉換差異
-        print(f"\n===== 坐標轉換比較 =====")
-        print(f"原始坐標差異: {diff_original:.6f}")
-        print(f"X軸翻轉差異: {diff_flip_x:.6f}")
-        print(f"Y軸翻轉差異: {diff_flip_y:.6f}")
-        print(f"XY軸翻轉差異: {diff_flip_both:.6f}")
+        # Y軸翻轉
+        diff_flip_y = torch.sqrt((s_x_high - t_x_high)**2 + (-s_y_high - t_y_high)**2 + 1e-8)
         
-        # 選擇最小差異的轉換
-        min_diff = min(diff_original, diff_flip_x, diff_flip_y, diff_flip_both)
+        # 雙軸翻轉
+        diff_flip_xy = torch.sqrt((-s_x_high - t_x_high)**2 + (-s_y_high - t_y_high)**2 + 1e-8)
         
-        # 應用最佳轉換
-        if min_diff == diff_original:
+        # 計算每種方式的平均誤差
+        mean_orig = diff_orig.mean().item()
+        mean_flip_x = diff_flip_x.mean().item()
+        mean_flip_y = diff_flip_y.mean().item()
+        mean_flip_xy = diff_flip_xy.mean().item()
+        
+        # 選擇最佳變換方式
+        transforms = ["原始", "X軸翻轉", "Y軸翻轉", "雙軸翻轉"]
+        mean_errors = [mean_orig, mean_flip_x, mean_flip_y, mean_flip_xy]
+        best_idx = mean_errors.index(min(mean_errors))
+        
+        print(f"\n===== 坐標變換比較 =====")
+        for i, (name, error) in enumerate(zip(transforms, mean_errors)):
+            print(f"{name}: 平均誤差 = {error:.6f}" + (" (最佳)" if i == best_idx else ""))
+        
+        # 7. 應用最佳變換
+        if best_idx == 0:
             aligned_s_x, aligned_s_y = s_x, s_y
-            transform_name = "原始坐標 (無轉換)"
-        elif min_diff == diff_flip_x:
+            aligned_s_x_high, aligned_s_y_high = s_x_high, s_y_high
+        elif best_idx == 1:
             aligned_s_x, aligned_s_y = -s_x, s_y
-            transform_name = "X軸翻轉"
-        elif min_diff == diff_flip_y:
+            aligned_s_x_high, aligned_s_y_high = -s_x_high, s_y_high
+        elif best_idx == 2:
             aligned_s_x, aligned_s_y = s_x, -s_y
-            transform_name = "Y軸翻轉"
+            aligned_s_x_high, aligned_s_y_high = s_x_high, -s_y_high
         else:
             aligned_s_x, aligned_s_y = -s_x, -s_y
-            transform_name = "XY軸同時翻轉"
+            aligned_s_x_high, aligned_s_y_high = -s_x_high, -s_y_high
         
-        print(f"選擇轉換: {transform_name}")
+        # 8. 計算對齊後的誤差
+        all_x_diff = torch.abs(aligned_s_x - t_x)
+        all_y_diff = torch.abs(aligned_s_y - t_y)
+        all_combined_diff = torch.sqrt(all_x_diff**2 + all_y_diff**2 + 1e-8)
         
-        # 5. 精度評估 - 使用對齊後的坐標重新計算精度
-        # 計算誤差
-        x_diff = torch.abs(aligned_s_x - t_x)
-        y_diff = torch.abs(aligned_s_y - t_y)
+        x_diff_high = torch.abs(aligned_s_x_high - t_x_high)
+        y_diff_high = torch.abs(aligned_s_y_high - t_y_high)
+        combined_diff_high = torch.sqrt(x_diff_high**2 + y_diff_high**2 + 1e-8)
         
-        # 計算歐幾里得距離
-        epsilon = 1e-8
-        combined_diff = torch.sqrt(x_diff**2 + y_diff**2 + epsilon)
+        # 9. 計算精度統計 (針對高置信度點)
+        map50_high = (combined_diff_high < 0.05).float().mean().item()
+        map90_high = (combined_diff_high < 0.01).float().mean().item()
+        map95_high = (combined_diff_high < 0.005).float().mean().item()
         
-        # 基於教師置信度計算有效掩碼
-        t_conf_prob = torch.sigmoid(t_conf)
-        valid_mask = t_conf_prob > 0.3  # 只考慮教師認為可能存在的關鍵點
+        print(f"\n===== 高置信度點精度 =====")
+        print(f"mAP50 (誤差<5%): {map50_high * 100:.2f}%")
+        print(f"mAP90 (誤差<1%): {map90_high * 100:.2f}%")
+        print(f"mAP95 (誤差<0.5%): {map95_high * 100:.2f}%")
         
-        # 計算不同精度的掩碼
-        map50_mask = (combined_diff < 0.05) & valid_mask
-        map90_mask = (combined_diff < 0.01) & valid_mask
-        map95_mask = (combined_diff < 0.005) & valid_mask
+        # 10. 詳細誤差分析
+        percentiles = [0, 10, 25, 50, 75, 90, 95, 99, 100]
+        percentile_values = [torch.quantile(combined_diff_high, q/100.0).item() for q in percentiles]
         
-        # 計算有效點中的比例
-        valid_count = valid_mask.sum().float()
-        if valid_count > 0:
-            map50_ratio = map50_mask.sum().float() / valid_count
-            map90_ratio = map90_mask.sum().float() / valid_count
-            map95_ratio = map95_mask.sum().float() / valid_count
-        else:
-            map50_ratio = torch.tensor(0.0, device=x_diff.device)
-            map90_ratio = torch.tensor(0.0, device=x_diff.device)
-            map95_ratio = torch.tensor(0.0, device=x_diff.device)
+        print(f"\n===== 誤差分佈 (高置信度點) =====")
+        for p, v in zip(percentiles, percentile_values):
+            print(f"{p}%: {v:.6f}")
         
-        print(f"\n===== 對齊後精度 (只考慮有效點) =====")
-        print(f"有效點數量: {valid_count.item()}")
-        print(f"mAP50 點比例 (誤差<5%): {map50_ratio.item():.6f}")
-        print(f"mAP90 點比例 (誤差<1%): {map90_ratio.item():.6f}")
-        print(f"mAP95 點比例 (誤差<0.5%): {map95_ratio.item():.6f}")
-        
-        # 6. 分關鍵點分析 - 查看哪些關鍵點匹配較差
+        # 11. 計算各關鍵點的精度
         print(f"\n===== 關鍵點精度分析 =====")
-        for kp in range(num_keypoints):
-            kp_valid = valid_mask[:, kp].sum().float()
-            if kp_valid > 0:
-                kp_map50 = (combined_diff[:, kp] < 0.05) & valid_mask[:, kp]
-                kp_ratio = kp_map50.sum().float() / kp_valid
-                print(f"關鍵點 {kp}: mAP50 = {kp_ratio.item():.4f} (有效點: {kp_valid.item()})")
         
-        # 7. 損失計算 - 基於對齊後的坐標
-        # 加權誤差損失 - 基於精度區間
-        w_map95 = 10.0    # mAP95 區間權重 (誤差<0.5%)
-        w_map90 = 5.0     # mAP90 區間權重 (誤差<1%)
-        w_map50 = 2.0     # mAP50 區間權重 (誤差<5%)
-        w_above = 0.5     # 超出 mAP50 的區間權重 (誤差>5%)
+        # 創建關鍵點索引掩碼
+        keypoint_indices = {}
+        current_idx = 0
         
-        # 計算加權誤差損失
-        weighted_diff = torch.zeros_like(combined_diff)
-        weighted_diff = torch.where(map95_mask, w_map95 * combined_diff, weighted_diff)
-        weighted_diff = torch.where(map90_mask & ~map95_mask, w_map90 * combined_diff, weighted_diff)
-        weighted_diff = torch.where(map50_mask & ~map90_mask, w_map50 * combined_diff, weighted_diff)
-        weighted_diff = torch.where(valid_mask & ~map50_mask, w_above * combined_diff, weighted_diff)
+        # 遍歷所有高置信度點，確定每個點對應的關鍵點ID
+        for b in range(batch_size):
+            for k in range(num_keypoints):
+                for g in range(t_conf.shape[2]):  # 網格點
+                    if high_conf_mask[b, k, g]:
+                        # 當前高置信度點的原始索引
+                        if k not in keypoint_indices:
+                            keypoint_indices[k] = []
+                        keypoint_indices[k].append(current_idx)
+                        current_idx += 1
+        
+        # 計算每個關鍵點的精度
+        for k in sorted(keypoint_indices.keys()):
+            if len(keypoint_indices[k]) > 0:
+                indices = keypoint_indices[k]
+                kp_diffs = combined_diff_high[indices]
+                kp_map50 = (kp_diffs < 0.05).float().mean().item()
+                kp_map90 = (kp_diffs < 0.01).float().mean().item()
+                kp_map95 = (kp_diffs < 0.005).float().mean().item()
+                
+                print(f"關鍵點 {k}: 點數={len(indices)}, mAP50={kp_map50*100:.2f}%, mAP90={kp_map90*100:.2f}%, mAP95={kp_map95*100:.2f}%")
+        
+        # 12. 損失計算
+        # 對不同精度區間使用不同權重
+        w_map95 = 12.0    # 誤差 < 0.5%
+        w_map90 = 6.0     # 誤差 0.5% - 1%
+        w_map50 = 3.0     # 誤差 1% - 5%
+        w_above = 1.0     # 誤差 > 5%
+        
+        # 創建加權誤差
+        weighted_diff = torch.zeros_like(combined_diff_high)
+        weighted_diff = torch.where(combined_diff_high < 0.005, w_map95 * combined_diff_high, weighted_diff)
+        weighted_diff = torch.where((combined_diff_high >= 0.005) & (combined_diff_high < 0.01), 
+                                w_map90 * combined_diff_high, weighted_diff)
+        weighted_diff = torch.where((combined_diff_high >= 0.01) & (combined_diff_high < 0.05), 
+                                w_map50 * combined_diff_high, weighted_diff)
+        weighted_diff = torch.where(combined_diff_high >= 0.05, w_above * combined_diff_high, weighted_diff)
         
         # 應用教師置信度作為額外權重
-        conf_weighted_diff = weighted_diff * t_conf_prob
+        weighted_diff = weighted_diff * t_conf_high
         
-        # 計算最終的加權誤差損失
-        if valid_mask.sum() > 0:
-            coord_loss = conf_weighted_diff.sum() / valid_mask.sum()
-        else:
-            coord_loss = torch.tensor(0.0, device=combined_diff.device)
+        # 最終坐標損失
+        coord_loss = weighted_diff.mean()
         
-        # 8. 置信度損失 - 使學生模型的置信度與實際精度一致
-        # 根據點的精度調整置信度目標
-        target_conf = torch.zeros_like(t_conf_prob)
-        target_conf = torch.where(map95_mask, torch.ones_like(target_conf) * 0.95, target_conf)
-        target_conf = torch.where(map90_mask & ~map95_mask, torch.ones_like(target_conf) * 0.9, target_conf)
-        target_conf = torch.where(map50_mask & ~map90_mask, torch.ones_like(target_conf) * 0.5, target_conf)
+        # 13. 置信度損失
+        # 根據坐標誤差設置目標置信度
+        target_conf = torch.zeros_like(s_conf)
         
-        # 計算學生模型的置信度
+        # 對所有點應用對齊後的誤差計算目標置信度
+        for b in range(batch_size):
+            for k in range(num_keypoints):
+                for g in range(s_conf.shape[2]):
+                    if high_conf_mask[b, k, g]:
+                        error = all_combined_diff[b, k, g].item()
+                        if error < 0.005:  # mAP95
+                            target_conf[b, k, g] = 0.95
+                        elif error < 0.01:  # mAP90
+                            target_conf[b, k, g] = 0.9
+                        elif error < 0.05:  # mAP50
+                            target_conf[b, k, g] = 0.5
+                        else:
+                            target_conf[b, k, g] = 0.1
+        
+        # 置信度損失 - 只考慮高置信度點
         s_conf_prob = torch.sigmoid(s_conf)
+        conf_loss = (torch.abs(s_conf_prob - target_conf) * high_conf_mask.float()).sum() / (high_conf_mask.sum() + 1e-8)
         
-        # 置信度損失 - 只針對有效點
-        if valid_mask.sum() > 0:
-            conf_loss = (torch.abs(s_conf_prob - target_conf) * valid_mask.float()).sum() / valid_mask.sum()
-        else:
-            conf_loss = torch.tensor(0.0, device=s_conf.device)
-        
-        # 9. 最終組合損失
-        final_loss = coord_loss + 0.2 * conf_loss
+        # 14. 總損失
+        total_loss = coord_loss + 0.2 * conf_loss
         
         print(f"\n===== 損失值 =====")
         print(f"坐標損失: {coord_loss.item():.6f}")
         print(f"置信度損失: {conf_loss.item():.6f}")
-        print(f"總損失: {final_loss.item():.6f}")
+        print(f"總損失: {total_loss.item():.6f}")
         
-        return final_loss
+        return total_loss
 
     def log_precision_stats(self, x_diff, y_diff):
         """記錄坐標精度統計信息"""
