@@ -94,9 +94,21 @@ class v8PoseLoss(v8DetectionLoss):
 
         loss = torch.zeros(6, device=self.device)  # box, cls, dfl, kpt_location, kpt_visibility
         feats, pred_kpts = preds if isinstance(preds[0], list) else preds[1]
+        
+        # NaN 檢查 - 確保輸入預測沒有NaN
+        if torch.isnan(pred_kpts).any():
+            print("警告: 偵測到預測關鍵點包含NaN值，將替換為零值")
+            pred_kpts = torch.nan_to_num(pred_kpts, nan=0.0)
+            
         pred_distri, pred_scores = torch.cat([xi.view(feats[0].shape[0], self.no, -1) for xi in feats], 2).split(
             (self.reg_max * 4, self.nc), 1
         )
+        
+        # NaN 檢查 - 檢查分佈和分數
+        if torch.isnan(pred_distri).any() or torch.isnan(pred_scores).any():
+            print("警告: 偵測到預測分佈或分數包含NaN值，將替換為零值")
+            pred_distri = torch.nan_to_num(pred_distri, nan=0.0)
+            pred_scores = torch.nan_to_num(pred_scores, nan=0.0)
 
         # B, grids, ..
         pred_scores = pred_scores.permute(0, 2, 1).contiguous()
@@ -115,18 +127,36 @@ class v8PoseLoss(v8DetectionLoss):
         gt_labels, gt_bboxes = targets.split((1, 4), 2)  # cls, xyxy
         mask_gt = gt_bboxes.sum(2, keepdim=True).gt_(0.0)
 
+        # NaN 檢查 - 確保目標框沒有NaN
+        if torch.isnan(gt_bboxes).any():
+            print("警告: 偵測到目標框包含NaN值")
+            return loss * batch_size, loss.detach()  # 直接返回零損失
+
         # Pboxes
         pred_bboxes = self.bbox_decode(anchor_points, pred_distri)  # xyxy, (b, h*w, 4)
         pred_kpts = self.kpts_decode(anchor_points, pred_kpts.view(batch_size, -1, *self.kpt_shape))  # (b, h*w, 17, 3)
+        
+        # NaN 檢查 - 解碼後的預測框和關鍵點
+        if torch.isnan(pred_bboxes).any():
+            print("警告: 偵測到解碼後的預測框包含NaN值，將替換為零值")
+            pred_bboxes = torch.nan_to_num(pred_bboxes, nan=0.0)
+            
+        if torch.isnan(pred_kpts).any():
+            print("警告: 偵測到解碼後的預測關鍵點包含NaN值，將替換為零值")
+            pred_kpts = torch.nan_to_num(pred_kpts, nan=0.0)
 
-        _, target_bboxes, target_scores, fg_mask, target_gt_idx = self.assigner(
-            pred_scores.detach().sigmoid(),
-            (pred_bboxes.detach() * stride_tensor).type(gt_bboxes.dtype),
-            anchor_points * stride_tensor,
-            gt_labels,
-            gt_bboxes,
-            mask_gt,
-        )
+        try:
+            _, target_bboxes, target_scores, fg_mask, target_gt_idx = self.assigner(
+                pred_scores.detach().sigmoid(),
+                (pred_bboxes.detach() * stride_tensor).type(gt_bboxes.dtype),
+                anchor_points * stride_tensor,
+                gt_labels,
+                gt_bboxes,
+                mask_gt,
+            )
+        except Exception as e:
+            print(f"警告: assigner出現異常: {str(e)}")
+            return loss * batch_size, loss.detach()  # 直接返回零損失
 
         target_scores_sum = max(target_scores.sum(), 1)
 
@@ -136,17 +166,58 @@ class v8PoseLoss(v8DetectionLoss):
 
         # Bbox loss
         if fg_mask.sum():
-            target_bboxes /= stride_tensor
-            loss[0], loss[4] = self.bbox_loss(
-                pred_distri, pred_bboxes, anchor_points, target_bboxes, target_scores, target_scores_sum, fg_mask
-            )
-            keypoints = batch["keypoints"].to(self.device).float().clone()
-            keypoints[..., 0] *= imgsz[1]
-            keypoints[..., 1] *= imgsz[0]
+            try:
+                target_bboxes /= stride_tensor
+                
+                # 額外檢查防止無限值
+                if torch.isnan(target_bboxes).any() or torch.isinf(target_bboxes).any():
+                    print("警告: 縮放後的目標框包含NaN或Inf")
+                    target_bboxes = torch.nan_to_num(target_bboxes, nan=0.0, posinf=1.0, neginf=-1.0)
+                
+                loss[0], loss[4] = self.bbox_loss(
+                    pred_distri, pred_bboxes, anchor_points, target_bboxes, target_scores, target_scores_sum, fg_mask
+                )
+                
+                # 檢查box loss是否為NaN
+                if torch.isnan(loss[0]) or torch.isinf(loss[0]):
+                    print("警告: box_loss包含NaN或Inf，替換為0.0")
+                    loss[0] = torch.tensor(0.0, device=self.device)
+                
+                if torch.isnan(loss[4]) or torch.isinf(loss[4]):
+                    print("警告: dfl_loss包含NaN或Inf，替換為0.0")
+                    loss[4] = torch.tensor(0.0, device=self.device)
+                
+                keypoints = batch["keypoints"].to(self.device).float().clone()
+                keypoints[..., 0] *= imgsz[1]
+                keypoints[..., 1] *= imgsz[0]
 
-            loss[1], loss[2] = self.calculate_keypoints_loss(
-                fg_mask, target_gt_idx, keypoints, batch_idx, stride_tensor, target_bboxes, pred_kpts
-            )
+                # 確保關鍵點沒有NaN
+                if torch.isnan(keypoints).any():
+                    print("警告: 關鍵點包含NaN值，替換為0.0")
+                    keypoints = torch.nan_to_num(keypoints, nan=0.0)
+
+                loss[1], loss[2] = self.calculate_keypoints_loss(
+                    fg_mask, target_gt_idx, keypoints, batch_idx, stride_tensor, target_bboxes, pred_kpts
+                )
+                
+                # 檢查關鍵點損失是否為NaN
+                if torch.isnan(loss[1]) or torch.isinf(loss[1]):
+                    print("警告: kpt_location_loss包含NaN或Inf，替換為0.0")
+                    loss[1] = torch.tensor(0.0, device=self.device)
+                
+                if torch.isnan(loss[2]) or torch.isinf(loss[2]):
+                    print("警告: kpt_visibility_loss包含NaN或Inf，替換為0.0")
+                    loss[2] = torch.tensor(0.0, device=self.device)
+                
+            except Exception as e:
+                print(f"警告: bbox/kpt損失計算出現異常: {str(e)}")
+                import traceback
+                traceback.print_exc()
+                # 確保損失為零但可以繼續訓練
+                loss[0] = torch.tensor(0.0, device=self.device)
+                loss[1] = torch.tensor(0.0, device=self.device) 
+                loss[2] = torch.tensor(0.0, device=self.device)
+                loss[4] = torch.tensor(0.0, device=self.device)
 
         supervision_weight = 1.0
         distill_weight = 0.0
@@ -158,10 +229,20 @@ class v8PoseLoss(v8DetectionLoss):
 
             T = update_temperature(epoch, epochs)
 
-            if "loss_function" in batch and batch["loss_function"] == "pose_loss2":
-                loss[5] = self.pose_distillation_loss_enhanced2(preds, batch["teacher_preds"], T)
-            else:
-                loss[5] = self.pose_distillation_loss_enhanced(preds, batch["teacher_preds"], T)
+            try:
+                if "loss_function" in batch and batch["loss_function"] == "pose_loss2":
+                    loss[5] = self.pose_distillation_loss_enhanced2(preds, batch["teacher_preds"], T)
+                else:
+                    loss[5] = self.pose_distillation_loss_enhanced(preds, batch["teacher_preds"], T)
+                
+                # 檢查蒸餾損失是否為NaN
+                if torch.isnan(loss[5]) or torch.isinf(loss[5]):
+                    print("警告: distillation_loss包含NaN或Inf，替換為0.0")
+                    loss[5] = torch.tensor(0.0, device=self.device)
+                    
+            except Exception as e:
+                print(f"警告: 蒸餾損失計算出現異常: {str(e)}")
+                loss[5] = torch.tensor(0.0, device=self.device, requires_grad=True)
 
             if "pure_distill" in batch and batch["pure_distill"]:
                 supervision_weight = 0.0
@@ -181,6 +262,12 @@ class v8PoseLoss(v8DetectionLoss):
         loss[3] *= supervision_weight* self.hyp.cls  # cls gain
         loss[4] *= supervision_weight* self.hyp.dfl  # dfl gain
         loss[5] *= distill_weight* self.hyp.distill
+        
+        # 最終檢查 - 確保沒有NaN損失
+        for i in range(len(loss)):
+            if torch.isnan(loss[i]) or torch.isinf(loss[i]):
+                print(f"警告: 最終損失[{i}]包含NaN或Inf，替換為0.0")
+                loss[i] = torch.tensor(0.0, device=self.device)
 
         return loss * batch_size, loss.detach()  # loss(box, cls, dfl)
 
@@ -1386,6 +1473,10 @@ class v8PoseLoss(v8DetectionLoss):
             # 安全平均
             total_pairs = len(keypoint_topology)
             consistency_loss = consistency_loss / (total_pairs * total_weight + epsilon)
+
+            if torch.isnan(consistency_loss) or torch.isinf(consistency_loss):
+                print("警告: 一致性損失為NaN或Inf")
+                consistency_loss = torch.tensor(0.0, device=student_preds.device, requires_grad=True)
             
             # 3. 添加姿態結構空間損失 - 修訂版
             t_pose = torch.cat([t_x.unsqueeze(-1), t_y.unsqueeze(-1)], dim=2)  # [B, 17, 2, grid]
