@@ -223,6 +223,8 @@ class v8PoseLoss(v8DetectionLoss):
         distill_weight = 0.0
         
         if "teacher" in batch and batch["teacher"] is not None:
+            self.analyze_keypoint_precision(preds, batch["teacher_preds"])
+
             # 如果 self.model 有 trainer 屬性，則打印 epoch
             epoch = self.model.epoch if hasattr(self.model, 'epoch') else 1
             epochs = self.model.epochs if hasattr(self.model, 'epochs') else 1
@@ -272,6 +274,129 @@ class v8PoseLoss(v8DetectionLoss):
                 loss[i] = torch.tensor(0.0, device=self.device)
 
         return loss * batch_size, loss.detach()  # loss(box, cls, dfl)
+    
+    def analyze_keypoint_precision(self, student_outputs, teacher_outputs, conf_threshold=0.5):
+        """
+        分析高置信度點的精度分布
+        """
+        # 1. 提取預測張量
+        _, student_preds = student_outputs
+        _, teacher_preds = teacher_outputs
+        
+        # 2. 提取坐標和置信度
+        s_x = student_preds[:, 0::3, :]  # 假設使用交錯格式 [x1,y1,c1,x2,y2,c2,...]
+        s_y = student_preds[:, 1::3, :]
+        s_conf = student_preds[:, 2::3, :]
+        
+        t_x = teacher_preds[:, 0::3, :]
+        t_y = teacher_preds[:, 1::3, :]
+        t_conf = teacher_preds[:, 2::3, :]
+        
+        # 3. 計算教師置信度和篩選高置信度點
+        t_conf_prob = torch.sigmoid(t_conf)
+        high_conf_mask = t_conf_prob > conf_threshold
+        
+        total_points = t_conf.numel()
+        high_conf_points = high_conf_mask.sum().item()
+        
+        print(f"\n===== 置信度篩選 =====")
+        print(f"置信度閾值: {conf_threshold}")
+        print(f"總點數: {total_points}")
+        print(f"高置信度點數: {high_conf_points}")
+        print(f"高置信度點比例: {high_conf_points/total_points*100:.2f}%")
+        
+        # 如果高置信度點太少，降低閾值
+        if high_conf_points < 100:
+            new_threshold = conf_threshold * 0.5
+            print(f"高置信度點太少，降低閾值至 {new_threshold}")
+            return analyze_keypoint_precision(student_outputs, teacher_outputs, new_threshold)
+        
+        # 4. 計算坐標差異
+        x_diff = torch.abs(s_x - t_x)
+        y_diff = torch.abs(s_y - t_y)
+        
+        # 計算歐氏距離
+        combined_diff = torch.sqrt(x_diff**2 + y_diff**2 + 1e-8)
+        
+        # 5. 計算不同精度閾值的掩碼
+        map50_mask = (combined_diff < 0.05)  # mAP50 (誤差 < 5%)
+        map75_mask = (combined_diff < 0.025)  # mAP75 (誤差 < 2.5%)
+        map90_mask = (combined_diff < 0.01)   # mAP90 (誤差 < 1%)
+        map95_mask = (combined_diff < 0.005)  # mAP95 (誤差 < 0.5%)
+        
+        # 創建mAP50-95區間掩碼 (0.5% < 誤差 < 5%)
+        map50_95_mask = map50_mask & ~map95_mask
+        
+        # 6. 計算高置信度點中的精度分布
+        # 只考慮高置信度點
+        high_conf_map50 = (map50_mask & high_conf_mask).sum().item()
+        high_conf_map50_95 = (map50_95_mask & high_conf_mask).sum().item()
+        high_conf_map95 = (map95_mask & high_conf_mask).sum().item()
+        
+        # 7. 輸出精度分布
+        print(f"\n===== 高置信度點精度分布 =====")
+        print(f"mAP50 區間 (誤差 < 5%): {high_conf_map50} 點 ({high_conf_map50/high_conf_points*100:.2f}%)")
+        print(f"mAP50-95 區間 (0.5% < 誤差 < 5%): {high_conf_map50_95} 點 ({high_conf_map50_95/high_conf_points*100:.2f}%)")
+        print(f"mAP95 區間 (誤差 < 0.5%): {high_conf_map95} 點 ({high_conf_map95/high_conf_points*100:.2f}%)")
+        
+        # 8. 細分精度區間分析
+        print(f"\n===== 詳細精度區間分布 =====")
+        map05_mask = (combined_diff < 0.005)  # 誤差 < 0.5%
+        map10_mask = (combined_diff < 0.01) & ~map05_mask   # 0.5% < 誤差 < 1%
+        map25_mask = (combined_diff < 0.025) & ~map10_mask & ~map05_mask  # 1% < 誤差 < 2.5%
+        map50_mask_detail = (combined_diff < 0.05) & ~map25_mask & ~map10_mask & ~map05_mask  # 2.5% < 誤差 < 5%
+        
+        high_conf_map05 = (map05_mask & high_conf_mask).sum().item()
+        high_conf_map10 = (map10_mask & high_conf_mask).sum().item()
+        high_conf_map25 = (map25_mask & high_conf_mask).sum().item()
+        high_conf_map50_detail = (map50_mask_detail & high_conf_mask).sum().item()
+        
+        print(f"誤差 < 0.5% (最高精度): {high_conf_map05} 點 ({high_conf_map05/high_conf_points*100:.2f}%)")
+        print(f"0.5% < 誤差 < 1%: {high_conf_map10} 點 ({high_conf_map10/high_conf_points*100:.2f}%)")
+        print(f"1% < 誤差 < 2.5%: {high_conf_map25} 點 ({high_conf_map25/high_conf_points*100:.2f}%)")
+        print(f"2.5% < 誤差 < 5%: {high_conf_map50_detail} 點 ({high_conf_map50_detail/high_conf_points*100:.2f}%)")
+        print(f"誤差 > 5% (低精度): {high_conf_points - high_conf_map50} 點 ({(high_conf_points - high_conf_map50)/high_conf_points*100:.2f}%)")
+        
+        # 9. 百分位數分析
+        percentiles = [0, 5, 10, 25, 50, 75, 90, 95, 99, 100]
+        
+        # 提取高置信度點的誤差
+        high_conf_errors = torch.masked_select(combined_diff, high_conf_mask)
+        
+        print(f"\n===== 高置信度點誤差分布 =====")
+        print("百分位數\t誤差")
+        for p in percentiles:
+            try:
+                error_value = torch.quantile(high_conf_errors, p/100.0).item()
+                print(f"{p}%\t{error_value:.6f}")
+            except:
+                print(f"{p}%\t計算失敗")
+        
+        # 10. 計算坐標相關性
+        # 提取高置信度點的坐標
+        s_x_high = torch.masked_select(s_x, high_conf_mask)
+        s_y_high = torch.masked_select(s_y, high_conf_mask)
+        t_x_high = torch.masked_select(t_x, high_conf_mask)
+        t_y_high = torch.masked_select(t_y, high_conf_mask)
+        
+        # 嘗試計算相關係數
+        try:
+            x_corr = torch.corrcoef(torch.stack([s_x_high, t_x_high]))[0, 1].item()
+            y_corr = torch.corrcoef(torch.stack([s_y_high, t_y_high]))[0, 1].item()
+            
+            print(f"\n===== 坐標相關性 =====")
+            print(f"X坐標相關係數: {x_corr:.4f}")
+            print(f"Y坐標相關係數: {y_corr:.4f}")
+        except:
+            print("\n===== 坐標相關性 =====")
+            print("相關係數計算失敗")
+        
+        return {
+            'high_conf_points': high_conf_points,
+            'high_conf_map50': high_conf_map50,
+            'high_conf_map50_95': high_conf_map50_95, 
+            'high_conf_map95': high_conf_map95
+        }
 
     def pose_distillation_loss_enhanced(self, student_outputs, teacher_outputs, T=3.0, feat_weight=0.3, pred_weight=0.6):
         """
