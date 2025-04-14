@@ -5,7 +5,7 @@ model = YOLO("yolo11n-pose.pt")
 
 # 訓練模型 - 快速60 epochs
 results = model.train(
-    data="coco-pose.yaml",
+    data="coco8-pose.yaml",
     epochs=60,                  # 快速訓練60個epochs
     imgsz=640,
     batch=64,                   # 適中的batch size
