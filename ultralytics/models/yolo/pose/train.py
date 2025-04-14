@@ -158,10 +158,8 @@ class PoseTrainer(yolo.detect.DetectionTrainer):
         if self.teacher is not None:
             batch["teacher"] = self.teacher
 
-        if self.loss_function == "pose_loss2":
-            batch["loss_function"] = "pose_loss2"
-        else:
-            batch["loss_function"] = "pose_loss"
+        if self.loss_function is not None:
+            batch["loss_function"] = self.loss_function
 
         batch["pure_distill"] = self.pure_distill
 
