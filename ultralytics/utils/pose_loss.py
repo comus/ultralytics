@@ -196,7 +196,7 @@ class v8PoseLoss(v8DetectionLoss):
                     print("警告: 關鍵點包含NaN值，替換為0.0")
                     keypoints = torch.nan_to_num(keypoints, nan=0.0)
 
-                loss[1], loss[2] = self.grid_aligned_loss(
+                loss[1], loss[2] = self.calculate_keypoints_loss(
                     fg_mask, target_gt_idx, keypoints, batch_idx, stride_tensor, target_bboxes, pred_kpts
                 )
                 
@@ -233,7 +233,7 @@ class v8PoseLoss(v8DetectionLoss):
                 if "loss_function" in batch and batch["loss_function"] == "pose_loss2":
                     loss[5] = self.pose_distillation_loss_enhanced2(preds, batch["teacher_preds"], T)
                 elif "loss_function" in batch and batch["loss_function"] == "pose_loss3":
-                    loss[5] = self.filtered_coordinate_loss(preds, batch["teacher_preds"])
+                    loss[5] = self.calculate_keypoints_loss(preds, batch["teacher_preds"])
                 else:
                     loss[5] = self.pose_distillation_loss_enhanced(preds, batch["teacher_preds"], T)
                 
