@@ -67,240 +67,171 @@ def calculate_progress(current_epoch, total_epochs):
         # 一般情況，標準計算方式
         return min(1.0, current_epoch / (total_epochs * 0.8))
 
-def analyze_matched_pose_predictions(student_outputs, teacher_outputs, conf_threshold=0.5, match_threshold=0.5):
+def analyze_pose_alignment(student_outputs, teacher_outputs, conf_threshold=0.5):
     """
-    匹配並分析姿態預測的關鍵點
-    
-    假設輸出格式為 [B, C, 8400]，其中:
-    - 前2個通道是中心點坐標
-    - 接下來是17個關鍵點，每個3個通道 (x, y, conf)
+    簡化版的姿態預測對齊分析
     """
+    # 提取預測張量
     _, student_preds = student_outputs
     _, teacher_preds = teacher_outputs
     
-    batch_size = student_preds.shape[0]
-    total_matched = 0
-    total_s_instances = 0
-    total_t_instances = 0
+    # 輸出形狀信息
+    print(f"學生預測形狀: {student_preds.shape}")
+    print(f"教師預測形狀: {teacher_preds.shape}")
     
-    # 存儲所有匹配點對的關鍵點誤差
-    all_keypoint_errors = []
+    # 獲取參數
+    batch_size, num_channels, num_points = student_preds.shape
     
-    print(f"\n===== 基於匹配的姿態預測分析 =====")
-    print(f"置信度閾值: {conf_threshold}")
-    print(f"匹配距離閾值: {match_threshold}")
+    # 假設前2個通道是中心點坐標，之後每3個通道是一個關鍵點(x,y,conf)
+    num_keypoints = (num_channels - 2) // 3
+    print(f"檢測到 {num_keypoints} 個關鍵點")
     
+    # 存儲匹配的關鍵點信息
+    matched_keypoints = []
+    
+    # 遍歷每個批次
     for b in range(batch_size):
-        # 提取單個批次的預測
-        s_pred = student_preds[b]  # [C, 8400]
-        t_pred = teacher_preds[b]  # [C, 8400]
+        # 獲取單個批次的預測
+        s_pred = student_preds[b]  # [num_channels, num_points]
+        t_pred = teacher_preds[b]  # [num_channels, num_points]
         
-        # 假設前兩個通道是中心點或物體坐標
-        num_keypoints = (s_pred.shape[0] - 2) // 3  # 計算關鍵點數量
-        
-        # 提取置信度 (每3個通道的最後一個)
+        # 計算所有關鍵點的平均置信度
         s_conf_channels = [2 + i*3 + 2 for i in range(num_keypoints)]
         t_conf_channels = s_conf_channels
         
-        s_conf = s_pred[s_conf_channels]  # [num_keypoints, 8400]
-        t_conf = t_pred[t_conf_channels]
+        s_conf = torch.sigmoid(s_pred[s_conf_channels])  # [num_keypoints, num_points]
+        t_conf = torch.sigmoid(t_pred[t_conf_channels])
         
-        # 計算平均置信度作為整體置信度
-        s_mean_conf = s_conf.mean(dim=0)  # [8400]
-        t_mean_conf = t_conf.mean(dim=0)
+        s_mean_conf = torch.mean(s_conf, dim=0)  # [num_points]
+        t_mean_conf = torch.mean(t_conf, dim=0)
         
-        # 篩選高置信度的預測
-        s_high_conf = s_mean_conf > conf_threshold
-        t_high_conf = t_mean_conf > conf_threshold
+        # 找出高置信度的點
+        s_high_conf = torch.nonzero(s_mean_conf > conf_threshold).squeeze(-1)
+        t_high_conf = torch.nonzero(t_mean_conf > conf_threshold).squeeze(-1)
         
-        s_indices = torch.nonzero(s_high_conf).squeeze(-1)
-        t_indices = torch.nonzero(t_high_conf).squeeze(-1)
+        # 確保是向量形式
+        if s_high_conf.dim() == 0 and s_high_conf.numel() > 0:
+            s_high_conf = s_high_conf.unsqueeze(0)
+        if t_high_conf.dim() == 0 and t_high_conf.numel() > 0:
+            t_high_conf = t_high_conf.unsqueeze(0)
         
-        # 計數
-        s_count = s_indices.shape[0]
-        t_count = t_indices.shape[0]
+        print(f"批次 {b}: 學生高置信度點 {s_high_conf.numel()}, 教師高置信度點 {t_high_conf.numel()}")
         
-        total_s_instances += s_count
-        total_t_instances += t_count
-        
-        # 構建匹配矩陣
-        if s_count > 0 and t_count > 0:
-            # 提取中心點
-            s_centers = torch.stack([s_pred[0, s_indices], s_pred[1, s_indices]])  # [2, s_count]
-            t_centers = torch.stack([t_pred[0, t_indices], t_pred[1, t_indices]])  # [2, t_count]
+        # 如果兩者都有高置信度點，嘗試匹配
+        if s_high_conf.numel() > 0 and t_high_conf.numel() > 0:
+            # 提取中心點坐標
+            s_centers = torch.stack([s_pred[0, s_high_conf], s_pred[1, s_high_conf]])  # [2, n_s]
+            t_centers = torch.stack([t_pred[0, t_high_conf], t_pred[1, t_high_conf]])  # [2, n_t]
             
-            # 計算距離矩陣
-            s_centers_expanded = s_centers.unsqueeze(2)  # [2, s_count, 1]
-            t_centers_expanded = t_centers.unsqueeze(1)  # [2, 1, t_count]
-            
-            distance_matrix = torch.sqrt(((s_centers_expanded - t_centers_expanded) ** 2).sum(dim=0))  # [s_count, t_count]
-            
-            # 匹配最近的點對
-            matched_pairs = []
-            
-            # 簡單貪婪匹配 (每次選最小距離的點對)
-            while distance_matrix.numel() > 0:
-                # 找到最小距離
-                min_dist = distance_matrix.min()
-                if min_dist > match_threshold:
-                    break
+            # 為每個學生點找最近的教師點
+            for i in range(s_high_conf.numel()):
+                s_idx = s_high_conf[i].item()
+                s_center = s_centers[:, i].unsqueeze(1)  # [2, 1]
                 
-                # 找到最小距離的索引
-                min_indices = torch.nonzero(distance_matrix == min_dist)[0]
-                s_idx = min_indices[0].item()
-                t_idx = min_indices[1].item()
+                # 計算到所有教師點的距離
+                distances = torch.sqrt(((s_center - t_centers)**2).sum(dim=0))  # [n_t]
                 
-                # 添加到匹配對
-                matched_pairs.append((s_indices[s_idx].item(), t_indices[t_idx].item()))
+                # 找最近的教師點
+                min_dist, min_idx = torch.min(distances, dim=0)
                 
-                # 從距離矩陣中移除這些點
-                mask = torch.ones_like(distance_matrix, dtype=torch.bool)
-                mask[s_idx, :] = False
-                mask[:, t_idx] = False
-                distance_matrix = distance_matrix[mask].reshape(-1, distance_matrix.shape[1] - 1)
-            
-            num_matched = len(matched_pairs)
-            total_matched += num_matched
-            
-            print(f"批次 {b}: 學生實例 {s_count}, 教師實例 {t_count}, 成功匹配 {num_matched}")
-            
-            if num_matched > 0:
-                # 分析匹配點對的關鍵點誤差
-                batch_keypoint_errors = []
-                
-                for s_idx, t_idx in matched_pairs:
-                    instance_errors = []
+                # 如果距離小於閾值(0.5)，認為匹配成功
+                if min_dist < 0.5:
+                    t_idx = t_high_conf[min_idx].item()
                     
+                    # 收集每個關鍵點的信息
                     for kp in range(num_keypoints):
-                        # 提取關鍵點坐標
-                        s_kp_x = s_pred[2 + kp*3, s_idx].item()
-                        s_kp_y = s_pred[2 + kp*3 + 1, s_idx].item()
-                        s_kp_conf = s_pred[2 + kp*3 + 2, s_idx].item()
+                        kp_base = 2 + kp * 3
                         
-                        t_kp_x = t_pred[2 + kp*3, t_idx].item()
-                        t_kp_y = t_pred[2 + kp*3 + 1, t_idx].item()
-                        t_kp_conf = t_pred[2 + kp*3 + 2, t_idx].item()
+                        s_kp_x = s_pred[kp_base, s_idx].item()
+                        s_kp_y = s_pred[kp_base + 1, s_idx].item()
+                        s_kp_conf = s_conf[kp, s_idx].item()
                         
-                        # 關鍵點置信度都高才比較
+                        t_kp_x = t_pred[kp_base, t_idx].item()
+                        t_kp_y = t_pred[kp_base + 1, t_idx].item()
+                        t_kp_conf = t_conf[kp, t_idx].item()
+                        
+                        # 只分析雙方都高置信度的關鍵點
                         if s_kp_conf > conf_threshold and t_kp_conf > conf_threshold:
-                            x_diff = abs(s_kp_x - t_kp_x)
-                            y_diff = abs(s_kp_y - t_kp_y)
-                            distance = math.sqrt(x_diff**2 + y_diff**2)
-                            
-                            instance_errors.append({
+                            matched_keypoints.append({
                                 'keypoint': kp,
-                                'x_diff': x_diff,
-                                'y_diff': y_diff,
-                                'distance': distance,
                                 's_coords': (s_kp_x, s_kp_y),
                                 't_coords': (t_kp_x, t_kp_y)
                             })
-                    
-                    batch_keypoint_errors.append(instance_errors)
-                
-                all_keypoint_errors.extend(batch_keypoint_errors)
-        else:
-            print(f"批次 {b}: 學生實例 {s_count}, 教師實例 {t_count}, 無匹配")
     
-    print(f"\n===== 總體統計 =====")
-    print(f"學生總實例: {total_s_instances}")
-    print(f"教師總實例: {total_t_instances}")
-    print(f"成功匹配總數: {total_matched}")
+    # 如果沒有匹配點，提前返回
+    if not matched_keypoints:
+        print("未找到匹配的高置信度關鍵點")
+        return None
     
-    if total_matched > 0:
-        # 分析關鍵點誤差
-        print(f"\n===== 關鍵點誤差分析 =====")
+    # 分析坐標分布
+    s_x_vals = [kp['s_coords'][0] for kp in matched_keypoints]
+    s_y_vals = [kp['s_coords'][1] for kp in matched_keypoints]
+    t_x_vals = [kp['t_coords'][0] for kp in matched_keypoints]
+    t_y_vals = [kp['t_coords'][1] for kp in matched_keypoints]
+    
+    # 計算坐標範圍
+    s_x_min, s_x_max = min(s_x_vals), max(s_x_vals)
+    s_y_min, s_y_max = min(s_y_vals), max(s_y_vals)
+    t_x_min, t_x_max = min(t_x_vals), max(t_x_vals)
+    t_y_min, t_y_max = min(t_y_vals), max(t_y_vals)
+    
+    # 計算縮放因子
+    s_x_range = s_x_max - s_x_min
+    s_y_range = s_y_max - s_y_min
+    t_x_range = t_x_max - t_x_min
+    t_y_range = t_y_max - t_y_min
+    
+    x_scale = t_x_range / s_x_range if s_x_range > 0 else 1.0
+    y_scale = t_y_range / s_y_range if s_y_range > 0 else 1.0
+    
+    print("\n===== 坐標範圍分析 =====")
+    print(f"學生X範圍: [{s_x_min:.4f}, {s_x_max:.4f}], 跨度: {s_x_range:.4f}")
+    print(f"學生Y範圍: [{s_y_min:.4f}, {s_y_max:.4f}], 跨度: {s_y_range:.4f}")
+    print(f"教師X範圍: [{t_x_min:.4f}, {t_x_max:.4f}], 跨度: {t_x_range:.4f}")
+    print(f"教師Y範圍: [{t_y_min:.4f}, {t_y_max:.4f}], 跨度: {t_y_range:.4f}")
+    print(f"建議縮放因子: X={x_scale:.4f}, Y={y_scale:.4f}")
+    
+    # 計算原始誤差
+    distances = []
+    for kp in matched_keypoints:
+        s_x, s_y = kp['s_coords']
+        t_x, t_y = kp['t_coords']
+        dist = ((s_x - t_x)**2 + (s_y - t_y)**2)**0.5
+        distances.append(dist)
+    
+    avg_dist = sum(distances) / len(distances)
+    map50 = sum(1 for d in distances if d < 0.05) / len(distances)
+    
+    print("\n===== 原始誤差 =====")
+    print(f"平均距離: {avg_dist:.4f}")
+    print(f"mAP50: {map50:.4f}")
+    
+    # 應用縮放後的誤差
+    scaled_distances = []
+    for kp in matched_keypoints:
+        s_x, s_y = kp['s_coords']
+        t_x, t_y = kp['t_coords']
         
-        # 按關鍵點統計誤差
-        keypoint_stats = {}
+        # 應用縮放
+        s_x_scaled = s_x * x_scale
+        s_y_scaled = s_y * y_scale
         
-        for instance_errors in all_keypoint_errors:
-            for error in instance_errors:
-                kp = error['keypoint']
-                if kp not in keypoint_stats:
-                    keypoint_stats[kp] = {
-                        'count': 0,
-                        'x_diffs': [],
-                        'y_diffs': [],
-                        'distances': [],
-                        's_coords': [],
-                        't_coords': []
-                    }
-                
-                stats = keypoint_stats[kp]
-                stats['count'] += 1
-                stats['x_diffs'].append(error['x_diff'])
-                stats['y_diffs'].append(error['y_diff'])
-                stats['distances'].append(error['distance'])
-                stats['s_coords'].append(error['s_coords'])
-                stats['t_coords'].append(error['t_coords'])
-        
-        # 輸出每個關鍵點的統計
-        for kp, stats in sorted(keypoint_stats.items()):
-            count = stats['count']
-            if count > 0:
-                x_diffs = stats['x_diffs']
-                y_diffs = stats['y_diffs']
-                distances = stats['distances']
-                
-                mean_x_diff = sum(x_diffs) / count
-                mean_y_diff = sum(y_diffs) / count
-                mean_distance = sum(distances) / count
-                max_distance = max(distances)
-                
-                # 分析坐標分布
-                s_x_vals = [coord[0] for coord in stats['s_coords']]
-                s_y_vals = [coord[1] for coord in stats['t_coords']]
-                t_x_vals = [coord[0] for coord in stats['s_coords']]
-                t_y_vals = [coord[1] for coord in stats['t_coords']]
-                
-                s_x_min, s_x_max = min(s_x_vals), max(s_x_vals)
-                s_y_min, s_y_max = min(s_y_vals), max(s_y_vals)
-                t_x_min, t_x_max = min(t_x_vals), max(t_x_vals)
-                t_y_min, t_y_max = min(t_y_vals), max(t_y_vals)
-                
-                # 計算最佳縮放因子
-                s_x_range = s_x_max - s_x_min
-                t_x_range = t_x_max - t_x_min
-                s_y_range = s_y_max - s_y_min
-                t_y_range = t_y_max - t_y_min
-                
-                x_scale = t_x_range / s_x_range if s_x_range > 0 else 1.0
-                y_scale = t_y_range / s_y_range if s_y_range > 0 else 1.0
-                
-                # 輸出統計
-                print(f"\n關鍵點 {kp}: {count} 個匹配")
-                print(f"  X軸誤差: 平均 {mean_x_diff:.4f}")
-                print(f"  Y軸誤差: 平均 {mean_y_diff:.4f}")
-                print(f"  綜合距離: 平均 {mean_distance:.4f}, 最大 {max_distance:.4f}")
-                print(f"  學生坐標範圍: X [{s_x_min:.2f}, {s_x_max:.2f}], Y [{s_y_min:.2f}, {s_y_max:.2f}]")
-                print(f"  教師坐標範圍: X [{t_x_min:.2f}, {t_x_max:.2f}], Y [{t_y_min:.2f}, {t_y_max:.2f}]")
-                print(f"  估計縮放因子: X {x_scale:.2f}, Y {y_scale:.2f}")
-                
-                # 計算MAP50/90/95
-                map50 = sum(1 for d in distances if d < 0.05) / count
-                map90 = sum(1 for d in distances if d < 0.01) / count
-                map95 = sum(1 for d in distances if d < 0.005) / count
-                
-                print(f"  mAP50: {map50:.4f}")
-                print(f"  mAP90: {map90:.4f}")
-                print(f"  mAP95: {map95:.4f}")
-        
-        # 計算總體的MAP指標
-        all_distances = [error['distance'] for instance in all_keypoint_errors for error in instance]
-        total_kps = len(all_distances)
-        
-        if total_kps > 0:
-            overall_map50 = sum(1 for d in all_distances if d < 0.05) / total_kps
-            overall_map90 = sum(1 for d in all_distances if d < 0.01) / total_kps
-            overall_map95 = sum(1 for d in all_distances if d < 0.005) / total_kps
-            
-            print(f"\n===== 總體MAP指標 =====")
-            print(f"總關鍵點數: {total_kps}")
-            print(f"總體 mAP50: {overall_map50:.4f}")
-            print(f"總體 mAP90: {overall_map90:.4f}")
-            print(f"總體 mAP95: {overall_map95:.4f}")
-
+        dist = ((s_x_scaled - t_x)**2 + (s_y_scaled - t_y)**2)**0.5
+        scaled_distances.append(dist)
+    
+    avg_scaled_dist = sum(scaled_distances) / len(scaled_distances)
+    scaled_map50 = sum(1 for d in scaled_distances if d < 0.05) / len(scaled_distances)
+    
+    print("\n===== 縮放後誤差 =====")
+    print(f"平均距離: {avg_scaled_dist:.4f} (變化: {avg_scaled_dist - avg_dist:.4f})")
+    print(f"mAP50: {scaled_map50:.4f} (變化: {scaled_map50 - map50:.4f})")
+    
+    return {
+        'scale_x': x_scale,
+        'scale_y': y_scale,
+        'original_map50': map50,
+        'scaled_map50': scaled_map50
+    }
 class v8PoseLoss(v8DetectionLoss):
     """Criterion class for computing training losses for YOLOv8 pose estimation."""
 
@@ -457,7 +388,7 @@ class v8PoseLoss(v8DetectionLoss):
         distill_weight = 0.0
         
         if "teacher" in batch and batch["teacher"] is not None:
-            analyze_matched_pose_predictions(preds, batch["teacher_preds"])
+            analyze_pose_alignment(preds, batch["teacher_preds"])
 
             # 如果 self.model 有 trainer 屬性，則打印 epoch
             epoch = self.model.epoch if hasattr(self.model, 'epoch') else 1
