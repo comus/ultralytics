@@ -1,7 +1,7 @@
 from ultralytics import YOLO
 
 # 載入新模型
-model = YOLO("yolo11n-pose-pure-distill/train/weights/epoch10.pt")
+model = YOLO("yolo11n-pose-pure-distill/train/weights/epoch8.pt")
 
 # 訓練模型 - 快速60 epochs
 results = model.train(
