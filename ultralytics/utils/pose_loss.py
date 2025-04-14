@@ -231,10 +231,13 @@ class v8PoseLoss(v8DetectionLoss):
 
             try:
                 if "loss_function" in batch and batch["loss_function"] == "pose_loss2":
+                    print("!!!!!!!!!!!!!1", batch["loss_function"])
                     loss[5] = self.pose_distillation_loss_enhanced2(preds, batch["teacher_preds"], T)
                 elif "loss_function" in batch and batch["loss_function"] == "pose_loss3":
-                    loss[5] = self.map_focused_loss(preds, batch["teacher_preds"], T)
+                    print("!!!!!!!!!!!!!2", batch["loss_function"])
+                    loss[5] = self.map_focused_loss(preds, batch["teacher_preds"])
                 else:
+                    print("!!!!!!!!!!!!!3", batch["loss_function"])
                     loss[5] = self.pose_distillation_loss_enhanced(preds, batch["teacher_preds"], T)
                 
                 # 檢查蒸餾損失是否為NaN
