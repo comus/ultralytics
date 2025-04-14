@@ -67,6 +67,190 @@ def calculate_progress(current_epoch, total_epochs):
         # 一般情況，標準計算方式
         return min(1.0, current_epoch / (total_epochs * 0.8))
 
+def enhanced_precision_analysis(student_outputs, teacher_outputs, conf_threshold=0.5):
+    """
+    提供更詳細分析的精度分析函數
+    """
+    # 1. 提取預測張量
+    _, student_preds = student_outputs
+    _, teacher_preds = teacher_outputs
+    
+    # 2. 提取坐標和置信度
+    s_x = student_preds[:, 0::3, :]  # 假設使用交錯格式 [x1,y1,c1,x2,y2,c2,...]
+    s_y = student_preds[:, 1::3, :]
+    s_conf = student_preds[:, 2::3, :]
+    
+    t_x = teacher_preds[:, 0::3, :]
+    t_y = teacher_preds[:, 1::3, :]
+    t_conf = teacher_preds[:, 2::3, :]
+    
+    # 3. 計算教師置信度和篩選高置信度點
+    t_conf_prob = torch.sigmoid(t_conf)
+    high_conf_mask = t_conf_prob > conf_threshold
+    
+    total_points = t_conf.numel()
+    high_conf_points = high_conf_mask.sum().item()
+    
+    print(f"\n===== 置信度篩選 =====")
+    print(f"置信度閾值: {conf_threshold}")
+    print(f"總點數: {total_points}")
+    print(f"高置信度點數: {high_conf_points}")
+    print(f"高置信度點比例: {high_conf_points/total_points*100:.2f}%")
+    
+    # 如果高置信度點太少，降低閾值
+    if high_conf_points < 100:
+        new_threshold = conf_threshold * 0.5
+        print(f"高置信度點太少，降低閾值至 {new_threshold}")
+        return enhanced_precision_analysis(student_outputs, teacher_outputs, new_threshold)
+    
+    # 4. 計算原始坐標差異
+    x_diff = torch.abs(s_x - t_x)
+    y_diff = torch.abs(s_y - t_y)
+    
+    # 計算歐氏距離
+    combined_diff = torch.sqrt(x_diff**2 + y_diff**2 + 1e-8)
+    
+    # 5. 更精細的精度閾值
+    # 常見閾值
+    thresholds = [0.0001, 0.0005, 0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.2, 0.5]
+    
+    # 創建閾值掩碼
+    threshold_masks = {}
+    for threshold in thresholds:
+        threshold_masks[threshold] = combined_diff < threshold
+    
+    # 6. 計算不同精度閾值的點數和比例
+    print(f"\n===== 高置信度點精確誤差分布 =====")
+    print(f"{'誤差閾值':<10} {'點數':<10} {'比例 (%)':<10}")
+    
+    prev_count = 0
+    for i, threshold in enumerate(thresholds):
+        if i == 0:
+            # 第一個閾值
+            mask = threshold_masks[threshold] & high_conf_mask
+            count = mask.sum().item()
+        else:
+            # 計算區間內的點數
+            prev_threshold = thresholds[i-1]
+            mask = (threshold_masks[threshold] & ~threshold_masks[prev_threshold]) & high_conf_mask
+            count = mask.sum().item()
+        
+        percentage = count / high_conf_points * 100
+        print(f"< {threshold:<8} {count:<10} {percentage:<10.2f}")
+        prev_count = count
+    
+    # 計算超過最大閾值的點數
+    max_threshold = thresholds[-1]
+    above_max = (~threshold_masks[max_threshold]) & high_conf_mask
+    above_count = above_max.sum().item()
+    above_percentage = above_count / high_conf_points * 100
+    print(f"> {max_threshold:<8} {above_count:<10} {above_percentage:<10.2f}")
+    
+    # 7. 更詳細的誤差統計
+    # 提取高置信度點的誤差
+    high_conf_errors = torch.masked_select(combined_diff, high_conf_mask)
+    
+    # 統計基本數據
+    min_error = high_conf_errors.min().item()
+    max_error = high_conf_errors.max().item()
+    mean_error = high_conf_errors.mean().item()
+    median_error = torch.median(high_conf_errors).item()
+    std_error = high_conf_errors.std().item()
+    
+    print(f"\n===== 高置信度點誤差統計 =====")
+    print(f"最小誤差: {min_error:.8f}")
+    print(f"最大誤差: {max_error:.8f}")
+    print(f"平均誤差: {mean_error:.8f}")
+    print(f"中位數誤差: {median_error:.8f}")
+    print(f"標準差: {std_error:.8f}")
+    
+    # 8. 檢查是否所有誤差都是相同的值
+    unique_errors = torch.unique(high_conf_errors)
+    print(f"\n===== 唯一誤差值檢查 =====")
+    print(f"不同誤差值數量: {len(unique_errors)}")
+    
+    if len(unique_errors) <= 5:
+        print("唯一誤差值列表:")
+        for i, err in enumerate(unique_errors):
+            count = (high_conf_errors == err).sum().item()
+            percentage = count / len(high_conf_errors) * 100
+            print(f"  {err.item():.8f}: {count} 點 ({percentage:.2f}%)")
+    
+    # 9. 具體誤差分布
+    print(f"\n===== X/Y軸誤差分布 =====")
+    x_high_errors = torch.masked_select(x_diff, high_conf_mask)
+    y_high_errors = torch.masked_select(y_diff, high_conf_mask)
+    
+    print(f"X軸 - 最小: {x_high_errors.min().item():.8f}, 最大: {x_high_errors.max().item():.8f}, 平均: {x_high_errors.mean().item():.8f}")
+    print(f"Y軸 - 最小: {y_high_errors.min().item():.8f}, 最大: {y_high_errors.max().item():.8f}, 平均: {y_high_errors.mean().item():.8f}")
+    
+    # 10. 計算原始預測的統計
+    print(f"\n===== 原始預測值統計 =====")
+    # 提取高置信度點的原始預測
+    s_x_high = torch.masked_select(s_x, high_conf_mask)
+    s_y_high = torch.masked_select(s_y, high_conf_mask)
+    t_x_high = torch.masked_select(t_x, high_conf_mask)
+    t_y_high = torch.masked_select(t_y, high_conf_mask)
+    
+    print(f"學生X - 最小: {s_x_high.min().item():.4f}, 最大: {s_x_high.max().item():.4f}, 平均: {s_x_high.mean().item():.4f}")
+    print(f"學生Y - 最小: {s_y_high.min().item():.4f}, 最大: {s_y_high.max().item():.4f}, 平均: {s_y_high.mean().item():.4f}")
+    print(f"教師X - 最小: {t_x_high.min().item():.4f}, 最大: {t_x_high.max().item():.4f}, 平均: {t_x_high.mean().item():.4f}")
+    print(f"教師Y - 最小: {t_y_high.min().item():.4f}, 最大: {t_y_high.max().item():.4f}, 平均: {t_y_high.mean().item():.4f}")
+    
+    # 11. 檢查學生和教師預測是否完全相同
+    x_identical = torch.allclose(s_x_high, t_x_high, rtol=1e-5, atol=1e-5)
+    y_identical = torch.allclose(s_y_high, t_y_high, rtol=1e-5, atol=1e-5)
+    
+    print(f"\n===== 預測值一致性檢查 =====")
+    print(f"X坐標完全一致: {x_identical}")
+    print(f"Y坐標完全一致: {y_identical}")
+    
+    if not x_identical or not y_identical:
+        # 檢查非零差異的比例
+        x_diff_nonzero = (x_high_errors > 1e-4).float().mean().item() * 100
+        y_diff_nonzero = (y_high_errors > 1e-4).float().mean().item() * 100
+        
+        print(f"X坐標顯著差異比例 (>1e-4): {x_diff_nonzero:.2f}%")
+        print(f"Y坐標顯著差異比例 (>1e-4): {y_diff_nonzero:.2f}%")
+    
+    # 12. 關鍵點級別分析
+    print(f"\n===== 關鍵點級別分析 =====")
+    num_keypoints = s_x.shape[1]  # 關鍵點數量
+    
+    for kp in range(num_keypoints):
+        kp_mask = high_conf_mask[:, kp, :]
+        kp_count = kp_mask.sum().item()
+        
+        if kp_count > 0:
+            kp_x_diff = torch.masked_select(x_diff[:, kp, :], kp_mask)
+            kp_y_diff = torch.masked_select(y_diff[:, kp, :], kp_mask)
+            kp_combined_diff = torch.sqrt(kp_x_diff**2 + kp_y_diff**2 + 1e-8)
+            
+            kp_mean_error = kp_combined_diff.mean().item()
+            kp_max_error = kp_combined_diff.max().item()
+            
+            print(f"關鍵點 {kp}: 點數={kp_count}, 平均誤差={kp_mean_error:.8f}, 最大誤差={kp_max_error:.8f}")
+    
+    # 13. 學生和教師置信度一致性
+    s_conf_prob = torch.sigmoid(s_conf)
+    conf_diff = torch.abs(s_conf_prob - t_conf_prob)
+    high_conf_diff = torch.masked_select(conf_diff, high_conf_mask)
+    
+    print(f"\n===== 置信度一致性 =====")
+    print(f"平均置信度差異: {high_conf_diff.mean().item():.8f}")
+    print(f"最大置信度差異: {high_conf_diff.max().item():.8f}")
+    
+    # 返回分析結果
+    return {
+        'high_conf_points': high_conf_points,
+        'min_error': min_error,
+        'max_error': max_error,
+        'mean_error': mean_error,
+        'unique_errors': len(unique_errors),
+        'x_identical': x_identical,
+        'y_identical': y_identical
+    }
+
 class v8PoseLoss(v8DetectionLoss):
     """Criterion class for computing training losses for YOLOv8 pose estimation."""
 
@@ -223,7 +407,7 @@ class v8PoseLoss(v8DetectionLoss):
         distill_weight = 0.0
         
         if "teacher" in batch and batch["teacher"] is not None:
-            self.analyze_keypoint_precision(preds, batch["teacher_preds"])
+            enhanced_precision_analysis(preds, batch["teacher_preds"])
 
             # 如果 self.model 有 trainer 屬性，則打印 epoch
             epoch = self.model.epoch if hasattr(self.model, 'epoch') else 1
@@ -235,7 +419,7 @@ class v8PoseLoss(v8DetectionLoss):
                 if "loss_function" in batch and batch["loss_function"] == "pose_loss2":
                     loss[5] = self.pose_distillation_loss_enhanced2(preds, batch["teacher_preds"], T)
                 elif "loss_function" in batch and batch["loss_function"] == "pose_loss3":
-                    loss[5] = self.calculate_keypoints_loss(preds, batch["teacher_preds"])
+                    loss[5] = self.grid_aligned_loss(preds, batch["teacher_preds"])
                 else:
                     loss[5] = self.pose_distillation_loss_enhanced(preds, batch["teacher_preds"], T)
                 
@@ -309,7 +493,7 @@ class v8PoseLoss(v8DetectionLoss):
         if high_conf_points < 100:
             new_threshold = conf_threshold * 0.5
             print(f"高置信度點太少，降低閾值至 {new_threshold}")
-            return analyze_keypoint_precision(student_outputs, teacher_outputs, new_threshold)
+            return self.analyze_keypoint_precision(student_outputs, teacher_outputs, new_threshold)
         
         # 4. 計算坐標差異
         x_diff = torch.abs(s_x - t_x)
