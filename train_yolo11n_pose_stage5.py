@@ -14,7 +14,7 @@ results = model.train(
     save_period=1,                  
     
     # 更溫和的優化器設置
-    optimizer='SGD',              
+    optimizer='AdamW',              
     cos_lr=True,                    
     lr0=0.0005,                      # 適中學習率
     lrf=0.01,                        # 更溫和的最終學習率
