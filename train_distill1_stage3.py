@@ -8,7 +8,7 @@ results = model.train(
     data="coco-pose.yaml",          
     epochs=150,                     # 增加訓練時間以接近官方基準
     patience=50,                    # 適當增加早停耐心值
-    batch=64,                      # 大批次提高訓練穩定性
+    batch=128,                      # 大批次提高訓練穩定性
     imgsz=640,                      # 標準輸入分辨率
     save_period=1,                  # 每5個epoch保存一次
     
