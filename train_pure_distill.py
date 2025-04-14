@@ -1,46 +1,42 @@
 from ultralytics import YOLO
 
-# 載入新模型
-model = YOLO("yolo11n-pose-pure-distill/train/weights/epoch8.pt")
+model = YOLO("yolo11n-pose.yaml")
 
-# 訓練模型 - 快速60 epochs
+# Train the model with optimized parameters for RTX 4090 (24GB VRAM)
 results = model.train(
-    data="coco-pose.yaml",
-    epochs=60,                  # 快速訓練60個epochs
-    imgsz=640,
-    batch=64,                   # 適中的batch size
-    cache="disk",
-    device=0,
-    workers=12,
-    patience=20,                # 減少patience以更快停止非改進訓練
-    cos_lr=True,
-    lr0=0.005,                   # 較高的初始學習率
-    lrf=0.01,
-    warmup_epochs=5.0,
-    weight_decay=0.0005,
-    close_mosaic=15,            # 在後15個epoch關閉mosaic
-    amp=True,
-    optimizer="SGD",
-    plots=True,
-    save_period=5,              # 每5個epochs保存一次
+    data="coco-pose.yaml",          # Point to your actual dataset YAML
+    epochs=500,                     # More epochs for training from scratch
+    patience=50,                    # Early stopping patience
+    batch=32,                       # Batch size - adjust based on your VRAM
+    cos_lr=True,                    # Use cosine learning rate scheduler
+    lrf=0.001,                      # Final learning rate as a fraction of initial rate
+    warmup_epochs=5,                # Warmup epochs - useful for training from scratch
+    save_period=1,                 # Save checkpoint every 10 epochs
+    cache="disk",                    # Do not cache images in RAM (large dataset)
+    close_mosaic=25,                # Disable mosaic in last 25 epochs for stability
+    plots=True,                     # Save plots of training results
+    mosaic=1.0,                     # Add back, important!
+    mixup=0.1,
+    copy_paste=0.1,
+    hsv_h=0.015,                     # Color tone enhancement
+    hsv_s=0.7,                       # Saturation enhancement
+    hsv_v=0.4,                       # Brightness enhancement
+    translate=0.1,                   # Translation enhancement
+    scale=0.5,                       # Scaling enhancement
+    fliplr=0.5,                      # Horizontal flip
+    multi_scale=True,
     project="yolo11n-pose-pure-distill",
-    name="train",      # 新名稱以區分此次快速訓練
+    name="train",
     exist_ok=True,
-    val=True,                   # 啟用驗證
-    
-    # 損失權重設定為0
-    box=0,
-    cls=0,
-    dfl=0,
-    pose=0,
-    kobj=0,
-    
-    # 蒸餾設定
-    teacher=YOLO("yolo11m-pose.pt").model,
-    distill=12,                 # 提高蒸餾損失權重
-    pure_distill=True,
-    
-    fraction=1.0,
 
-    resume=True
+    box=0.0,   # 略微增加
+    cls=0.0,   # 保持不變
+    dfl=0.0,   # 保持不變
+    pose=0.0,  # 顯著增加
+    kobj=0.0,   # 已調整到適當值
+
+    # 使用蒸餾，從更大的模型學習
+    teacher=YOLO("yolo11m-pose.pt").model,  # 使用YOLO 11x作為教師模型
+    distill=4.0,               # 蒸餾損失權重
+    pure_distill=True,
 )
