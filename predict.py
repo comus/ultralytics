@@ -113,10 +113,21 @@ model_names = [
     './models/yolo11n-pose/train/weights/best.pt',  # Our trained version yolo11n-pose-stage1
     './models/yolo11n-pose-distill1/train/weights/best.pt',  # yolo11n-pose-distill1-stage1
     './models/yolo11n-pose-distill2/train/weights/best.pt',   # yolo11n-pose-distill2-stage1
+
     './models/official/yolo11m-pose.pt',  # Official yolo11m-pose
     './models/yolo11n-pose/train_stage2/weights/best.pt',  # Our trained version yolo11n-pose-stage2
     './models/yolo11n-pose-distill1/train_stage2/weights/best.pt',  # yolo11n-pose-distill1-stage2
-    './models/yolo11n-pose-distill2/train_stage2/weights/best.pt'   # yolo11n-pose-distill2-stage2
+    './models/yolo11n-pose-distill2/train_stage2/weights/best.pt',   # yolo11n-pose-distill2-stage2
+
+    './models/official/yolo11s-pose.pt',  # Official yolo11s-pose
+    './models/yolo11n-pose/train_stage3/weights/best.pt',  # Our trained version yolo11n-pose-stage3
+    './models/yolo11n-pose-distill1/train_stage3/weights/best.pt',  # yolo11n-pose-distill1-stage3
+    './models/yolo11n-pose-distill2/train_stage3/weights/best.pt',   # yolo11n-pose-distill2-stage3
+
+    None,  # Empty slot
+    './models/yolo11n-pose/train_stage4/weights/best.pt',  # Our trained version yolo11n-pose-stage4
+    './models/yolo11n-pose-distill1/train_stage4/weights/best.pt',  # yolo11n-pose-distill1-stage4
+    './models/yolo11n-pose-distill2/train_stage4/weights/best.pt'    # yolo11n-pose-distill2-stage4
 ]
 
 # Display names for each model
@@ -125,10 +136,21 @@ display_names = [
     'yolo11n-pose-stage1',
     'yolo11n-pose-distill1-stage1',
     'yolo11n-pose-distill2-stage1',
+
     'official yolo11m-pose',
     'yolo11n-pose-stage2',
     'yolo11n-pose-distill1-stage2',
-    'yolo11n-pose-distill2-stage2'
+    'yolo11n-pose-distill2-stage2',
+
+    'official yolo11s-pose',
+    'yolo11n-pose-stage3',
+    'yolo11n-pose-distill1-stage3',
+    'yolo11n-pose-distill2-stage3',
+
+    '',  # Empty slot
+    'yolo11n-pose-stage4',
+    'yolo11n-pose-distill1-stage4',
+    'yolo11n-pose-distill2-stage4'
 ]
 
 # Load local image
@@ -140,6 +162,12 @@ if original_img is None:
 results_images = []
 for i, model_path in enumerate(model_names):
     try:
+        if model_path is None:
+            # Create an empty black image for the empty slot
+            empty_img = np.zeros_like(original_img)
+            results_images.append(empty_img)
+            continue
+
         print(f"Processing with {display_names[i]}...")
         model = YOLO(model_path)
         results = model(original_img)
@@ -157,15 +185,15 @@ for i, model_path in enumerate(model_names):
 
 # Only create comparison if we have results
 if results_images:
-    # Combine images into a grid with two rows and 4 columns
-    rows = 2
+    # Combine images into a grid with four rows and 4 columns
+    rows = 4
     cols = 4  # 4 models per row
     cell_height, cell_width = original_img.shape[:2]
     grid_img = np.zeros((cell_height * rows, cell_width * cols, 3), dtype=np.uint8)
 
     # Place images in grid
     for idx, img in enumerate(results_images):
-        i, j = idx // cols, idx % cols  # Row, column in a 2×4 grid
+        i, j = idx // cols, idx % cols  # Row, column in a 4×4 grid
         grid_img[i*cell_height:(i+1)*cell_height, j*cell_width:(j+1)*cell_width] = img
 
     # Save the comparison grid

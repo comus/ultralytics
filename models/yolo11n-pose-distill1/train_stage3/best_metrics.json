@@ -1,0 +1,21 @@
+{
+    "best_epoch": 42,
+    "fitness": 1.10502,
+    "metrics": {
+        "metrics/precision(B)": 0.86921,
+        "metrics/recall(B)": 0.80179,
+        "metrics/mAP50(B)": 0.8956,
+        "metrics/mAP50-95(B)": 0.65136,
+        "metrics/precision(P)": 0.80247,
+        "metrics/recall(P)": 0.69391,
+        "metrics/mAP50(P)": 0.7264,
+        "metrics/mAP50-95(P)": 0.39622,
+        "val/box_loss": 0.71629,
+        "val/pose_loss": 4.70005,
+        "val/kobj_loss": 0.8945,
+        "val/cls_loss": 0.71112,
+        "val/dfl_loss": 1.18555,
+        "val/d_loss": 0.0
+    },
+    "date": "2025-04-14T12:51:34.950040"
+}
