@@ -5,13 +5,13 @@ model = YOLO("lite.yaml")
 
 # 訓練模型
 results = model.train(
-    data="coco-pose.yaml",
+    data="coco8-pose.yaml",
     epochs=60,                  # 保持120個epochs
     imgsz=640,                   # 保持640尺寸
     batch=64,                   # 增加批次大小至128
-    cache="disk",                # 保持磁盤緩存
-    device=0,
-    workers=16,                  # 增加工作線程數量
+    # cache="disk",                # 保持磁盤緩存
+    # device=0,
+    # workers=16,                  # 增加工作線程數量
     patience=30,
     cos_lr=True,
     lr0=0.01,

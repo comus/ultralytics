@@ -1,7 +1,7 @@
 from ultralytics import YOLO
 
 # Load the pretrained model
-model = YOLO("yolo11n-pose.pt")
+model = YOLO("lite.yaml")
 
 # 极端保守策略：完全冻结特征提取器，仅训练最后的输出层
 results = model.train(
