@@ -55,7 +55,7 @@ python val.py
     - weights
       - 訓練好的模型權重
     - val.txt
-      - 驗證模型的數據 (我沒弄，自己運行 val.py 驗證)
+      - 驗證模型的數據
     - results.csv
       - 訓練過程的結果
 - models/yolo11n-pose-distill1 是我訓練的模型
@@ -76,7 +76,7 @@ python val.py
     - weights
       - 訓練好的模型權重
     - val.txt
-      - 驗證模型的數據 (我沒弄，自己運行 val.py 驗證)
+      - 驗證模型的數據
     - results.csv
       - 訓練過程的結果
 - models/yolo11n-pose-distill2 是我訓練的模型
@@ -88,7 +88,7 @@ python val.py
     - weights
       - 訓練好的模型權重
     - val.txt
-      - 驗證模型的數據 (我沒弄，自己運行 val.py 驗證)
+      - 驗證模型的數據
     - results.csv
       - 訓練過程的結果
   - models/yolo11n-pose-distill2/train_stage2
