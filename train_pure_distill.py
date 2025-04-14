@@ -37,4 +37,6 @@ results = model.train(
     teacher=YOLO("yolo11m-pose.pt").model,  # 使用YOLO 11x作為教師模型
     distill=8,
     pure_distill=True,
+
+    fraction=0.25,
 )
