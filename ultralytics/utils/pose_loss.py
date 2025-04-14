@@ -69,7 +69,7 @@ def calculate_progress(current_epoch, total_epochs):
 
 def enhanced_precision_analysis(student_outputs, teacher_outputs, conf_threshold=0.5):
     """
-    提供更詳細分析的精度分析函數
+    提供更詳細分析的精度分析函數，修正誤差計算
     """
     # 1. 提取預測張量
     _, student_preds = student_outputs
@@ -103,16 +103,21 @@ def enhanced_precision_analysis(student_outputs, teacher_outputs, conf_threshold
         print(f"高置信度點太少，降低閾值至 {new_threshold}")
         return enhanced_precision_analysis(student_outputs, teacher_outputs, new_threshold)
     
-    # 4. 計算原始坐標差異
+    # 4. 計算原始坐標差異 - 修正後的計算方式
     x_diff = torch.abs(s_x - t_x)
     y_diff = torch.abs(s_y - t_y)
     
-    # 計算歐氏距離
-    combined_diff = torch.sqrt(x_diff**2 + y_diff**2 + 1e-8)
+    # 修正：正確計算歐氏距離而不添加常數偏差
+    squared_sum = x_diff**2 + y_diff**2
+    combined_diff = torch.where(
+        squared_sum > 1e-12,  # 使用更小的閾值判斷是否為零
+        torch.sqrt(squared_sum),
+        torch.zeros_like(squared_sum)  # 真正為零的情況
+    )
     
-    # 5. 更精細的精度閾值
-    # 常見閾值
-    thresholds = [0.0001, 0.0005, 0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.2, 0.5]
+    # 5. 更精細的精度閾值 - 添加更小的閾值
+    # 常見閾值 - 添加了更小的閾值以捕捉真正為零的情況
+    thresholds = [1e-12, 1e-8, 1e-6, 1e-5, 0.0001, 0.0005, 0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.2, 0.5]
     
     # 創建閾值掩碼
     threshold_masks = {}
@@ -158,31 +163,44 @@ def enhanced_precision_analysis(student_outputs, teacher_outputs, conf_threshold
     std_error = high_conf_errors.std().item()
     
     print(f"\n===== 高置信度點誤差統計 =====")
-    print(f"最小誤差: {min_error:.8f}")
-    print(f"最大誤差: {max_error:.8f}")
-    print(f"平均誤差: {mean_error:.8f}")
-    print(f"中位數誤差: {median_error:.8f}")
-    print(f"標準差: {std_error:.8f}")
+    print(f"最小誤差: {min_error:.12f}")
+    print(f"最大誤差: {max_error:.12f}")
+    print(f"平均誤差: {mean_error:.12f}")
+    print(f"中位數誤差: {median_error:.12f}")
+    print(f"標準差: {std_error:.12f}")
+    
+    # 統計完全相同的點數（誤差為零）
+    zero_error_count = (high_conf_errors < 1e-10).sum().item()
+    zero_error_percentage = zero_error_count / len(high_conf_errors) * 100
+    print(f"完全相同點數 (誤差 < 1e-10): {zero_error_count} ({zero_error_percentage:.2f}%)")
     
     # 8. 檢查是否所有誤差都是相同的值
     unique_errors = torch.unique(high_conf_errors)
     print(f"\n===== 唯一誤差值檢查 =====")
     print(f"不同誤差值數量: {len(unique_errors)}")
     
-    if len(unique_errors) <= 5:
+    if len(unique_errors) <= 10:  # 增加到10個，捕獲更多不同值
         print("唯一誤差值列表:")
         for i, err in enumerate(unique_errors):
             count = (high_conf_errors == err).sum().item()
             percentage = count / len(high_conf_errors) * 100
-            print(f"  {err.item():.8f}: {count} 點 ({percentage:.2f}%)")
+            print(f"  {err.item():.12f}: {count} 點 ({percentage:.2f}%)")
     
     # 9. 具體誤差分布
     print(f"\n===== X/Y軸誤差分布 =====")
     x_high_errors = torch.masked_select(x_diff, high_conf_mask)
     y_high_errors = torch.masked_select(y_diff, high_conf_mask)
     
-    print(f"X軸 - 最小: {x_high_errors.min().item():.8f}, 最大: {x_high_errors.max().item():.8f}, 平均: {x_high_errors.mean().item():.8f}")
-    print(f"Y軸 - 最小: {y_high_errors.min().item():.8f}, 最大: {y_high_errors.max().item():.8f}, 平均: {y_high_errors.mean().item():.8f}")
+    # 計算X/Y軸完全相同的點數
+    x_zero_count = (x_high_errors < 1e-10).sum().item()
+    y_zero_count = (y_high_errors < 1e-10).sum().item()
+    x_zero_percentage = x_zero_count / len(x_high_errors) * 100
+    y_zero_percentage = y_zero_count / len(y_high_errors) * 100
+    
+    print(f"X軸 - 最小: {x_high_errors.min().item():.12f}, 最大: {x_high_errors.max().item():.12f}, 平均: {x_high_errors.mean().item():.12f}")
+    print(f"Y軸 - 最小: {y_high_errors.min().item():.12f}, 最大: {y_high_errors.max().item():.12f}, 平均: {y_high_errors.mean().item():.12f}")
+    print(f"X軸完全相同點數 (誤差 < 1e-10): {x_zero_count} ({x_zero_percentage:.2f}%)")
+    print(f"Y軸完全相同點數 (誤差 < 1e-10): {y_zero_count} ({y_zero_percentage:.2f}%)")
     
     # 10. 計算原始預測的統計
     print(f"\n===== 原始預測值統計 =====")
@@ -198,8 +216,8 @@ def enhanced_precision_analysis(student_outputs, teacher_outputs, conf_threshold
     print(f"教師Y - 最小: {t_y_high.min().item():.4f}, 最大: {t_y_high.max().item():.4f}, 平均: {t_y_high.mean().item():.4f}")
     
     # 11. 檢查學生和教師預測是否完全相同
-    x_identical = torch.allclose(s_x_high, t_x_high, rtol=1e-5, atol=1e-5)
-    y_identical = torch.allclose(s_y_high, t_y_high, rtol=1e-5, atol=1e-5)
+    x_identical = torch.allclose(s_x_high, t_x_high, rtol=1e-7, atol=1e-7)
+    y_identical = torch.allclose(s_y_high, t_y_high, rtol=1e-7, atol=1e-7)
     
     print(f"\n===== 預測值一致性檢查 =====")
     print(f"X坐標完全一致: {x_identical}")
@@ -207,11 +225,11 @@ def enhanced_precision_analysis(student_outputs, teacher_outputs, conf_threshold
     
     if not x_identical or not y_identical:
         # 檢查非零差異的比例
-        x_diff_nonzero = (x_high_errors > 1e-4).float().mean().item() * 100
-        y_diff_nonzero = (y_high_errors > 1e-4).float().mean().item() * 100
+        x_diff_nonzero = (x_high_errors > 1e-7).float().mean().item() * 100
+        y_diff_nonzero = (y_high_errors > 1e-7).float().mean().item() * 100
         
-        print(f"X坐標顯著差異比例 (>1e-4): {x_diff_nonzero:.2f}%")
-        print(f"Y坐標顯著差異比例 (>1e-4): {y_diff_nonzero:.2f}%")
+        print(f"X坐標顯著差異比例 (>1e-7): {x_diff_nonzero:.2f}%")
+        print(f"Y坐標顯著差異比例 (>1e-7): {y_diff_nonzero:.2f}%")
     
     # 12. 關鍵點級別分析
     print(f"\n===== 關鍵點級別分析 =====")
@@ -224,12 +242,21 @@ def enhanced_precision_analysis(student_outputs, teacher_outputs, conf_threshold
         if kp_count > 0:
             kp_x_diff = torch.masked_select(x_diff[:, kp, :], kp_mask)
             kp_y_diff = torch.masked_select(y_diff[:, kp, :], kp_mask)
-            kp_combined_diff = torch.sqrt(kp_x_diff**2 + kp_y_diff**2 + 1e-8)
+            
+            # 修正關鍵點誤差計算
+            kp_squared_sum = kp_x_diff**2 + kp_y_diff**2
+            kp_combined_diff = torch.where(
+                kp_squared_sum > 1e-12,
+                torch.sqrt(kp_squared_sum),
+                torch.zeros_like(kp_squared_sum)
+            )
             
             kp_mean_error = kp_combined_diff.mean().item()
             kp_max_error = kp_combined_diff.max().item()
+            kp_zero_count = (kp_combined_diff < 1e-10).sum().item()
+            kp_zero_percentage = kp_zero_count / len(kp_combined_diff) * 100
             
-            print(f"關鍵點 {kp}: 點數={kp_count}, 平均誤差={kp_mean_error:.8f}, 最大誤差={kp_max_error:.8f}")
+            print(f"關鍵點 {kp}: 點數={kp_count}, 平均誤差={kp_mean_error:.12f}, 最大誤差={kp_max_error:.12f}, 完全相同點比例={kp_zero_percentage:.2f}%")
     
     # 13. 學生和教師置信度一致性
     s_conf_prob = torch.sigmoid(s_conf)
@@ -237,8 +264,13 @@ def enhanced_precision_analysis(student_outputs, teacher_outputs, conf_threshold
     high_conf_diff = torch.masked_select(conf_diff, high_conf_mask)
     
     print(f"\n===== 置信度一致性 =====")
-    print(f"平均置信度差異: {high_conf_diff.mean().item():.8f}")
-    print(f"最大置信度差異: {high_conf_diff.max().item():.8f}")
+    print(f"平均置信度差異: {high_conf_diff.mean().item():.12f}")
+    print(f"最大置信度差異: {high_conf_diff.max().item():.12f}")
+    
+    # 計算完全相同的置信度點數
+    conf_zero_count = (high_conf_diff < 1e-10).sum().item()
+    conf_zero_percentage = conf_zero_count / len(high_conf_diff) * 100
+    print(f"完全相同置信度點數 (差異 < 1e-10): {conf_zero_count} ({conf_zero_percentage:.2f}%)")
     
     # 返回分析結果
     return {
@@ -248,7 +280,8 @@ def enhanced_precision_analysis(student_outputs, teacher_outputs, conf_threshold
         'mean_error': mean_error,
         'unique_errors': len(unique_errors),
         'x_identical': x_identical,
-        'y_identical': y_identical
+        'y_identical': y_identical,
+        'zero_error_percentage': zero_error_percentage
     }
 
 class v8PoseLoss(v8DetectionLoss):
