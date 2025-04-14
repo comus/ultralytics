@@ -1,78 +1,63 @@
 from ultralytics import YOLO
 
-# 加載第四階段最佳模型
+# 加載第四階段最佳模型（最好的基礎）
 model = YOLO("yolo11n-pose/train_stage4/weights/best.pt")
 
-# 最終極致優化策略
+# 平衡優化策略
 results = model.train(
     # 基本設置
     data="coco-pose.yaml",          
-    epochs=150,                      # 更長的訓練周期
-    patience=30,                     # 更長的早停耐心
-    batch=64,                        # 更大的批次以提高統計穩定性
-    imgsz=640,                       # 固定640分辨率
-    save_period=1,                   # 每epoch保存
+    epochs=100,                     
+    patience=20,                    
+    batch=32,                        # 回到中等批次大小
+    imgsz=640,                      
+    save_period=1,                  
     
-    # 優化器與學習率策略
-    optimizer='AdamW',               # AdamW通常在微調階段表現出色
-    cos_lr=True,                     # 使用余弦學習率調度
-    lr0=0.0008,                      # 適中的學習率
-    lrf=0.001,                       # 較低的最終學習率比例
-    weight_decay=0.001,              # 適當增加權重衰減進行正則化
-    momentum=0.937,                  # 標準動量
+    # 更溫和的優化器設置
+    optimizer='AdamW',              
+    cos_lr=True,                    
+    lr0=0.0005,                      # 適中學習率
+    lrf=0.01,                        # 更溫和的最終學習率
+    weight_decay=0.0005,             # 標準權重衰減
     
-    # 關鍵：損失函數權重
-    box=1.0,                         # 極低的框損失權重
-    cls=0.05,                        # 極低的分類損失權重
-    dfl=0.2,                         # 低分佈焦點損失權重
-    pose=60.0,                       # 極高的姿態損失權重
-    kobj=20.0,                       # 極高的關鍵點目標性權重
+    # 更平衡的損失權重
+    box=5.0,                         # 適當的框損失權重
+    cls=0.3,                         # 適當的分類損失權重
+    dfl=1.0,                         # 標準分布焦點損失
+    pose=25.0,                       # 高但不極端的姿態損失
+    kobj=5.0,                        # 高但不極端的關鍵點目標性
     
-    # 數據擴充策略
-    mosaic=1.0,                      # 充分利用mosaic增強
-    mixup=0.1,                       # 輕微mixup增強
-    copy_paste=0.0,                  # 關閉copy-paste
-    degrees=0.0,                     # 關閉旋轉（避免破壞關鍵點位置）
-    translate=0.02,                  # 極輕微平移
-    scale=0.05,                      # 極輕微縮放
-    shear=0.0,                       # 關閉剪切
-    perspective=0.0,                 # 關閉透視變換
-    flipud=0.0,                      # 關閉上下翻轉
-    fliplr=0.5,                      # 保留水平翻轉（適合人體姿態）
-    hsv_h=0.0,                       # 關閉色調變化
-    hsv_s=0.0,                       # 關閉飽和度變化
-    hsv_v=0.0,                       # 關閉亮度變化
+    # 更溫和的數據擴充
+    mosaic=1.0,                     
+    mixup=0.0,                       # 關閉mixup
+    copy_paste=0.0,                 
+    degrees=0.0,                    
+    translate=0.1,                   # 中等平移
+    scale=0.1,                       # 中等縮放
+    shear=0.0,                      
+    perspective=0.0001,              # 極輕微透視變換
+    fliplr=0.5,                     
     
-    # 關鍵優化技巧
-    label_smoothing=0.05,            # 輕微標籤平滑提高泛化能力
-    close_mosaic=15,                 # 最後15個epoch關閉mosaic
+    # 適當的正則化
+    label_smoothing=0.02,            # 極輕微標籤平滑
+    close_mosaic=10,                
     
-    # 選擇性凍結層
-    freeze=[0, 1, 2, 3, 4, 5],       # 凍結前6層保持主幹特徵穩定
+    # 選擇性凍結（更溫和）
+    freeze=[0, 1],                   # 只凍結前兩層
     
-    # 梯度累積以增大等效批次大小
-    nbs=128,                         # 更大的標稱批次大小
-    
-    # 學習率預熱調整
-    warmup_epochs=0,                 # 關閉預熱，因為我們從已訓練的模型開始
-    warmup_momentum=0.8,
-    warmup_bias_lr=0.1,
+    # 標準批次設置
+    nbs=64,                         
     
     # 訓練效率設置
-    overlap_mask=True,              
-    rect=False,                      # 關閉矩形訓練以增加關鍵點位置隨機性
-    cache=True,                      # 啟用緩存加速訓練
-    amp=True,                        # 啟用混合精度
+    cache="disk",
+    rect=False,                     
+    amp=True,                       
     
-    # 數據採樣策略
-    fraction=0.95,                   # 使用95%數據，過濾可能存在問題的樣本
+    # 沒有dropout
+    dropout=0.0,                    
     
-    # 啟用dropout以增強泛化能力
-    dropout=0.02,                    # 輕微dropout
-    
-    # 加入驗證和可視化
-    val=True,
-    plots=True,
+    # 關鍵區別：多尺度訓練
+    multi_scale=True,                # 啟用多尺度訓練
     
     # 項目管理
     project="yolo11n-pose",
