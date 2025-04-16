@@ -169,7 +169,6 @@ class AutoBackend(nn.Module):
             names = model.module.names if hasattr(model, "module") else model.names  # get class names
             model.half() if fp16 else model.float()
             self.model = model  # explicitly assign for to(), cpu(), cuda(), half()
-            print("!!!!!!!!!!!!!!!!!!!!!!!! AutoBackend pt model")
             pt = True
 
         # PyTorch
@@ -578,14 +577,9 @@ class AutoBackend(nn.Module):
         if self.nhwc:
             im = im.permute(0, 2, 3, 1)  # torch BCHW to numpy BHWC shape(1,320,192,3)
 
-        # print("!!!!!!!!!!!!!!!!!!!!!!!! AutoBackend forward", describe_var(im, max_items=20, max_depth=10))
-        # show_caller()
-
         # PyTorch
         if self.pt or self.nn_module:
-            # print("!!!!!!!!!!!!!!!!!!!!!!!! AutoBackend forward pt or nn_module", augment, visualize, embed, kwargs)
             y = self.model(im, augment=augment, visualize=visualize, embed=embed, **kwargs)
-            # print("!!!!!!!!!!!!!!!!!!!!!!!! AutoBackend forward pt or nn_module y", describe_var(im), describe_var(y, max_items=20, max_depth=10))
 
         # TorchScript
         elif self.jit:

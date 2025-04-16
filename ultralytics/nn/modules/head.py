@@ -9,7 +9,6 @@ import torch.nn as nn
 import torch.nn.functional as F
 from torch.nn.init import constant_, xavier_uniform_
 
-from ultralytics.utils.dev import describe_var, show_caller
 from ultralytics.utils.tal import TORCH_1_10, dist2bbox, dist2rbox, make_anchors
 from ultralytics.utils.torch_utils import fuse_conv_and_bn, smart_inference_mode
 
@@ -74,9 +73,6 @@ class Detect(nn.Module):
         if self.training:  # Training path
             return x
         y = self._inference(x)
-        # show_caller()
-        # print("!!!!!!!!!!!!!!!!!!!!!!!! head detect forward x", describe_var(x))
-        # print("!!!!!!!!!!!!!!!!!!!!!!!! head detect forward (y, x)", describe_var((y, x)))
         return y if self.export else (y, x)
 
     def forward_end2end(self, x):
@@ -120,11 +116,7 @@ class Detect(nn.Module):
         if self.format != "imx" and (self.dynamic or self.shape != shape):
             self.anchors, self.strides = (x.transpose(0, 1) for x in make_anchors(x, self.stride, 0.5))
             self.shape = shape
-        #     print("!!!!!!!!!!!!!!!!!!!!!!!!! self.anchors", describe_var(self.anchors))
-        #     print("!!!!!!!!!!!!!!!!!!!!!!!!! self.stride", describe_var(self.stride))
-        #     show_caller()
 
-        # print("!!!!!!!!!!!!!!!!!!!!!!!!! _inference x_cat", describe_var(x_cat))
         if self.export and self.format in {"saved_model", "pb", "tflite", "edgetpu", "tfjs"}:  # avoid TF FlexSplitV ops
             box = x_cat[:, : self.reg_max * 4]
             cls = x_cat[:, self.reg_max * 4 :]
@@ -202,7 +194,7 @@ class Segment(Detect):
         self.proto = Proto(ch[0], self.npr, self.nm)  # protos
 
         c4 = max(ch[0] // 4, self.nm)
-        # self.cv4 = nn.ModuleList(nn.Sequential(Conv(x, c4, 3), Conv(c4, c4, 3), nn.Conv2d(c4, self.nm, 1)) for x in ch)
+        self.cv4 = nn.ModuleList(nn.Sequential(Conv(x, c4, 3), Conv(c4, c4, 3), nn.Conv2d(c4, self.nm, 1)) for x in ch)
 
     def forward(self, x):
         """Return model outputs and mask coefficients if training, otherwise return outputs and mask coefficients."""
@@ -225,7 +217,7 @@ class OBB(Detect):
         self.ne = ne  # number of extra parameters
 
         c4 = max(ch[0] // 4, self.ne)
-        # self.cv4 = nn.ModuleList(nn.Sequential(Conv(x, c4, 3), Conv(c4, c4, 3), nn.Conv2d(c4, self.ne, 1)) for x in ch)
+        self.cv4 = nn.ModuleList(nn.Sequential(Conv(x, c4, 3), Conv(c4, c4, 3), nn.Conv2d(c4, self.ne, 1)) for x in ch)
 
     def forward(self, x):
         """Concatenates and returns predicted bounding boxes and class probabilities."""
@@ -251,28 +243,19 @@ class Pose(Detect):
 
     def __init__(self, nc=80, kpt_shape=(17, 3), ch=()):
         """Initialize YOLO network with default parameters and Convolutional Layers."""
-
-        # print("!!!!!!!!!!!!!!!!!! head Pose __init__ kpt_shape", kpt_shape)
         
         super().__init__(nc, ch)
         self.kpt_shape = kpt_shape  # number of keypoints, number of dims (2 for x,y or 3 for x,y,visible)
         self.nk = kpt_shape[0] * kpt_shape[1]  # number of keypoints total
 
         c4 = max(ch[0] // 4, self.nk)
-        # print("!!!!!!!!!!!!!!!!!! head Pose __init__ c4", c4)
-        # print("!!!!!!!!!!!!!!!!!! head Pose __init__ self.nk", self.nk)
-        # print("!!!!!!!!!!!!!!!!!! head Pose __init__ ch", ch)
         self.cv4 = nn.ModuleList(nn.Sequential(Conv(x, c4, 3), Conv(c4, c4, 3), nn.Conv2d(c4, self.nk, 1)) for x in ch)
 
     def forward(self, x):
         """Perform forward pass through YOLO model and return predictions."""
-        # print("pose.forward", describe_var(x, max_items=20, max_depth=10))
-        # show_caller()
         bs = x[0].shape[0]  # batch size
         kpt = torch.cat([self.cv4[i](x[i]).view(bs, self.nk, -1) for i in range(self.nl)], -1)  # (bs, 17*3, h*w)
-        # print("!!!!!!!!!!!!!!!!!! head Pose self.training x1", describe_var(x))
         x = Detect.forward(self, x)
-        # print("!!!!!!!!!!!!!!!!!! head Pose self.training x2", describe_var(x))
         if self.training:
             
             return x, kpt
@@ -281,7 +264,6 @@ class Pose(Detect):
 
     def kpts_decode(self, bs, kpts):
         """Decodes keypoints."""
-        # print("!!!!!!!!!!!!!!!!!! head Pose kpts_decode kpts", describe_var(kpts))
         ndim = self.kpt_shape[1]
         if self.export:
             if self.format in {
@@ -302,8 +284,6 @@ class Pose(Detect):
                 a = torch.cat((a, y[:, :, 2:3].sigmoid()), 2)
             return a.view(bs, self.nk, -1)
         else:
-            # print("!!!!!!!!!!!!!!!!!! head Pose kpts_decode else", describe_var(self.strides))
-            # print("!!!!!!!!!!!!!!!!!! head Pose kpts_decode else", describe_var(self.anchors))
             y = kpts.clone()
             if ndim == 3:
                 y[:, 2::ndim] = y[:, 2::ndim].sigmoid()  # sigmoid (WARNING: inplace .sigmoid_() Apple MPS bug)

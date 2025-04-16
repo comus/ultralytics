@@ -63,15 +63,6 @@ class DetectionPredictor(BasePredictor):
             rotated=self.args.task == "obb",
         )
 
-        # print("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!! postprocess self.args.conf", self.args.conf)
-        # print("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!! postprocess self.args.iou", self.args.iou)
-        # print("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!! postprocess self.args.classes", self.args.classes)
-        # print("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!! postprocess self.args.agnostic_nms", self.args.agnostic_nms)
-        # print("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!! postprocess self.args.max_det", self.args.max_det)
-        # print("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!! postprocess nc", len(self.model.names))
-        # print("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!! postprocess end2end", getattr(self.model, "end2end", False))
-        # print("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!! postprocess rotated", self.args.task == "obb")
-
         if not isinstance(orig_imgs, list):  # input images are a torch.Tensor, not a list
             orig_imgs = ops.convert_torch2numpy_batch(orig_imgs)
 
@@ -89,7 +80,6 @@ class DetectionPredictor(BasePredictor):
         Returns:
             (List[Results]): List of Results objects containing detection information for each image.
         """
-        # print("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!! construct_results self.batch[0]", self.batch[0])
         return [
             self.construct_result(pred, img, orig_img, img_path)
             for pred, orig_img, img_path in zip(preds, orig_imgs, self.batch[0])
@@ -108,6 +98,5 @@ class DetectionPredictor(BasePredictor):
         Returns:
             (Results): Results object containing the original image, image path, class names, and scaled bounding boxes.
         """
-        # print("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!! construct_result self.model.names", self.model.names)
         pred[:, :4] = ops.scale_boxes(img.shape[2:], pred[:, :4], orig_img.shape)
         return Results(orig_img, path=img_path, names=self.model.names, boxes=pred[:, :6])
