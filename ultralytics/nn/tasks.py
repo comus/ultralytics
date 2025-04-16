@@ -71,7 +71,6 @@ from ultralytics.nn.modules import (
 )
 from ultralytics.utils import DEFAULT_CFG_DICT, DEFAULT_CFG_KEYS, LOGGER, colorstr, emojis, yaml_load
 from ultralytics.utils.checks import check_requirements, check_suffix, check_yaml
-from ultralytics.utils.dev import show_caller
 from ultralytics.utils.loss import (
     E2EDetectLoss,
     v8ClassificationLoss,
@@ -118,8 +117,6 @@ class BaseModel(torch.nn.Module):
         """
         if isinstance(x, dict):  # for cases of training and validating while training.
             return self.loss(x, *args, **kwargs)
-        # print("!!!!!!!!!!!!!!!!!!!!!!!! BaseModel forward", x)
-        # show_caller()
         return self.predict(x, *args, **kwargs)
 
     def predict(self, x, profile=False, visualize=False, augment=False, embed=None):
@@ -355,8 +352,6 @@ class DetectionModel(BaseModel):
                 if self.end2end:
                     return self.forward(x)["one2many"]
                 return self.forward(x)[0] if isinstance(m, (Segment, YOLOESegment, Pose, OBB)) else self.forward(x)
-            
-            print("!!!!!!!!!!!!!!!!!!")
 
             m.stride = torch.tensor([s / x.shape[-2] for x in _forward(torch.zeros(1, ch, s, s))])  # forward
             self.stride = m.stride

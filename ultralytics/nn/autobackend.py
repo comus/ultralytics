@@ -16,7 +16,6 @@ from PIL import Image
 
 from ultralytics.utils import ARM64, IS_JETSON, IS_RASPBERRYPI, LINUX, LOGGER, PYTHON_VERSION, ROOT, yaml_load
 from ultralytics.utils.checks import check_requirements, check_suffix, check_version, check_yaml, is_rockchip
-from ultralytics.utils.dev import describe_var, show_caller
 from ultralytics.utils.downloads import attempt_download_asset, is_url
 
 
