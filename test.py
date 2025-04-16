@@ -1,7 +1,7 @@
 from ultralytics import YOLO
 
 # Load the pretrained model
-model = YOLO("lite.yaml")
+model = YOLO("yolo11n-pose.pt")
 
 # 极端保守策略：完全冻结特征提取器，仅训练最后的输出层
 results = model.train(
@@ -12,6 +12,7 @@ results = model.train(
   epochs=1,              # 减少轮数，集中训练头部
   imgsz=640,              # 标准图像尺寸
   batch=64,               # 降回稍小的批量避免过度波动
+  cache=False,
   save=True,
   save_period=1,          # 每轮保存检查点
   # cache="disk",

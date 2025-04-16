@@ -4,6 +4,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
+from ultralytics.utils.dev import describe_var
 from ultralytics.utils.metrics import OKS_SIGMA
 from ultralytics.utils.ops import crop_mask, xywh2xyxy, xyxy2xywh
 from ultralytics.utils.tal import RotatedTaskAlignedAssigner, TaskAlignedAssigner, dist2bbox, dist2rbox, make_anchors
@@ -174,6 +175,7 @@ class v8DetectionLoss:
 
     def preprocess(self, targets, batch_size, scale_tensor):
         """Preprocess targets by converting to tensor format and scaling coordinates."""
+        print("targets", describe_var(targets))
         nl, ne = targets.shape
         if nl == 0:
             out = torch.zeros(batch_size, 0, ne - 1, device=self.device)
@@ -191,6 +193,8 @@ class v8DetectionLoss:
 
     def bbox_decode(self, anchor_points, pred_dist):
         """Decode predicted object bounding box coordinates from anchor points and distribution."""
+
+        print("self.proj.type(pred_dist.dtype)", describe_var(self.proj.type(pred_dist.dtype)))
         if self.use_dfl:
             b, a, c = pred_dist.shape  # batch, anchors, channels
             pred_dist = pred_dist.view(b, a, 4, c // 4).softmax(3).matmul(self.proj.type(pred_dist.dtype))

@@ -2,10 +2,10 @@ from ultralytics import YOLO
 
 # Load a model
 # model = YOLO("yolo11n-pose.pt")  # load an official model
-model = YOLO("models/yolo11n-pose/train/weights/best.pt")  # load a custom model
+model = YOLO("yolo11x-pose.pt")  # load a custom model
 
 # Predict with the model
-results = model("image.jpg", save=True, visualize=True)  # predict on an image
+results = model("image3.jpg", save=True, visualize=True)  # predict on an image
 
 # Access the results
 for result in results:
