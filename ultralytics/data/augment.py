@@ -14,7 +14,6 @@ from torch.nn import functional as F
 from ultralytics.data.utils import polygons2masks, polygons2masks_overlap
 from ultralytics.utils import LOGGER, colorstr
 from ultralytics.utils.checks import check_version
-from ultralytics.utils.dev import describe_var, show_caller
 from ultralytics.utils.instance import Instances
 from ultralytics.utils.metrics import bbox_ioa
 from ultralytics.utils.ops import segment2box, xywh2xyxy, xyxyxyxy2xywhr
@@ -1536,14 +1535,6 @@ class LetterBox:
         self.stride = stride
         self.center = center  # Put the image in the middle or top-left
 
-        print("self.new_shape", self.new_shape)
-        print("self.auto", self.auto)
-        print("self.scale_fill", self.scale_fill)
-        print("self.scaleup", self.scaleup)
-        print("self.stride", self.stride)
-        print("self.center", self.center)
-        show_caller()
-
     def __call__(self, labels=None, image=None):
         """
         Resizes and pads an image for object detection, instance segmentation, or pose estimation tasks.
@@ -1566,7 +1557,6 @@ class LetterBox:
             >>> resized_img = result["img"]
             >>> updated_instances = result["instances"]
         """
-        print("image", describe_var(image))
         if labels is None:
             labels = {}
         img = labels.get("img") if image is None else image
