@@ -47,7 +47,6 @@ from ultralytics.data.augment import LetterBox, classify_transforms
 from ultralytics.nn.autobackend import AutoBackend
 from ultralytics.utils import DEFAULT_CFG, LOGGER, MACOS, WINDOWS, callbacks, colorstr, ops
 from ultralytics.utils.checks import check_imgsz, check_imshow
-from ultralytics.utils.dev import describe_var
 from ultralytics.utils.files import increment_path
 from ultralytics.utils.torch_utils import select_device, smart_inference_mode
 
@@ -157,8 +156,6 @@ class BasePredictor:
             im = torch.from_numpy(im)
 
         im = im.to(self.device)
-        print("!!!!!!!!!!!!!!! predictor.preprocess self.device", self.device)
-        print("!!!!!!!!!!!!!!! predictor.preprocess self.model.fp16", self.model.fp16)
         im = im.half() if self.model.fp16 else im.float()  # uint8 to fp16/32
         if not_tensor:
             im /= 255  # 0 - 255 to 0.0 - 1.0
@@ -171,7 +168,6 @@ class BasePredictor:
             if self.args.visualize and (not self.source_type.tensor)
             else False
         )
-        print("!!!!!!!!!!!!!!! predictor.inference", describe_var(im, max_items=20, max_depth=10))
         return self.model(im, augment=self.args.augment, visualize=visualize, embed=self.args.embed, *args, **kwargs)
 
     def pre_transform(self, im):
@@ -192,11 +188,6 @@ class BasePredictor:
             and (self.model.pt or (getattr(self.model, "dynamic", False) and not self.model.imx)),
             stride=self.model.stride,
         )
-        print("!!!!!!!!!!!!!!! predictor.pre_transform self.imgsz", self.imgsz)
-        print("!!!!!!!!!!!!!!! predictor.pre_transform auto", same_shapes
-            and self.args.rect
-            and (self.model.pt or (getattr(self.model, "dynamic", False) and not self.model.imx)))
-        print("!!!!!!!!!!!!!!! predictor.pre_transform self.model.stride", self.model.stride)
         return [letterbox(image=x) for x in im]
 
     def postprocess(self, preds, img, orig_imgs):
@@ -327,9 +318,7 @@ class BasePredictor:
 
                 # Preprocess
                 with profilers[0]:
-                    print("!!!!!!!!!!!!!!! predictor.stream_inference preprocess", describe_var(im0s, max_items=20, max_depth=10))
                     im = self.preprocess(im0s)
-                    print("!!!!!!!!!!!!!!! predictor.stream_inference preprocess im", describe_var(im, max_items=20, max_depth=10))
 
                 # Inference
                 with profilers[1]:
