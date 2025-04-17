@@ -288,7 +288,7 @@ class v8PoseLoss(v8DetectionLoss):
         s_strides = self.model.stride
         s_levels = batch["s_levels_tensor"][s_anchor_indices]  # [total_s]
         t_levels = batch["t_levels_tensor"][t_anchor_indices]  # [total_t]
-        s_stride_values = s_strides[s_levels]
+        s_stride_values = s_strides.to(s_levels.device)[s_levels]
         threshold = 1.5
         dist_thresholds = (s_stride_values * threshold).unsqueeze(1)
 
@@ -388,8 +388,8 @@ class v8PoseLoss(v8DetectionLoss):
                     t_bbox_center_y = (t_pred_bbox[1] + t_pred_bbox[3]) / 2
                     
                     # Calculate level coordinates (grid coordinates)
-                    s_stride = s_strides[s_level]
-                    t_stride = s_strides[t_level]  # Assuming teacher uses same strides
+                    s_stride = self.model.stride.to(s_levels.device)[s_level]
+                    t_stride = self.model.stride.to(t_levels.device)[t_level]  # Assuming teacher uses same strides
                     
                     s_level_x, s_level_y = s_center_x / s_stride, s_center_y / s_stride
                     t_level_x, t_level_y = t_center_x / t_stride, t_center_y / t_stride
