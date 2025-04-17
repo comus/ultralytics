@@ -84,6 +84,8 @@ class PoseTrainer(yolo.detect.DetectionTrainer):
             for m in self.teacher.modules():
                 if isinstance(m, (torch.nn.BatchNorm2d, torch.nn.BatchNorm1d)):
                     m.eval()  # 只有BN層設為評估模式
+                    for param in m.parameters():
+                        param.requires_grad = False
                     
             LOGGER.info(f"初始化教師模型已完成，設為訓練模式但凍結BN層")
 
@@ -124,6 +126,8 @@ class PoseTrainer(yolo.detect.DetectionTrainer):
         for m in self.model.modules():
             if isinstance(m, (torch.nn.BatchNorm2d, torch.nn.BatchNorm1d)):
                 m.eval()  # 只有BN層設為評估模式
+                for param in m.parameters():
+                    param.requires_grad = False
 
         # # 列出有哪些層是訓練模式
         # print("============= 學生模型層 =============")

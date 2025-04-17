@@ -4,6 +4,13 @@ import torch
 # 加載學生模型
 model = YOLO("yolo11n-pose.pt")
 
+# 凍結所有BN層
+for m in model.model.modules():
+    if isinstance(m, torch.nn.BatchNorm2d):
+        m.eval()
+        for param in m.parameters():
+            param.requires_grad = False
+
 # 訓練模型（知識蒸餾）
 results = model.train(
     data="coco-pose.yaml",
@@ -18,7 +25,7 @@ results = model.train(
     optimizer="AdamW",
     freeze=[0, 1, 2, 3, 4],
     amp=True,
-    close_mosaic=15,
+    close_mosaic=30,  # 提前關閉馬賽克
     patience=50,
     save_period=1,
     cos_lr=True,
@@ -45,5 +52,5 @@ results = model.train(
     scale=0.1,        # 縮放範圍
     shear=2.0,        # 剪切範圍
     fliplr=0.5,       # 左右翻轉概率
-    mosaic=1.0,       # 馬賽克概率
+    mosaic=0.5,       # 降低馬賽克概率
 )
