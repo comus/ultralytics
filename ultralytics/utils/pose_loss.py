@@ -357,8 +357,8 @@ class v8PoseLoss(v8DetectionLoss):
                 n_matches = matches.size(0)
                 print(f"找到 {n_matches} 個學生-教師錨點匹配")
                 
-                # 只顯示前10個匹配的詳細信息
-                num_to_show = min(10, n_matches)
+                # 只顯示前5個匹配的詳細信息
+                num_to_show = min(5, n_matches)
                 for i in range(num_to_show):
                     match = matches[i]
                     batch_idx = int(match[0].item())
