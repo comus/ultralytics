@@ -303,6 +303,21 @@ class v8PoseLoss(v8DetectionLoss):
         if valid_mask.sum() == 0:
             return zero_loss, zero_loss
 
+        # 記錄原始匹配數量
+        original_match_count = valid_mask.sum().item()
+
+        # 限制匹配點數量上限為 300 個
+        if valid_mask.sum() > 300:
+            # 獲取有效匹配的索引，並隨機選擇 300 個
+            valid_indices = torch.nonzero(valid_mask).squeeze(1)
+            perm = torch.randperm(len(valid_indices), device=valid_indices.device)[:300]
+            selected_indices = valid_indices[perm]
+            
+            # 創建新的 mask
+            new_valid_mask = torch.zeros_like(valid_mask)
+            new_valid_mask[selected_indices] = True
+            valid_mask = new_valid_mask
+
         valid_s_positions = torch.nonzero(valid_mask).squeeze(1)  # [n_valid]
         valid_t_positions = min_indices[valid_mask]  # [n_valid]
         
@@ -356,6 +371,10 @@ class v8PoseLoss(v8DetectionLoss):
             if matches.numel() > 0:
                 n_matches = matches.size(0)
                 print(f"找到 {n_matches} 個學生-教師錨點匹配")
+                
+                # 如果原始匹配數超過 300，顯示已限制的信息
+                if original_match_count > 300:
+                    print(f"已限制匹配數量為最大 300 個 (原始匹配數: {original_match_count})")
                 
                 # 只顯示前5個匹配的詳細信息
                 num_to_show = min(5, n_matches)
