@@ -11,22 +11,22 @@ for m in model.model.modules():
         for param in m.parameters():
             param.requires_grad = False
 
-# 訓練模型（知識蒸餾）
+# 訓練模型（知識蒸餾）- 極度保守策略
 results = model.train(
     data="coco-pose.yaml",
     teacher=YOLO("yolo11x-pose.pt").model,
     epochs=100,
     imgsz=640,
-    batch=64,
-    lr0=0.0005,  # 降低學習率
-    lrf=0.005,
-    warmup_epochs=3,  # 減少預熱輪數
-    weight_decay=0.0001,
+    batch=32,  # 減小批次大小，穩定訓練
+    lr0=0.0001,  # 進一步降低學習率
+    lrf=0.01,    # 設置更高的lrf以便更快達到較低學習率
+    warmup_epochs=0,  # 取消預熱
+    weight_decay=0.00005,  # 減少權重衰減
     optimizer="AdamW",
-    freeze=[0, 1, 2, 3, 4, 5, 6],  # 增加凍結層
+    freeze=[0, 1, 2, 3, 4, 5, 6, 7, 8],  # 凍結更多層，僅訓練頂層
     amp=True,
-    close_mosaic=30,  # 提前關閉馬賽克
-    patience=50,
+    close_mosaic=0,  # 完全關閉馬賽克
+    patience=100,  # 增加耐心值
     save_period=1,
     cos_lr=True,
     cache="disk",
@@ -34,23 +34,23 @@ results = model.train(
     device=0,
     workers=12,
     project="distill_pose",
-    name="yolo11n_distill",
+    name="yolo11n_distill_conservative",
     exist_ok=True,
-    pose=15.0,  # 提高姿態損失權重
-    kobj=2.0,
-    distill=0.2,  # 降低蒸餾損失權重
+    pose=20.0,  # 顯著提高姿態損失權重
+    kobj=3.0,   # 提高關鍵點物體性損失權重
+    distill=0.1,  # 大幅降低蒸餾損失權重
     
-    # 保留官方支持的增強參數，但降低增強強度
-    nbs=64,           # 標準批次大小
-    val=True,         # 驗證過程
-    plots=True,       # 生成訓練圖表
-    label_smoothing=0.01, # 標籤平滑
-    mixup=0.05,       # 降低混合增強概率
-    copy_paste=0.05,  # 降低複製黏貼概率
-    degrees=3.0,      # 降低旋轉範圍
-    translate=0.07,   # 降低平移範圍
-    scale=0.07,       # 降低縮放範圍
-    shear=1.0,        # 降低剪切範圍
-    fliplr=0.5,       # 保持左右翻轉概率
-    mosaic=0.3,       # 進一步降低馬賽克概率
+    # 極度減少數據增強
+    nbs=64,             # 標準批次大小
+    val=True,           # 驗證過程
+    plots=True,         # 生成訓練圖表
+    label_smoothing=0.0, # 取消標籤平滑
+    mixup=0.0,          # 禁用混合增強
+    copy_paste=0.0,     # 禁用複製貼上
+    degrees=0.0,        # 禁用旋轉
+    translate=0.05,     # 極小平移
+    scale=0.05,         # 極小縮放
+    shear=0.0,          # 禁用剪切
+    fliplr=0.5,         # 保持左右翻轉，這對人體姿態有益
+    mosaic=0.0,         # 完全禁用馬賽克
 )
