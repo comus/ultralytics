@@ -135,7 +135,7 @@ class v8PoseLoss(v8DetectionLoss):
                 teacher=batch["teacher"],
             )
 
-            loss[5] = dpose * 12.0 + dkobj * 1.0
+            loss[5] = dpose * 10.0 + dkobj * 2.0
         else:
             loss[5] = torch.tensor(0.0, device=self.device, requires_grad=True)
             
@@ -229,15 +229,46 @@ class v8PoseLoss(v8DetectionLoss):
         kpts_obj_loss = 0
 
         area = xyxy2xywh(valid_t_bboxes)[:, 2:].prod(1, keepdim=True)
-        kpt_mask = valid_t_keypoints[..., 2] != 0 if valid_t_keypoints.shape[-1] == 3 else torch.full_like(valid_t_keypoints[..., 0], True)
         
-        kpts_loss = self.keypoint_loss(valid_s_keypoints, valid_t_keypoints, kpt_mask, area)  # pose loss
-
-        if valid_s_keypoints.shape[-1] == 3:
-            kpts_obj_loss = self.bce_pose(valid_s_keypoints[..., 2], kpt_mask.float())  # keypoint obj loss
+        # 檢查是否有keypoints
+        if valid_s_keypoints.shape[0] == 0:
+            return torch.tensor(0.0, device=self.device, requires_grad=True), torch.tensor(0.0, device=self.device, requires_grad=True)
+        
+        # 原始的二分法mask
+        binary_kpt_mask = valid_t_keypoints[..., 2] != 0 if valid_t_keypoints.shape[-1] == 3 else torch.full_like(valid_t_keypoints[..., 0], True)
+        
+        if valid_t_keypoints.shape[-1] == 3 and valid_s_keypoints.shape[-1] == 3:
+            # 使用教師模型的confidence作為權重
+            t_conf = valid_t_keypoints[..., 2].sigmoid()  # 確保在0-1範圍
+            
+            # 計算基於距離的損失
+            d = (valid_s_keypoints[..., 0] - valid_t_keypoints[..., 0]).pow(2) + (valid_s_keypoints[..., 1] - valid_t_keypoints[..., 1]).pow(2)
+            kpt_loss_factor = binary_kpt_mask.shape[1] / (torch.sum(binary_kpt_mask != 0, dim=1) + 1e-9)
+            # 從keypoint_loss中獲取sigmas
+            sigmas = self.keypoint_loss.sigmas
+            e = d / ((2 * sigmas).pow(2) * (area + 1e-9) * 2)  # from cocoeval
+            
+            # 將教師confidence作為權重應用於損失計算
+            weighted_loss = (1 - torch.exp(-e)) * binary_kpt_mask * t_conf
+            kpts_loss = (kpt_loss_factor.view(-1, 1) * weighted_loss).mean()
+            
+            # confidence loss，使用教師模型的confidence作為目標
+            # 只針對有效keypoints（教師confidence > 0）計算
+            conf_mask = t_conf > 0
+            if conf_mask.sum() > 0:
+                kpts_obj_loss = F.binary_cross_entropy_with_logits(
+                    valid_s_keypoints[..., 2][conf_mask], 
+                    t_conf[conf_mask], 
+                    reduction='mean'
+                )
+            else:
+                kpts_obj_loss = torch.tensor(0.0, device=self.device)
+        else:
+            # 如果沒有confidence維度，退回到原始實現
+            kpts_loss = self.keypoint_loss(valid_s_keypoints, valid_t_keypoints, binary_kpt_mask, area)
+            kpts_obj_loss = torch.tensor(0.0, device=self.device)
 
         return kpts_loss, kpts_obj_loss
-
 
     def pose_loss(self, batch, s_preds, t_preds, t_pred_kpts, s_fg_mask, s_pred_scores_normalized, s_pred_kpts, teacher, t_pred_scores_normalized, s_pred_bboxes_real, t_pred_bboxes_real, t_pred_bboxes):
         current_epoch = getattr(self.model, 'epoch', 0) if hasattr(self, 'model') else 0
@@ -249,7 +280,7 @@ class v8PoseLoss(v8DetectionLoss):
 
         # 學生高分預測 mask
         # torch.Tensor(shape=[1, 8400, 1], dtype=torch.bool): tensor([[[False],
-        s_high_confidence_mask = s_pred_scores_normalized > 0.5
+        s_high_confidence_mask = s_pred_scores_normalized > 0.45
         # torch.Tensor(shape=[1, 8400], dtype=torch.bool): tensor([[False, False, False,  ..., False, False, False]])
         s_high_confidence_mask = s_high_confidence_mask.squeeze(-1)
 
@@ -259,7 +290,7 @@ class v8PoseLoss(v8DetectionLoss):
 
         # 獲取 confidence_mask
         # torch.Tensor(shape=[2, 8400], dtype=torch.bool): tensor([[False, False, False,  ..., False, False, False],
-        t_confidence_mask = t_pred_scores_normalized.amax(2) > 0.75
+        t_confidence_mask = t_pred_scores_normalized.amax(2) > 0.7
         
         s_batch_anchor_indices = torch.nonzero(s_high_conf_not_assigned_mask)
         t_batch_anchor_indices = torch.nonzero(t_confidence_mask)

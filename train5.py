@@ -15,15 +15,15 @@ for m in model.model.modules():
 results = model.train(
     data="coco-pose.yaml",
     teacher=YOLO("yolo11s-pose.pt").model,
-    epochs=100,
+    epochs=150,
     imgsz=640,
-    batch=64,  # 保持小批次大小，穩定訓練
-    lr0=0.00008,  # 極度降低學習率
+    batch=128,  # 保持小批次大小，穩定訓練
+    lr0=0.0001,  # 極度降低學習率
     lrf=0.01,    # 設置更高的lrf以便更快達到較低學習率
     warmup_epochs=0,  # 取消預熱
     weight_decay=0.00001,  # 進一步減少權重衰減
     optimizer="SGD",
-    freeze=[0, 1, 2, 3, 4, 5, 6, 7, 8],  # 凍結更多層，只訓練最上層
+    freeze=[0, 1, 2, 3, 4, 5, 6, 7],  # 凍結更多層，只訓練最上層
     amp=True,
     close_mosaic=0,  # 完全關閉馬賽克
     patience=100,  # 保持高耐心值
@@ -34,7 +34,7 @@ results = model.train(
     device=0,
     workers=12,
     project="distill_pose",
-    name="yolo11n_distill_ultraconservative",
+    name="yolo11n_distill_ultraconservative2",
     exist_ok=True,
     
     # 極度減少數據增強
@@ -52,10 +52,10 @@ results = model.train(
     mosaic=0.0,         # 完全禁用馬賽克
 
 
-    box=0.0, # (float) box loss gain
-    cls=0.0, # (float) cls loss gain (scale with pixels)
-    dfl=0.0, # (float) dfl loss gain
+    box=3.0, # (float) box loss gain
+    cls=0.5, # (float) cls loss gain (scale with pixels)
+    dfl=0.5, # (float) dfl loss gain
     pose=4.0, # (float) pose loss gain
     kobj=1.0, # (float) keypoint obj loss gain
-    distill=1.0,  # 極度降低蒸餾損失權重，幾乎只作為輔助
+    distill=2.5,  # 極度降低蒸餾損失權重，幾乎只作為輔助
 )
