@@ -408,7 +408,7 @@ class v8PoseLoss(v8DetectionLoss):
                     print(f"已限制匹配數量為最大 100 個 (原始匹配數: {original_match_count})")
                 
                 # 只顯示前5個匹配的詳細信息
-                num_to_show = min(20, n_matches)
+                num_to_show = min(4, n_matches)
                 for i in range(num_to_show):
                     match = matches[i]
                     batch_idx = int(match[0].item())
