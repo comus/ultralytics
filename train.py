@@ -14,7 +14,7 @@ for m in model.model.modules():
 # 訓練模型（知識蒸餾）- 最終保守策略
 results = model.train(
     data="coco-pose.yaml",
-    teacher=YOLO("yolo11x-pose.pt").model,
+    teacher=YOLO("yolo11m-pose.pt").model,
     epochs=100,
     imgsz=640,
     batch=32,  # 保持小批次大小，穩定訓練
