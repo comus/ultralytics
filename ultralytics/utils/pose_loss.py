@@ -249,7 +249,7 @@ class v8PoseLoss(v8DetectionLoss):
 
         # 學生高分預測 mask
         # torch.Tensor(shape=[1, 8400, 1], dtype=torch.bool): tensor([[[False],
-        s_high_confidence_mask = s_pred_scores_normalized > 0.1
+        s_high_confidence_mask = s_pred_scores_normalized > 0.2
         # torch.Tensor(shape=[1, 8400], dtype=torch.bool): tensor([[False, False, False,  ..., False, False, False]])
         s_high_confidence_mask = s_high_confidence_mask.squeeze(-1)
 
@@ -259,7 +259,7 @@ class v8PoseLoss(v8DetectionLoss):
 
         # 獲取 confidence_mask
         # torch.Tensor(shape=[2, 8400], dtype=torch.bool): tensor([[False, False, False,  ..., False, False, False],
-        t_confidence_mask = t_pred_scores_normalized.amax(2) > 0.25
+        t_confidence_mask = t_pred_scores_normalized.amax(2) > 0.3
         
         s_batch_anchor_indices = torch.nonzero(s_high_conf_not_assigned_mask)
         t_batch_anchor_indices = torch.nonzero(t_confidence_mask)
