@@ -135,7 +135,7 @@ class v8PoseLoss(v8DetectionLoss):
                 teacher=batch["teacher"],
             )
 
-            loss[5] = dpose * self.hyp.pose + dkobj * self.hyp.kobj
+            loss[5] = dpose * 12.0 + dkobj * 1.0
         else:
             loss[5] = torch.tensor(0.0, device=self.device, requires_grad=True)
             
