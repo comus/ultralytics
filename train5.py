@@ -34,7 +34,7 @@ results = model.train(
     device=0,
     workers=12,
     project="distill_pose",
-    name="yolo11n_distill_ultraconservative2",
+    name="yolo11n_distill_pure_kd",  # 更新名稱以反映純蒸餾方法
     exist_ok=True,
     
     # 極度減少數據增強
@@ -51,11 +51,11 @@ results = model.train(
     fliplr=0.5,         # 保持左右翻轉，這對人體姿態有益
     mosaic=0.0,         # 完全禁用馬賽克
 
-
-    box=3.0, # (float) box loss gain
-    cls=0.5, # (float) cls loss gain (scale with pixels)
-    dfl=0.5, # (float) dfl loss gain
-    pose=4.0, # (float) pose loss gain
-    kobj=1.0, # (float) keypoint obj loss gain
-    distill=2.5,  # 極度降低蒸餾損失權重，幾乎只作為輔助
+    # 損失權重調整（移除distill參數，因為它已經被整合到pose和kobj中）
+    box=3.0,   # (float) box loss gain
+    cls=0.5,   # (float) cls loss gain (scale with pixels)
+    dfl=0.5,   # (float) dfl loss gain
+    pose=12.0, # (float) pose loss gain - 增加權重因為現在直接作為主要損失
+    kobj=3.0,  # (float) keypoint obj loss gain - 增加權重因為現在直接作為主要損失
+    # 不再需要distill參數，已移除
 )

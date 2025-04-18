@@ -107,36 +107,38 @@ class v8PoseLoss(v8DetectionLoss):
             loss[0], loss[4] = self.bbox_loss(
                 pred_distri, pred_bboxes, anchor_points, target_bboxes, target_scores, target_scores_sum, fg_mask
             )
-            keypoints = batch["keypoints"].to(self.device).float().clone()
-            keypoints[..., 0] *= imgsz[1]
-            keypoints[..., 1] *= imgsz[0]
-
-            loss[1], loss[2] = self.calculate_keypoints_loss(
-                fg_mask, target_gt_idx, keypoints, batch_idx, stride_tensor, target_bboxes, pred_kpts
-            )
-
-        if "teacher" in batch and batch["teacher"] is not None:
-            dpose, dkobj = self.pose_loss(
-                batch=batch,
-
-                s_preds=preds,
-
-                s_fg_mask=fg_mask,
-                s_pred_scores_normalized=pred_scores_normalized,
-                s_pred_kpts=pred_kpts,
-                s_pred_bboxes_real=(pred_bboxes.detach() * stride_tensor).type(gt_bboxes.dtype),
-
-                t_preds=t_preds,
-                t_pred_kpts=t_pred_kpts,
-                t_pred_scores_normalized=t_pred_scores_normalized,
-                t_pred_bboxes_real=(t_pred_bboxes.detach() * t_stride_tensor).type(gt_bboxes.dtype),
-                t_pred_bboxes=t_pred_bboxes,
-
-                teacher=batch["teacher"],
-            )
-
-            loss[5] = dpose * 10.0 + dkobj * 2.0
+            
+            # 有教師模型時用蒸餾替代關鍵點損失
+            if "teacher" in batch and batch["teacher"] is not None:
+                # 直接用蒸餾損失取代原有的關鍵點損失
+                loss[1], loss[2] = self.pose_loss(
+                    batch=batch,
+                    s_preds=preds,
+                    s_fg_mask=fg_mask,
+                    s_pred_scores_normalized=pred_scores_normalized,
+                    s_pred_kpts=pred_kpts,
+                    s_pred_bboxes_real=(pred_bboxes.detach() * stride_tensor).type(gt_bboxes.dtype),
+                    t_preds=t_preds,
+                    t_pred_kpts=t_pred_kpts,
+                    t_pred_scores_normalized=t_pred_scores_normalized,
+                    t_pred_bboxes_real=(t_pred_bboxes.detach() * t_stride_tensor).type(gt_bboxes.dtype),
+                    t_pred_bboxes=t_pred_bboxes,
+                    teacher=batch["teacher"],
+                )
+                # 不再使用loss[5]，因為已經合併到loss[1]和loss[2]中
+                loss[5] = torch.tensor(0.0, device=self.device, requires_grad=True)
+            else:
+                # 沒有教師模型時使用原來的關鍵點損失
+                keypoints = batch["keypoints"].to(self.device).float().clone()
+                keypoints[..., 0] *= imgsz[1]
+                keypoints[..., 1] *= imgsz[0]
+                loss[1], loss[2] = self.calculate_keypoints_loss(
+                    fg_mask, target_gt_idx, keypoints, batch_idx, stride_tensor, target_bboxes, pred_kpts
+                )
+                loss[5] = torch.tensor(0.0, device=self.device, requires_grad=True)
         else:
+            loss[1] = torch.tensor(0.0, device=self.device, requires_grad=True)
+            loss[2] = torch.tensor(0.0, device=self.device, requires_grad=True)
             loss[5] = torch.tensor(0.0, device=self.device, requires_grad=True)
             
         loss[0] *= self.hyp.box  # box gain
@@ -144,7 +146,7 @@ class v8PoseLoss(v8DetectionLoss):
         loss[2] *= self.hyp.kobj  # kobj gain
         loss[3] *= self.hyp.cls  # cls gain
         loss[4] *= self.hyp.dfl  # dfl gain
-        loss[5] *= self.hyp.distill  # distill gain
+        # 不需要應用distill gain，因為已經合併到pose和kobj的損失中
         return loss * batch_size, loss.detach()  # loss(box, cls, dfl)
 
     @staticmethod
@@ -270,190 +272,114 @@ class v8PoseLoss(v8DetectionLoss):
 
         return kpts_loss, kpts_obj_loss
 
-    def pose_loss(self, batch, s_preds, t_preds, t_pred_kpts, s_fg_mask, s_pred_scores_normalized, s_pred_kpts, teacher, t_pred_scores_normalized, s_pred_bboxes_real, t_pred_bboxes_real, t_pred_bboxes):
-        current_epoch = getattr(self.model, 'epoch', 0) if hasattr(self, 'model') else 0
-        total_epochs = getattr(self.model, 'epochs', 100) if hasattr(self, 'model') else 100
-        is_first_batch_in_epoch = getattr(self.model, 'is_first_batch_in_epoch', False) if hasattr(self, 'model') else False
+    def pose_loss(
+        self,
+        batch,
+        s_preds,
+        s_fg_mask,
+        s_pred_scores_normalized,
+        s_pred_kpts,
+        s_pred_bboxes_real,
+        t_preds,
+        t_pred_kpts,
+        t_pred_scores_normalized,
+        t_pred_bboxes_real,
+        t_pred_bboxes,
+        teacher,
+    ):
+        """Calculate the distillation between student and teacher, and return pose and kobj losses separately."""
+        batch_size = s_pred_scores_normalized.shape[0]
+        pose_loss = torch.tensor(0.0, device=self.device, requires_grad=True)
+        kobj_loss = torch.tensor(0.0, device=self.device, requires_grad=True)
         
-        # 初始化默認零損失，確保即使沒有有效匹配也能返回有效值
-        zero_loss = torch.tensor(0.0, device=self.device, requires_grad=True)
-
-        # 學生高分預測 mask
-        # torch.Tensor(shape=[1, 8400, 1], dtype=torch.bool): tensor([[[False],
-        s_high_confidence_mask = s_pred_scores_normalized > 0.45
-        # torch.Tensor(shape=[1, 8400], dtype=torch.bool): tensor([[False, False, False,  ..., False, False, False]])
-        s_high_confidence_mask = s_high_confidence_mask.squeeze(-1)
-
-        
-        # 學生高分預測但未被分配為正樣本的 mask
-        s_high_conf_not_assigned_mask = s_high_confidence_mask & (~s_fg_mask)
-
-        # 獲取 confidence_mask
-        # torch.Tensor(shape=[2, 8400], dtype=torch.bool): tensor([[False, False, False,  ..., False, False, False],
-        t_confidence_mask = t_pred_scores_normalized.amax(2) > 0.7
-        
-        s_batch_anchor_indices = torch.nonzero(s_high_conf_not_assigned_mask)
-        t_batch_anchor_indices = torch.nonzero(t_confidence_mask)
-        
-        # 檢查是否有學生/教師高置信度但未被分配的錨點
-        if s_batch_anchor_indices.numel() == 0 or t_batch_anchor_indices.numel() == 0:
-            return zero_loss, zero_loss
-
-        s_batch_indices = s_batch_anchor_indices[:, 0]  # 第一列是批次索引
-        s_anchor_indices = s_batch_anchor_indices[:, 1]  # 第二列是錨點索引
-        t_batch_indices = t_batch_anchor_indices[:, 0]  # 第一列是批次索引
-        t_anchor_indices = t_batch_anchor_indices[:, 1]  # 第二列是錨點索引
-
-        s_centers = batch["t_coords_tensor"][s_anchor_indices]
-        t_centers = batch["t_coords_tensor"][t_anchor_indices]
-
-        same_batch_mask = s_batch_indices.view(-1, 1) == t_batch_indices.view(1, -1)
-
-        diffs = s_centers.unsqueeze(1) - t_centers.unsqueeze(0)  # [total_s, total_t, 2]
-        squared_diffs = torch.sum(diffs**2, dim=2)  # [total_s, total_t]
-
-        INF = 1e10
-        squared_diffs = torch.where(same_batch_mask, squared_diffs, torch.tensor(INF, device=self.device))
-        distances = torch.sqrt(squared_diffs)  # [total_s, total_t]
-
-        s_strides = self.model.stride
-        s_levels = batch["s_levels_tensor"][s_anchor_indices]  # [total_s]
-        t_levels = batch["t_levels_tensor"][t_anchor_indices]  # [total_t]
-        s_stride_values = s_strides.to(s_levels.device)[s_levels]
-        threshold = 1.5
-        dist_thresholds = (s_stride_values * threshold).unsqueeze(1)
-
-        valid_matches = distances < dist_thresholds
-
-        min_distances, min_indices = torch.min(torch.where(valid_matches, distances, 
-                                                       torch.tensor(INF, device=self.device)), dim=1)
-        
-        valid_mask = min_distances < INF
-        
-        # 檢查是否有有效匹配
-        if valid_mask.sum() == 0:
-            return zero_loss, zero_loss
-
-        # 記錄原始匹配數量
-        original_match_count = valid_mask.sum().item()
-
-        # 限制匹配點數量上限為 100 個
-        if valid_mask.sum() > 100:
-            # 獲取有效匹配的索引，並隨機選擇 100 個
-            valid_indices = torch.nonzero(valid_mask).squeeze(1)
-            perm = torch.randperm(len(valid_indices), device=valid_indices.device)[:100]
-            selected_indices = valid_indices[perm]
+        for batch_idx in range(batch_size):
+            # 獲取當前批次的預測
+            s_scores = s_pred_scores_normalized[batch_idx]
+            t_scores = t_pred_scores_normalized[batch_idx]
             
-            # 創建新的 mask
-            new_valid_mask = torch.zeros_like(valid_mask)
-            new_valid_mask[selected_indices] = True
-            valid_mask = new_valid_mask
-
-        valid_s_positions = torch.nonzero(valid_mask).squeeze(1)  # [n_valid]
-        valid_t_positions = min_indices[valid_mask]  # [n_valid]
-        
-        # 獲取有效批次索引
-        # torch.Tensor(shape=[12], dtype=torch.int64): tensor([0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 1])
-        valid_batch_indices = s_batch_indices[valid_s_positions]  # [n_valid]
-        
-        # 獲取有效的學生和教師原始索引
-        # torch.Tensor(shape=[12], dtype=torch.int64): tensor([1252, 1412, 6650, 6707, 8123, 8141, 1252, 1412, 6650, 6707, 8123, 8141])
-        valid_s_indices = s_anchor_indices[valid_s_positions]  # [n_valid]
-        # torch.Tensor(shape=[12], dtype=torch.int64): tensor([1252, 6746, 6690, 1253, 6884, 6883, 1252, 6746, 6690, 1253, 6884, 6883])
-        valid_t_indices = t_anchor_indices[valid_t_positions]  # [n_valid]
-
-        # Get the keypoints using advanced indexing
-        valid_s_keypoints = s_pred_kpts[valid_batch_indices, valid_s_indices]
-        valid_t_keypoints = t_pred_kpts[valid_batch_indices, valid_t_indices]
-
-        valid_t_bboxes = t_pred_bboxes[valid_batch_indices, valid_t_indices]
-
-        # 獲取有效的中心坐標
-        valid_s_centers = s_centers[valid_s_positions]  # [n_valid, 2]
-        valid_t_centers = t_centers[valid_t_positions]  # [n_valid, 2]
-        
-        # 獲取有效的層級
-        valid_s_levels = s_levels[valid_s_positions]  # [n_valid]
-        valid_t_levels = t_levels[valid_t_positions]  # [n_valid]
-        
-        # 獲取有效的距離
-        valid_distances = min_distances[valid_mask]  # [n_valid]
-        
-        if current_epoch % 1 == 0 and is_first_batch_in_epoch:
-            print("\n"*2)
-            print("="*50)
-            print(f"Epoch {current_epoch + 1}/{total_epochs}")
-            print("-"*50)
-
-            # 構建基本匹配信息
-            matches = torch.stack([
-                valid_batch_indices.float(),     # 批次索引
-                valid_s_indices.float(),         # 學生原始索引
-                valid_t_indices.float(),         # 教師原始索引
-                valid_s_centers[:, 0],           # 學生中心 x
-                valid_s_centers[:, 1],           # 學生中心 y
-                valid_t_centers[:, 0],           # 教師中心 x
-                valid_t_centers[:, 1],           # 教師中心 y
-                valid_s_levels.float(),          # 學生層級
-                valid_t_levels.float(),          # 教師層級
-                valid_distances                  # 距離
-            ], dim=1)
+            # 找出高置信度預測
+            s_high_conf_mask = s_scores.max(1)[0] > 0.3
+            t_high_conf_mask = t_scores.max(1)[0] > 0.3
             
-            if matches.numel() > 0:
-                n_matches = matches.size(0)
-                print(f"找到 {n_matches} 個學生-教師錨點匹配")
+            if not s_high_conf_mask.any() or not t_high_conf_mask.any():
+                continue
                 
-                # 如果原始匹配數超過 100，顯示已限制的信息
-                if original_match_count > 100:
-                    print(f"已限制匹配數量為最大 100 個 (原始匹配數: {original_match_count})")
+            s_indices = torch.nonzero(s_high_conf_mask).squeeze(1)
+            t_indices = torch.nonzero(t_high_conf_mask).squeeze(1)
+            
+            # 匹配學生和教師的預測框
+            matched_pairs = []
+            for s_idx in s_indices:
+                s_box = s_pred_bboxes_real[batch_idx, s_idx]
                 
-                # 只顯示前5個匹配的詳細信息
-                num_to_show = min(4, n_matches)
-                for i in range(num_to_show):
-                    match = matches[i]
-                    batch_idx = int(match[0].item())
-                    s_idx = int(match[1].item())
-                    t_idx = int(match[2].item())
-                    s_center_x, s_center_y = match[3].item(), match[4].item()
-                    t_center_x, t_center_y = match[5].item(), match[6].item()
-                    s_level = int(match[7].item())
-                    t_level = int(match[8].item())
-                    distance = match[9].item()
+                best_iou = 0.5  # 最小IoU閾值
+                best_t_idx = -1
+                
+                for t_idx in t_indices:
+                    t_box = t_pred_bboxes_real[batch_idx, t_idx]
+                    iou = self.get_box_overlap(s_box, t_box)
                     
-                    # Get confidence values
-                    s_conf_value = s_pred_scores_normalized[batch_idx, s_idx].item()
-                    t_conf_value = t_pred_scores_normalized[batch_idx, t_idx].item()
-                    
-                    # Get bounding box information
-                    s_pred_bbox = s_pred_bboxes_real[batch_idx, s_idx].detach()
-                    s_bbox_width = s_pred_bbox[2] - s_pred_bbox[0]
-                    s_bbox_height = s_pred_bbox[3] - s_pred_bbox[1]
-                    s_bbox_center_x = (s_pred_bbox[0] + s_pred_bbox[2]) / 2
-                    s_bbox_center_y = (s_pred_bbox[1] + s_pred_bbox[3]) / 2
-                    
-                    t_pred_bbox = t_pred_bboxes_real[batch_idx, t_idx].detach()
-                    t_bbox_width = t_pred_bbox[2] - t_pred_bbox[0]
-                    t_bbox_height = t_pred_bbox[3] - t_pred_bbox[1]
-                    t_bbox_center_x = (t_pred_bbox[0] + t_pred_bbox[2]) / 2
-                    t_bbox_center_y = (t_pred_bbox[1] + t_pred_bbox[3]) / 2
-                    
-                    # Calculate level coordinates (grid coordinates)
-                    s_stride = self.model.stride.to(s_levels.device)[s_level]
-                    t_stride = self.model.stride.to(t_levels.device)[t_level]  # Assuming teacher uses same strides
-                    
-                    s_level_x, s_level_y = s_center_x / s_stride, s_center_y / s_stride
-                    t_level_x, t_level_y = t_center_x / t_stride, t_center_y / t_stride
-                    
-                    print(f"匹配 #{i+1}:")
-                    print(f"  批次: {batch_idx}, 距離: {distance:.2f} 像素")
-                    print(f"  學生錨點 - 索引: {s_idx}, 層級: {s_level}, 置信度: {s_conf_value:.4f}, 座標: ({s_center_x:.1f},{s_center_y:.1f}), 層級座標: ({s_level_x:.1f},{s_level_y:.1f})")
-                    print(f"    bbox: 寬x高: {s_bbox_width:.1f}x{s_bbox_height:.1f}, 中心點: ({s_bbox_center_x:.1f},{s_bbox_center_y:.1f})")
-                    print(f"  教師錨點 - 索引: {t_idx}, 層級: {t_level}, 置信度: {t_conf_value:.4f}, 座標: ({t_center_x:.1f},{t_center_y:.1f}), 層級座標: ({t_level_x:.1f},{t_level_y:.1f})")
-                    print(f"    bbox: 寬x高: {t_bbox_width:.1f}x{t_bbox_height:.1f}, 中心點: ({t_bbox_center_x:.1f},{t_bbox_center_y:.1f})")
-            else:
-                print("未找到任何學生-教師錨點匹配")
-
-            print("-"*50)
-            print("\n"*2)
+                    if iou > best_iou:
+                        best_iou = iou
+                        best_t_idx = t_idx
+                
+                if best_t_idx >= 0:
+                    matched_pairs.append((s_idx, best_t_idx))
+            
+            if not matched_pairs:
+                continue
+                
+            # 處理匹配的關鍵點
+            for s_idx, t_idx in matched_pairs:
+                # 獲取關鍵點
+                s_kpts = s_pred_kpts[batch_idx, s_idx]  # [17, 3]
+                t_kpts = t_pred_kpts[batch_idx, t_idx]  # [17, 3]
+                
+                # 計算位置損失
+                valid_mask = (t_kpts[..., 2] > 0.0).unsqueeze(-1)  # 只考慮有效關鍵點 [17, 1]
+                if valid_mask.sum() > 0:
+                    # 計算位置損失 (MSE)
+                    pos_loss = F.mse_loss(s_kpts[..., :2], t_kpts[..., :2], reduction='none')
+                    batch_pose_loss = (pos_loss * valid_mask).sum() / (valid_mask.sum() + 1e-8)
+                    pose_loss = pose_loss + batch_pose_loss
+                
+                # 計算置信度損失 (BCE)
+                conf_mask = t_kpts[..., 2] > 0.0  # [17]
+                if conf_mask.sum() > 0:
+                    batch_kobj_loss = F.binary_cross_entropy_with_logits(
+                        s_kpts[..., 2][conf_mask], 
+                        t_kpts[..., 2][conf_mask], 
+                        reduction='mean'
+                    )
+                    kobj_loss = kobj_loss + batch_kobj_loss
         
-        return self.calculate_keypoints_distillation_loss(valid_s_keypoints, valid_t_keypoints, valid_t_bboxes)
+        # 如果有匹配，則對匹配數量進行平均
+        if pose_loss.item() > 0:
+            pose_loss = pose_loss / batch_size
+            pose_loss = pose_loss * self.hyp.pose
+            
+        if kobj_loss.item() > 0:
+            kobj_loss = kobj_loss / batch_size
+            kobj_loss = kobj_loss * self.hyp.kobj
+            
+        return pose_loss, kobj_loss
+
+    def get_box_overlap(self, box1, box2):
+        """Calculate IoU between two bounding boxes [x1, y1, x2, y2]"""
+        # Calculate intersection area
+        x1 = max(box1[0], box2[0])
+        y1 = max(box1[1], box2[1])
+        x2 = min(box1[2], box2[2])
+        y2 = min(box1[3], box2[3])
+        
+        if x2 < x1 or y2 < y1:
+            return 0.0
+        
+        intersection_area = (x2 - x1) * (y2 - y1)
+        
+        # Calculate union area
+        box1_area = (box1[2] - box1[0]) * (box1[3] - box1[1])
+        box2_area = (box2[2] - box2[0]) * (box2[3] - box2[1])
+        union_area = box1_area + box2_area - intersection_area
+        
+        return intersection_area / union_area
