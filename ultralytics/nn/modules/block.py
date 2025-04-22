@@ -1098,12 +1098,36 @@ class C3k2(C2f):
         )
 
 class C3k2_Ghost(C3k2):
-    """基于Ghost Bottleneck的C3k2模块"""
+    """基於Ghost Bottleneck的C3k2模塊"""
     def __init__(self, c1, c2, n=1, c3k=False, e=0.5, g=1, shortcut=True):
         super().__init__(c1, c2, n, c3k, e, g, shortcut)
         self.m = nn.ModuleList(
             GhostBottleneck(self.c, self.c) for _ in range(n)
         )
+        
+    def forward(self, x):
+        # 確保輸入的張量是連續的
+        x = x.contiguous()
+        
+        # 分割特徵並確保每個部分是連續的
+        y = list(self.cv1(x).chunk(2, 1))
+        y[0] = y[0].contiguous()
+        y[1] = y[1].contiguous()
+        
+        # 處理特徵並確保結果是連續的
+        y_processed = []
+        for m in self.m:
+            processed = m(y[-1]).contiguous()
+            y_processed.append(processed)
+            
+        # 添加處理後的特徵並確保所有張量是連續的
+        y.extend(y_processed)
+        for i in range(len(y)):
+            if not y[i].is_contiguous():
+                y[i] = y[i].contiguous()
+                
+        # 連接特徵並返回結果
+        return self.cv2(torch.cat(y, 1))
 
 # 动态感受野模块
 class DynamicReceptiveFieldModule(nn.Module):
@@ -1150,17 +1174,20 @@ class MultiScaleFeatureFusion(nn.Module):
 
 # 轻量级通道压缩模块
 class LightweightChannelCompression(nn.Module):
-    """轻量级通道压缩模块"""
+    """輕量級通道壓縮模塊"""
     def __init__(self, c_in, c_out):
         super().__init__()
         self.conv = Conv(c_in, c_out, 1, 1)
         
     def forward(self, x):
-        return self.conv(x)
+        # 確保輸入是連續的
+        x = x.contiguous()
+        # 確保輸出也是連續的
+        return self.conv(x).contiguous()
 
 # 完整的DFFM模块
 class DFFM(nn.Module):
-    """动态特征融合模块"""
+    """動態特徵融合模塊"""
     def __init__(self, c1, c2):
         super().__init__()
         self.drf = DynamicReceptiveFieldModule(c1)
@@ -1168,9 +1195,12 @@ class DFFM(nn.Module):
         self.lcc = LightweightChannelCompression(c1, c2)
         
     def forward(self, x):
-        x = self.drf(x)
-        x = self.msf(x)
-        return self.lcc(x)
+        # 確保輸入是連續的
+        x = x.contiguous()
+        # 應用各個組件並確保中間結果是連續的
+        x = self.drf(x).contiguous()
+        x = self.msf(x).contiguous()
+        return self.lcc(x).contiguous()
 
 class C3k2_DFFM(nn.Module):
     """輕量級動態特徵融合的C3k2模塊"""

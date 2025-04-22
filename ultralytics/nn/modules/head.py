@@ -300,15 +300,23 @@ class ECAAttention(nn.Module):
         self.sigmoid = nn.Sigmoid()
         
     def forward(self, x):
+        # 確保輸入是連續的
+        x = x.contiguous()
+        
         y = self.avg_pool(x)
         # 修改前: y = y.squeeze(-1).transpose(-1, -2)
         # 修改後: 使用 .contiguous() 確保内存布局連續
         y = y.squeeze(-1).transpose(-1, -2).contiguous()
-        y = self.conv(y)
+        y = self.conv(y).contiguous()
         # 修改前: y = y.transpose(-1, -2).unsqueeze(-1)
         # 修改後: 使用 .contiguous() 確保内存布局連續
-        y = y.transpose(-1, -2).contiguous().unsqueeze(-1)
-        return x * self.sigmoid(y)
+        y = y.transpose(-1, -2).contiguous().unsqueeze(-1).contiguous()
+        
+        # 應用 sigmoid 並確保結果是連續的
+        attention = self.sigmoid(y).contiguous()
+        
+        # 應用注意力權重並確保最終結果是連續的
+        return (x * attention).contiguous()
 
 class GDEPose(Pose):
     """高效GDE-Pose檢測頭"""
