@@ -290,63 +290,45 @@ class Pose(Detect):
             return y
 
 class ECAAttention(nn.Module):
-    """高效通道注意力機制"""
+    """高效通道注意力機制 (Efficient Channel Attention)
+    論文參考: ECA-Net: Efficient Channel Attention for Deep Convolutional Neural Networks
+    https://arxiv.org/abs/1910.03151
+    """
     def __init__(self, c, k_size=3):
         super().__init__()
+        # 全局平均池化
         self.avg_pool = nn.AdaptiveAvgPool2d(1)
-        # 根據通道數自適應選择卷積核大小
-        k = 3  # 簡化為固定大小，減少參數
-        # 使用 1x1 卷積替代 1d 卷積，避免步長不匹配問題
-        self.conv = nn.Conv1d(1, 1, kernel_size=k, padding=(k-1)//2, bias=False)
-        # 確保卷積權重初始化為連續內存布局
-        with torch.no_grad():
-            self.conv.weight.data = self.conv.weight.data.contiguous()
+        
+        # ECA 的核心是局部通道交互，使用小卷積核
+        # 使用2D卷積模擬1D卷積，但避免步長問題
+        # 設置 groups=c 使其成為逐通道操作
+        self.conv = nn.Conv2d(
+            c, c, kernel_size=(1, k_size), 
+            padding=(0, (k_size-1)//2), 
+            groups=c, bias=False
+        )
+        
         self.sigmoid = nn.Sigmoid()
         
-        # 註冊前向鉤子，在優化器步驟前調整權重布局
-        def _pre_hook(module, input):
-            # 確保卷積權重的內存布局一致
-            if hasattr(module, 'conv') and hasattr(module.conv, 'weight'):
-                with torch.no_grad():
-                    module.conv.weight.data = module.conv.weight.data.contiguous()
-            return None
-        
-        self.register_forward_pre_hook(_pre_hook)
-        
-        # 註冊完整的反向鉤子，處理梯度
-        def _full_backward_hook(module, grad_input, grad_output):
-            # 確保卷積權重的梯度內存布局一致
-            if hasattr(module.conv, 'weight') and module.conv.weight.grad is not None:
-                # 把梯度轉換為連續布局
-                module.conv.weight.grad = module.conv.weight.grad.clone().detach().contiguous()
-            return grad_input
-        
-        self.register_full_backward_hook(_full_backward_hook)
-        
     def forward(self, x):
-        # 確保輸入是連續的
-        x = x.contiguous()
+        # 保存原始輸入
+        b, c, h, w = x.shape
         
-        # 使用重設計的數據流程，避免任何可能導致步長不一致的操作
-        batch_size, channels = x.shape[0], x.shape[1]
+        # 全局平均池化得到通道描述符
+        y = self.avg_pool(x)  # [b, c, 1, 1]
         
-        # 使用平均池化獲取全局信息
-        y = self.avg_pool(x)
+        # 將通道描述符重塑為適合2D卷積的形狀
+        # 將通道維度展開為寬度維度
+        y = y.view(b, 1, 1, c)  # [b, 1, 1, c]
         
-        # 重塑為 1D 卷積的輸入形狀
-        y = y.reshape(batch_size, 1, channels)
+        # 對通道維度卷積
+        y = self.conv(y.transpose(1, 3))  # [b, c, 1, 1]
         
-        # 應用 1D 卷積
-        y = self.conv(y)
-        
-        # 重塑回原始形狀
-        y = y.reshape(batch_size, channels, 1, 1)
-        
-        # 應用 sigmoid
+        # 應用 sigmoid 生成注意力權重
         y = self.sigmoid(y)
         
-        # 確保元素間乘法結果是連續的
-        return (x * y).contiguous()
+        # 應用注意力權重到原始特徵
+        return x * y
 
 class GDEPose(Pose):
     """高效GDE-Pose檢測頭"""
@@ -360,47 +342,21 @@ class GDEPose(Pose):
             else:
                 self.eca.append(nn.Identity())
         
-        # 註冊完整的反向鉤子，確保梯度內存布局一致
-        def _full_backward_hook(module, grad_input, grad_output):
-            # 這個鉤子幫助處理梯度流，確保梯度的內存布局一致
-            if grad_input is not None:
-                return tuple(g.clone().detach().contiguous() if g is not None else g for g in grad_input)
-            return grad_input
-        
-        self.register_full_backward_hook(_full_backward_hook)
-        
     def forward(self, x):
         bs = x[0].shape[0]
         
-        # 應用ECA，確保每個輸入和輸出都是連續的
+        # 應用ECA
         for i in range(self.nl):
-            x[i] = x[i].contiguous()  # 確保輸入連續
-            x[i] = self.eca[i](x[i]).contiguous()  # 確保輸出連續
+            x[i] = self.eca[i](x[i])
             
-        # 標準Pose處理，使用連續內存布局的張量
-        kpt_list = []
-        for i in range(self.nl):
-            # 處理每個特徵層，確保結果是連續的
-            feat = self.cv4[i](x[i]).contiguous()
-            k = feat.view(bs, self.nk, -1).contiguous()
-            kpt_list.append(k)
-            
-        # 確保連接操作的結果是連續的
-        kpt = torch.cat(kpt_list, -1).contiguous()
+        # 標準Pose處理
+        kpt = torch.cat([self.cv4[i](x[i]).view(bs, self.nk, -1) for i in range(self.nl)], -1)
         
-        # 使用標準 Detect 前向傳遞
         x = Detect.forward(self, x)
-        
         if self.training:
             return x, kpt
-            
-        # 解碼關鍵點並確保結果是連續的
-        pred_kpt = self.kpts_decode(bs, kpt).contiguous()
-        
-        if self.export:
-            return torch.cat([x, pred_kpt], 1).contiguous()
-        else:
-            return torch.cat([x[0], pred_kpt], 1).contiguous(), (x[1], kpt.contiguous())
+        pred_kpt = self.kpts_decode(bs, kpt)
+        return torch.cat([x, pred_kpt], 1) if self.export else (torch.cat([x[0], pred_kpt], 1), (x[1], kpt))
 
 class Classify(nn.Module):
     """YOLO classification head, i.e. x(b,c1,20,20) to x(b,c2)."""
