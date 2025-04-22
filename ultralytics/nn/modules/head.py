@@ -296,27 +296,49 @@ class ECAAttention(nn.Module):
         self.avg_pool = nn.AdaptiveAvgPool2d(1)
         # 根據通道數自適應選择卷積核大小
         k = 3  # 簡化為固定大小，減少參數
+        # 使用 1x1 卷積替代 1d 卷積，避免步長不匹配問題
         self.conv = nn.Conv1d(1, 1, kernel_size=k, padding=(k-1)//2, bias=False)
         self.sigmoid = nn.Sigmoid()
+        
+        # 註冊前向鉤子，在優化器步驟前調整權重布局
+        def _pre_hook(module, input):
+            # 確保卷積權重的內存布局一致
+            if hasattr(module, 'conv') and hasattr(module.conv, 'weight'):
+                module.conv.weight.data = module.conv.weight.data.contiguous()
+            return None
+        
+        self.register_forward_pre_hook(_pre_hook)
+        
+        # 註冊反向鉤子，處理梯度
+        def _backward_hook(module, grad_input, grad_output):
+            # 確保卷積權重的梯度內存布局一致
+            if hasattr(module.conv, 'weight') and module.conv.weight.grad is not None:
+                # 把梯度轉換為連續布局
+                module.conv.weight.grad = module.conv.weight.grad.contiguous()
+            return None
+        
+        self.register_backward_hook(_backward_hook)
         
     def forward(self, x):
         # 確保輸入是連續的
         x = x.contiguous()
         
         y = self.avg_pool(x)
-        # 修改前: y = y.squeeze(-1).transpose(-1, -2)
-        # 修改後: 使用 .contiguous() 確保内存布局連續
-        y = y.squeeze(-1).transpose(-1, -2).contiguous()
+        # 避免 squeeze 和 transpose 導致的內存布局問題
+        # 先將數據重新排列為連續的內存布局
+        y = y.view(y.size(0), y.size(1), 1).permute(0, 2, 1).contiguous()
+        
+        # 應用 1D 卷積，並確保結果連續
         y = self.conv(y).contiguous()
-        # 修改前: y = y.transpose(-1, -2).unsqueeze(-1)
-        # 修改後: 使用 .contiguous() 確保内存布局連續
-        y = y.transpose(-1, -2).contiguous().unsqueeze(-1).contiguous()
         
-        # 應用 sigmoid 並確保結果是連續的
-        attention = self.sigmoid(y).contiguous()
+        # 確保輸出維度正確且內存連續
+        y = y.permute(0, 2, 1).view(y.size(0), y.size(2), 1, 1).contiguous()
         
-        # 應用注意力權重並確保最終結果是連續的
-        return (x * attention).contiguous()
+        # 應用 sigmoid
+        y = self.sigmoid(y)
+        
+        # 確保元素間乘法結果是連續的
+        return (x * y).contiguous()
 
 class GDEPose(Pose):
     """高效GDE-Pose檢測頭"""
@@ -330,27 +352,45 @@ class GDEPose(Pose):
             else:
                 self.eca.append(nn.Identity())
         
+        # 註冊反向鉤子，確保梯度內存布局一致
+        def _backward_hook(module, grad_input, grad_output):
+            # 這個鉤子幫助處理梯度流，確保梯度的內存布局一致
+            return tuple(g.contiguous() if g is not None else g for g in grad_input)
+        
+        self.register_backward_hook(_backward_hook)
+        
     def forward(self, x):
         bs = x[0].shape[0]
         
-        # 應用ECA
+        # 應用ECA，確保每個輸入和輸出都是連續的
         for i in range(self.nl):
-            x[i] = self.eca[i](x[i])
+            x[i] = x[i].contiguous()  # 確保輸入連續
+            x[i] = self.eca[i](x[i]).contiguous()  # 確保輸出連續
             
-        # 標準Pose處理
-        # 修改以確保内存布局一致性
+        # 標準Pose處理，使用連續內存布局的張量
         kpt_list = []
         for i in range(self.nl):
-            # 確保内存布局連續
-            k = self.cv4[i](x[i]).view(bs, self.nk, -1).contiguous()
+            # 處理每個特徵層，確保結果是連續的
+            feat = self.cv4[i](x[i]).contiguous()
+            k = feat.view(bs, self.nk, -1).contiguous()
             kpt_list.append(k)
-        kpt = torch.cat(kpt_list, -1)
+            
+        # 確保連接操作的結果是連續的
+        kpt = torch.cat(kpt_list, -1).contiguous()
         
+        # 使用標準 Detect 前向傳遞
         x = Detect.forward(self, x)
+        
         if self.training:
             return x, kpt
-        pred_kpt = self.kpts_decode(bs, kpt)
-        return torch.cat([x, pred_kpt], 1) if self.export else (torch.cat([x[0], pred_kpt], 1), (x[1], kpt))
+            
+        # 解碼關鍵點並確保結果是連續的
+        pred_kpt = self.kpts_decode(bs, kpt).contiguous()
+        
+        if self.export:
+            return torch.cat([x, pred_kpt], 1).contiguous()
+        else:
+            return torch.cat([x[0], pred_kpt], 1).contiguous(), (x[1], kpt.contiguous())
 
 class Classify(nn.Module):
     """YOLO classification head, i.e. x(b,c1,20,20) to x(b,c2)."""

@@ -23,7 +23,7 @@ from ultralytics import YOLO
 
 def main():    
     # Initialize a new model from yaml configuration without pretrained weights
-    model = YOLO("yolo11n-pose.yaml")
+    model = YOLO("gde_pose.yaml")
 
     # 打印使用的模塊路徑，確認是否正確
     if is_main_process():
