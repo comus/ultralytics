@@ -1,7 +1,7 @@
 from ultralytics import YOLO
 
 # Initialize a new model from yaml configuration without pretrained weights
-model = YOLO("yolo11n-pose.yaml")
+model = YOLO("gde_pose.yaml")
 
 # Train the model with specified parameters
 results = model.train(

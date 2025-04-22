@@ -35,6 +35,8 @@ from ultralytics.nn.modules import (
     C2fPSA,
     C3Ghost,
     C3k2,
+    C3k2_Ghost,
+    C3k2_DFFM,
     C3x,
     CBFuse,
     CBLinear,
@@ -55,6 +57,7 @@ from ultralytics.nn.modules import (
     Index,
     LRPCHead,
     Pose,
+    GDEPose,
     RepC3,
     RepConv,
     RepNCSPELAN4,
@@ -347,7 +350,7 @@ class DetectionModel(BaseModel):
                 """Perform a forward pass through the model, handling different Detect subclass types accordingly."""
                 if self.end2end:
                     return self.forward(x)["one2many"]
-                return self.forward(x)[0] if isinstance(m, (Segment, YOLOESegment, Pose, OBB)) else self.forward(x)
+                return self.forward(x)[0] if isinstance(m, (Segment, YOLOESegment, Pose, OBB, GDEPose)) else self.forward(x)
 
             m.stride = torch.tensor([s / x.shape[-2] for x in _forward(torch.zeros(1, ch, s, s))])  # forward
             self.stride = m.stride
@@ -1381,6 +1384,8 @@ def parse_model(d, ch, verbose=True):  # model_dict, input_channels(3)
             C2,
             C2f,
             C3k2,
+            C3k2_Ghost,
+            C3k2_DFFM,
             RepNCSPELAN4,
             ELAN1,
             ADown,
@@ -1407,6 +1412,8 @@ def parse_model(d, ch, verbose=True):  # model_dict, input_channels(3)
             C2,
             C2f,
             C3k2,
+            C3k2_Ghost,
+            C3k2_DFFM,
             C2fAttn,
             C3,
             C3TR,
@@ -1448,6 +1455,14 @@ def parse_model(d, ch, verbose=True):  # model_dict, input_channels(3)
                 legacy = False
                 if scale in "mlx":
                     args[3] = True
+            if m is C3k2_Ghost:
+                legacy = False
+                if scale in "mlx":
+                    args[3] = True
+            if m is C3k2_DFFM:
+                legacy = False
+                if scale in "mlx":
+                    args[3] = True
             if m is A2C2f:
                 legacy = False
                 if scale in "lx":  # for L/X sizes
@@ -1469,12 +1484,12 @@ def parse_model(d, ch, verbose=True):  # model_dict, input_channels(3)
         elif m is Concat:
             c2 = sum(ch[x] for x in f)
         elif m in frozenset(
-            {Detect, WorldDetect, YOLOEDetect, Segment, YOLOESegment, Pose, OBB, ImagePoolingAttn, v10Detect}
+            {Detect, WorldDetect, YOLOEDetect, Segment, YOLOESegment, Pose, OBB, GDEPose, ImagePoolingAttn, v10Detect}
         ):
             args.append([ch[x] for x in f])
             if m is Segment or m is YOLOESegment:
                 args[2] = make_divisible(min(args[2], max_channels) * width, 8)
-            if m in {Detect, YOLOEDetect, Segment, YOLOESegment, Pose, OBB}:
+            if m in {Detect, YOLOEDetect, Segment, YOLOESegment, Pose, OBB, GDEPose}:
                 m.legacy = legacy
         elif m is RTDETRDecoder:  # special case, channels arg must be passed in index 1
             args.insert(1, [ch[x] for x in f])
@@ -1565,7 +1580,7 @@ def guess_model_task(model):
             return "detect"
         if "segment" in m:
             return "segment"
-        if m == "pose":
+        if m == "pose" or "pose" in m:
             return "pose"
         if m == "obb":
             return "obb"

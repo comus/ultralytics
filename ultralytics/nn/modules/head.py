@@ -289,6 +289,49 @@ class Pose(Detect):
             y[:, 1::ndim] = (y[:, 1::ndim] * 2.0 + (self.anchors[1] - 0.5)) * self.strides
             return y
 
+class ECAAttention(nn.Module):
+    """高效通道注意力机制"""
+    def __init__(self, c, k_size=3):
+        super().__init__()
+        self.avg_pool = nn.AdaptiveAvgPool2d(1)
+        # 根据通道数自适应选择卷积核大小
+        k = 3  # 简化为固定大小，减少参数
+        self.conv = nn.Conv1d(1, 1, kernel_size=k, padding=(k-1)//2, bias=False)
+        self.sigmoid = nn.Sigmoid()
+        
+    def forward(self, x):
+        y = self.avg_pool(x)
+        y = y.squeeze(-1).transpose(-1, -2)
+        y = self.conv(y)
+        y = y.transpose(-1, -2).unsqueeze(-1)
+        return x * self.sigmoid(y)
+
+class GDEPose(Pose):
+    """高效GDE-Pose检测头"""
+    def __init__(self, nc=80, kpt_shape=(17, 3), ch=()):
+        super().__init__(nc, kpt_shape, ch)
+        # 仅在最大特征图应用ECA
+        self.eca = nn.ModuleList()
+        for i, x in enumerate(ch):
+            if i == len(ch) - 1:  # 仅应用在最后/最大特征图
+                self.eca.append(ECAAttention(x))
+            else:
+                self.eca.append(nn.Identity())
+        
+    def forward(self, x):
+        bs = x[0].shape[0]
+        
+        # 应用ECA
+        for i in range(self.nl):
+            x[i] = self.eca[i](x[i])
+            
+        # 标准Pose处理
+        kpt = torch.cat([self.cv4[i](x[i]).view(bs, self.nk, -1) for i in range(self.nl)], -1)
+        x = Detect.forward(self, x)
+        if self.training:
+            return x, kpt
+        pred_kpt = self.kpts_decode(bs, kpt)
+        return torch.cat([x, pred_kpt], 1) if self.export else (torch.cat([x[0], pred_kpt], 1), (x[1], kpt))
 
 class Classify(nn.Module):
     """YOLO classification head, i.e. x(b,c1,20,20) to x(b,c2)."""

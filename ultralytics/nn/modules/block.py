@@ -41,6 +41,8 @@ __all__ = (
     "CBFuse",
     "CBLinear",
     "C3k2",
+    "C3k2_Ghost",
+    "C3k2_DFFM",
     "C2fPSA",
     "C2PSA",
     "RepVGGDW",
@@ -1095,6 +1097,94 @@ class C3k2(C2f):
             C3k(self.c, self.c, 2, shortcut, g) if c3k else Bottleneck(self.c, self.c, shortcut, g) for _ in range(n)
         )
 
+class C3k2_Ghost(C3k2):
+    """基于Ghost Bottleneck的C3k2模块"""
+    def __init__(self, c1, c2, n=1, c3k=False, e=0.5, g=1, shortcut=True):
+        super().__init__(c1, c2, n, c3k, e, g, shortcut)
+        self.m = nn.ModuleList(
+            GhostBottleneck(self.c, self.c) for _ in range(n)
+        )
+
+# 动态感受野模块
+class DynamicReceptiveFieldModule(nn.Module):
+    """动态感受野模块"""
+    def __init__(self, c):
+        super().__init__()
+        self.conv1x1 = Conv(c, c, 1, 1)
+        self.conv3x3 = Conv(c, c, 3, 1, 1)
+        # 自适应权重参数
+        self.weight = nn.Parameter(torch.ones(2))
+        
+    def forward(self, x):
+        weights = F.softmax(self.weight, dim=0)
+        return weights[0] * self.conv1x1(x) + weights[1] * self.conv3x3(x)
+
+# 多尺度特征融合模块
+class MultiScaleFeatureFusion(nn.Module):
+    """多尺度特征融合模块"""
+    def __init__(self, c):
+        super().__init__()
+        self.horizontal_fusion = Conv(c, c, 3, 1, 1)
+        self.vertical_fusion = Conv(c, c, 3, 1, 1)
+        
+    def forward(self, x):
+        h = self.horizontal_fusion(x)
+        v = self.vertical_fusion(x)
+        return h + v
+
+# 轻量级通道压缩模块
+class LightweightChannelCompression(nn.Module):
+    """轻量级通道压缩模块"""
+    def __init__(self, c_in, c_out):
+        super().__init__()
+        self.conv = Conv(c_in, c_out, 1, 1)
+        
+    def forward(self, x):
+        return self.conv(x)
+
+# 完整的DFFM模块
+class DFFM(nn.Module):
+    """动态特征融合模块"""
+    def __init__(self, c1, c2):
+        super().__init__()
+        self.drf = DynamicReceptiveFieldModule(c1)
+        self.msf = MultiScaleFeatureFusion(c1)
+        self.lcc = LightweightChannelCompression(c1, c2)
+        
+    def forward(self, x):
+        x = self.drf(x)
+        x = self.msf(x)
+        return self.lcc(x)
+
+class C3k2_DFFM(nn.Module):
+    """轻量级动态特征融合的C3k2模块"""
+    def __init__(self, c1, c2, n=1, c3k=False, e=0.5, g=1, shortcut=True):
+        super().__init__()
+        self.c = int(c2 * e)  # 隐藏通道
+        self.cv1 = Conv(c1, 2 * self.c, 1, 1)
+        self.cv2 = Conv(3 * self.c, c2, 1)  # 保持与原始C3k2相同的通道数（关键修改点）
+        
+        # 使用原始Bottleneck或GhostBottleneck
+        self.m = nn.ModuleList(GhostBottleneck(self.c, self.c) for _ in range(n))
+        
+        # 极简化的DFFM实现
+        self.dffm_weight = nn.Parameter(torch.ones(2))
+        self.dffm_conv = DWConv(self.c, self.c, 3)  # 使用深度可分离卷积替代标准卷积
+        
+    def forward(self, x):
+        y = list(self.cv1(x).chunk(2, 1))
+        y_processed = [m(y[-1]) for m in self.m]
+        
+        # 轻量级特征融合
+        last_feat = y_processed[-1]
+        weights = F.softmax(self.dffm_weight, dim=0)
+        dffm_out = weights[0] * last_feat + weights[1] * self.dffm_conv(last_feat)
+        
+        # 替换最后处理的特征，而不是添加新特征
+        y_processed[-1] = dffm_out
+        y.extend(y_processed)
+        
+        return self.cv2(torch.cat(y, 1))
 
 class C3k(C3):
     """C3k is a CSP bottleneck module with customizable kernel sizes for feature extraction in neural networks."""
