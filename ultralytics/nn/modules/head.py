@@ -299,35 +299,34 @@ class ECAAttention(nn.Module):
         # 全局平均池化
         self.avg_pool = nn.AdaptiveAvgPool2d(1)
         
-        # ECA 的核心是局部通道交互，使用小卷積核
-        # 使用2D卷積模擬1D卷積，但避免步長問題
-        # 設置 groups=c 使其成為逐通道操作
-        self.conv = nn.Conv2d(
-            c, c, kernel_size=(1, k_size), 
-            padding=(0, (k_size-1)//2), 
-            groups=c, bias=False
+        # 使用標準的1D卷積操作
+        self.conv = nn.Conv1d(
+            1, 1, kernel_size=k_size, 
+            padding=(k_size-1)//2, 
+            bias=False
         )
         
-        self.sigmoid = nn.Sigmoid()
+        # 初始化卷積權重，使其更穩定
+        nn.init.ones_(self.conv.weight)
         
     def forward(self, x):
-        # 保存原始輸入
-        b, c, h, w = x.shape
+        # 確保輸入是連續的內存佈局
+        x = x.contiguous()
+        b, c, _, _ = x.shape
         
-        # 全局平均池化得到通道描述符
+        # 全局平均池化
         y = self.avg_pool(x)  # [b, c, 1, 1]
         
-        # 將通道描述符重塑為適合2D卷積的形狀
-        # 將通道維度展開為寬度維度
-        y = y.view(b, 1, 1, c)  # [b, 1, 1, c]
+        # 重塑以適應1D卷積 (避免過多的維度變換)
+        y = y.view(b, 1, c)  # [b, 1, c]
         
-        # 對通道維度卷積
-        y = self.conv(y.transpose(1, 3))  # [b, c, 1, 1]
+        # 應用1D卷積
+        y = self.conv(y)  # [b, 1, c]
         
-        # 應用 sigmoid 生成注意力權重
-        y = self.sigmoid(y)
+        # sigmoid激活並正確地廣播
+        y = torch.sigmoid(y).view(b, c, 1, 1)
         
-        # 應用注意力權重到原始特徵
+        # 使用乘法應用注意力
         return x * y
 
 class GDEPose(Pose):
@@ -345,18 +344,22 @@ class GDEPose(Pose):
     def forward(self, x):
         bs = x[0].shape[0]
         
-        # 應用ECA
+        # 複製原始輸入以避免原地操作問題
+        x_processed = []
         for i in range(self.nl):
-            x[i] = self.eca[i](x[i])
+            # 創建新張量以避免內存佈局問題
+            x_i = self.eca[i](x[i].contiguous()) 
+            x_processed.append(x_i)
             
         # 標準Pose處理
-        kpt = torch.cat([self.cv4[i](x[i]).view(bs, self.nk, -1) for i in range(self.nl)], -1)
+        kpt = torch.cat([self.cv4[i](x_processed[i]).view(bs, self.nk, -1) for i in range(self.nl)], -1)
         
-        x = Detect.forward(self, x)
+        # 使用處理後的特徵圖
+        detect_output = Detect.forward(self, x_processed)
         if self.training:
-            return x, kpt
+            return detect_output, kpt
         pred_kpt = self.kpts_decode(bs, kpt)
-        return torch.cat([x, pred_kpt], 1) if self.export else (torch.cat([x[0], pred_kpt], 1), (x[1], kpt))
+        return torch.cat([detect_output, pred_kpt], 1) if self.export else (torch.cat([detect_output[0], pred_kpt], 1), (detect_output[1], kpt))
 
 class Classify(nn.Module):
     """YOLO classification head, i.e. x(b,c1,20,20) to x(b,c2)."""
