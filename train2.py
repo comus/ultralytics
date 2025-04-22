@@ -1,3 +1,10 @@
+import os
+import sys
+
+# 添加本地路徑到 Python 路徑中，確保使用本地版本
+current_dir = os.path.dirname(os.path.abspath(__file__))
+sys.path.insert(0, current_dir)
+
 from ultralytics import YOLO
 
 # Initialize a new model from yaml configuration without pretrained weights
