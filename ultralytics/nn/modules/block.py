@@ -1107,30 +1107,46 @@ class C3k2_Ghost(C3k2):
 
 # 动态感受野模块
 class DynamicReceptiveFieldModule(nn.Module):
-    """动态感受野模块"""
+    """動態感受野模塊"""
     def __init__(self, c):
         super().__init__()
         self.conv1x1 = Conv(c, c, 1, 1)
         self.conv3x3 = Conv(c, c, 3, 1, 1)
-        # 自适应权重参数
+        # 自適應權重參數
         self.weight = nn.Parameter(torch.ones(2))
         
     def forward(self, x):
+        # 確保輸入是連續的
+        x = x.contiguous()
+        
+        # 計算軟最大權重
         weights = F.softmax(self.weight, dim=0)
-        return weights[0] * self.conv1x1(x) + weights[1] * self.conv3x3(x)
+        
+        # 應用卷積並確保結果是連續的
+        x1 = self.conv1x1(x).contiguous()
+        x3 = self.conv3x3(x).contiguous()
+        
+        # 加權融合並確保結果是連續的
+        return (weights[0] * x1 + weights[1] * x3).contiguous()
 
 # 多尺度特征融合模块
 class MultiScaleFeatureFusion(nn.Module):
-    """多尺度特征融合模块"""
+    """多尺度特徵融合模塊"""
     def __init__(self, c):
         super().__init__()
         self.horizontal_fusion = Conv(c, c, 3, 1, 1)
         self.vertical_fusion = Conv(c, c, 3, 1, 1)
         
     def forward(self, x):
-        h = self.horizontal_fusion(x)
-        v = self.vertical_fusion(x)
-        return h + v
+        # 確保輸入是連續的
+        x = x.contiguous()
+        
+        # 應用水平和垂直融合，並確保結果是連續的
+        h = self.horizontal_fusion(x).contiguous()
+        v = self.vertical_fusion(x).contiguous()
+        
+        # 確保輸出是連續的
+        return (h + v).contiguous()
 
 # 轻量级通道压缩模块
 class LightweightChannelCompression(nn.Module):
@@ -1157,33 +1173,49 @@ class DFFM(nn.Module):
         return self.lcc(x)
 
 class C3k2_DFFM(nn.Module):
-    """轻量级动态特征融合的C3k2模块"""
+    """輕量級動態特徵融合的C3k2模塊"""
     def __init__(self, c1, c2, n=1, c3k=False, e=0.5, g=1, shortcut=True):
         super().__init__()
-        self.c = int(c2 * e)  # 隐藏通道
+        self.c = int(c2 * e)  # 隱藏通道
         self.cv1 = Conv(c1, 2 * self.c, 1, 1)
-        self.cv2 = Conv(3 * self.c, c2, 1)  # 保持与原始C3k2相同的通道数（关键修改点）
+        self.cv2 = Conv(3 * self.c, c2, 1)  # 保持與原始C3k2相同的通道數（關鍵修改點）
         
         # 使用原始Bottleneck或GhostBottleneck
         self.m = nn.ModuleList(GhostBottleneck(self.c, self.c) for _ in range(n))
         
-        # 极简化的DFFM实现
+        # 極簡化的DFFM實現
         self.dffm_weight = nn.Parameter(torch.ones(2))
-        self.dffm_conv = DWConv(self.c, self.c, 3)  # 使用深度可分离卷积替代标准卷积
+        self.dffm_conv = DWConv(self.c, self.c, 3)  # 使用深度可分離卷積替代標準卷積
         
     def forward(self, x):
-        y = list(self.cv1(x).chunk(2, 1))
-        y_processed = [m(y[-1]) for m in self.m]
+        # 確保輸入的連續性
+        x = x.contiguous()
         
-        # 轻量级特征融合
+        # 分割特徵並確保每個部分都是連續的
+        y = list(self.cv1(x).chunk(2, 1))
+        y[0] = y[0].contiguous()
+        y[1] = y[1].contiguous()
+        
+        # 處理每個模塊並確保結果的連續性
+        y_processed = []
+        for m in self.m:
+            processed = m(y[-1]).contiguous()
+            y_processed.append(processed)
+        
+        # 輕量級特徵融合
         last_feat = y_processed[-1]
         weights = F.softmax(self.dffm_weight, dim=0)
-        dffm_out = weights[0] * last_feat + weights[1] * self.dffm_conv(last_feat)
+        dffm_out = (weights[0] * last_feat + weights[1] * self.dffm_conv(last_feat)).contiguous()
         
-        # 替换最后处理的特征，而不是添加新特征
+        # 替換最後處理的特徵，確保連續性
         y_processed[-1] = dffm_out
         y.extend(y_processed)
         
+        # 確保連接前所有張量都是連續的
+        for i in range(len(y)):
+            if not y[i].is_contiguous():
+                y[i] = y[i].contiguous()
+                
         return self.cv2(torch.cat(y, 1))
 
 class C3k(C3):

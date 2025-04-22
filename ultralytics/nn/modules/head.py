@@ -311,13 +311,13 @@ class ECAAttention(nn.Module):
         return x * self.sigmoid(y)
 
 class GDEPose(Pose):
-    """高效GDE-Pose检测头"""
+    """高效GDE-Pose檢測頭"""
     def __init__(self, nc=80, kpt_shape=(17, 3), ch=()):
         super().__init__(nc, kpt_shape, ch)
-        # 仅在最大特征图应用ECA
+        # 僅在最大特徵圖應用ECA
         self.eca = nn.ModuleList()
         for i, x in enumerate(ch):
-            if i == len(ch) - 1:  # 仅应用在最后/最大特征图
+            if i == len(ch) - 1:  # 僅應用在最後/最大特徵圖
                 self.eca.append(ECAAttention(x))
             else:
                 self.eca.append(nn.Identity())
@@ -325,12 +325,19 @@ class GDEPose(Pose):
     def forward(self, x):
         bs = x[0].shape[0]
         
-        # 应用ECA
+        # 應用ECA
         for i in range(self.nl):
             x[i] = self.eca[i](x[i])
             
-        # 标准Pose处理
-        kpt = torch.cat([self.cv4[i](x[i]).view(bs, self.nk, -1) for i in range(self.nl)], -1)
+        # 標準Pose處理
+        # 修改以確保内存布局一致性
+        kpt_list = []
+        for i in range(self.nl):
+            # 確保内存布局連續
+            k = self.cv4[i](x[i]).view(bs, self.nk, -1).contiguous()
+            kpt_list.append(k)
+        kpt = torch.cat(kpt_list, -1)
+        
         x = Detect.forward(self, x)
         if self.training:
             return x, kpt
