@@ -298,41 +298,49 @@ class ECAAttention(nn.Module):
         k = 3  # 簡化為固定大小，減少參數
         # 使用 1x1 卷積替代 1d 卷積，避免步長不匹配問題
         self.conv = nn.Conv1d(1, 1, kernel_size=k, padding=(k-1)//2, bias=False)
+        # 確保卷積權重初始化為連續內存布局
+        with torch.no_grad():
+            self.conv.weight.data = self.conv.weight.data.contiguous()
         self.sigmoid = nn.Sigmoid()
         
         # 註冊前向鉤子，在優化器步驟前調整權重布局
         def _pre_hook(module, input):
             # 確保卷積權重的內存布局一致
             if hasattr(module, 'conv') and hasattr(module.conv, 'weight'):
-                module.conv.weight.data = module.conv.weight.data.contiguous()
+                with torch.no_grad():
+                    module.conv.weight.data = module.conv.weight.data.contiguous()
             return None
         
         self.register_forward_pre_hook(_pre_hook)
         
-        # 註冊反向鉤子，處理梯度
-        def _backward_hook(module, grad_input, grad_output):
+        # 註冊完整的反向鉤子，處理梯度
+        def _full_backward_hook(module, grad_input, grad_output):
             # 確保卷積權重的梯度內存布局一致
             if hasattr(module.conv, 'weight') and module.conv.weight.grad is not None:
                 # 把梯度轉換為連續布局
-                module.conv.weight.grad = module.conv.weight.grad.contiguous()
-            return None
+                module.conv.weight.grad = module.conv.weight.grad.clone().detach().contiguous()
+            return grad_input
         
-        self.register_backward_hook(_backward_hook)
+        self.register_full_backward_hook(_full_backward_hook)
         
     def forward(self, x):
         # 確保輸入是連續的
         x = x.contiguous()
         
+        # 使用重設計的數據流程，避免任何可能導致步長不一致的操作
+        batch_size, channels = x.shape[0], x.shape[1]
+        
+        # 使用平均池化獲取全局信息
         y = self.avg_pool(x)
-        # 避免 squeeze 和 transpose 導致的內存布局問題
-        # 先將數據重新排列為連續的內存布局
-        y = y.view(y.size(0), y.size(1), 1).permute(0, 2, 1).contiguous()
         
-        # 應用 1D 卷積，並確保結果連續
-        y = self.conv(y).contiguous()
+        # 重塑為 1D 卷積的輸入形狀
+        y = y.reshape(batch_size, 1, channels)
         
-        # 確保輸出維度正確且內存連續
-        y = y.permute(0, 2, 1).view(y.size(0), y.size(2), 1, 1).contiguous()
+        # 應用 1D 卷積
+        y = self.conv(y)
+        
+        # 重塑回原始形狀
+        y = y.reshape(batch_size, channels, 1, 1)
         
         # 應用 sigmoid
         y = self.sigmoid(y)
@@ -352,12 +360,14 @@ class GDEPose(Pose):
             else:
                 self.eca.append(nn.Identity())
         
-        # 註冊反向鉤子，確保梯度內存布局一致
-        def _backward_hook(module, grad_input, grad_output):
+        # 註冊完整的反向鉤子，確保梯度內存布局一致
+        def _full_backward_hook(module, grad_input, grad_output):
             # 這個鉤子幫助處理梯度流，確保梯度的內存布局一致
-            return tuple(g.contiguous() if g is not None else g for g in grad_input)
+            if grad_input is not None:
+                return tuple(g.clone().detach().contiguous() if g is not None else g for g in grad_input)
+            return grad_input
         
-        self.register_backward_hook(_backward_hook)
+        self.register_full_backward_hook(_full_backward_hook)
         
     def forward(self, x):
         bs = x[0].shape[0]
