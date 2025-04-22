@@ -342,24 +342,31 @@ class GDEPose(Pose):
                 self.eca.append(nn.Identity())
         
     def forward(self, x):
-        bs = x[0].shape[0]
+        bs = x[0].shape[0]  # 批次大小
         
-        # 複製原始輸入以避免原地操作問題
+        # 創建新的特徵列表，避免修改原始輸入
         x_processed = []
         for i in range(self.nl):
-            # 創建新張量以避免內存佈局問題
-            x_i = self.eca[i](x[i].contiguous()) 
-            x_processed.append(x_i)
+            # 應用注意力機制並確保連續內存佈局
+            x_processed.append(self.eca[i](x[i]))
             
-        # 標準Pose處理
+        # 處理關鍵點預測
         kpt = torch.cat([self.cv4[i](x_processed[i]).view(bs, self.nk, -1) for i in range(self.nl)], -1)
         
-        # 使用處理後的特徵圖
-        detect_output = Detect.forward(self, x_processed)
+        # 使用處理後的特徵進行目標檢測
+        detect_out = Detect.forward(self, x_processed)
+        
         if self.training:
-            return detect_output, kpt
+            return detect_out, kpt
+            
+        # 解碼關鍵點坐標
         pred_kpt = self.kpts_decode(bs, kpt)
-        return torch.cat([detect_output, pred_kpt], 1) if self.export else (torch.cat([detect_output[0], pred_kpt], 1), (detect_output[1], kpt))
+        
+        # 輸出格式取決於是否處於導出模式
+        if self.export:
+            return torch.cat([detect_out, pred_kpt], 1)
+        else:
+            return torch.cat([detect_out[0], pred_kpt], 1), (detect_out[1], kpt)
 
 class Classify(nn.Module):
     """YOLO classification head, i.e. x(b,c1,20,20) to x(b,c2)."""
