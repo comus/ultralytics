@@ -290,20 +290,24 @@ class Pose(Detect):
             return y
 
 class ECAAttention(nn.Module):
-    """高效通道注意力机制"""
+    """高效通道注意力機制"""
     def __init__(self, c, k_size=3):
         super().__init__()
         self.avg_pool = nn.AdaptiveAvgPool2d(1)
-        # 根据通道数自适应选择卷积核大小
-        k = 3  # 简化为固定大小，减少参数
+        # 根據通道數自適應選择卷積核大小
+        k = 3  # 簡化為固定大小，減少參數
         self.conv = nn.Conv1d(1, 1, kernel_size=k, padding=(k-1)//2, bias=False)
         self.sigmoid = nn.Sigmoid()
         
     def forward(self, x):
         y = self.avg_pool(x)
-        y = y.squeeze(-1).transpose(-1, -2)
+        # 修改前: y = y.squeeze(-1).transpose(-1, -2)
+        # 修改後: 使用 .contiguous() 確保内存布局連續
+        y = y.squeeze(-1).transpose(-1, -2).contiguous()
         y = self.conv(y)
-        y = y.transpose(-1, -2).unsqueeze(-1)
+        # 修改前: y = y.transpose(-1, -2).unsqueeze(-1)
+        # 修改後: 使用 .contiguous() 確保内存布局連續
+        y = y.transpose(-1, -2).contiguous().unsqueeze(-1)
         return x * self.sigmoid(y)
 
 class GDEPose(Pose):
