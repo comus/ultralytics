@@ -21,12 +21,9 @@ def is_main_process():
 
 from ultralytics import YOLO
 
-def main():
-    # 硬編碼參數，不使用 args
-    yaml_file = "gde_pose.yaml"
-    
+def main():    
     # Initialize a new model from yaml configuration without pretrained weights
-    model = YOLO(yaml_file)
+    model = YOLO("gde_pose.yaml")
 
     # 打印使用的模塊路徑，確認是否正確
     if is_main_process():
