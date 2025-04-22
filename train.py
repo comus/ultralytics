@@ -10,5 +10,8 @@ results = model.train(
     imgsz=640,
     batch=128,
     save_period=1,
-    cache="disk"
+    cache="disk",
+    optimizer="AdamW",
+    lr0=0.001,
+    lrf=0.01
 )
