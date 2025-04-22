@@ -16,5 +16,6 @@ results = model.train(
     cos_lr=False,
     amp=True,
     close_mosaic=10,
-    patience=100
+    patience=100,
+    cache="disk"
 )
