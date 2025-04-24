@@ -46,8 +46,8 @@ def main():
     results = model.train(
         data="coco-pose.yaml",
         epochs=50,                 # 減少訓練週期，更適合精調階段
-        imgsz=1536,                # 增加解析度以捕捉更多細節
-        batch=48,                  # 因為更高解析度，減小批次大小
+        imgsz=1600,                # 增加解析度以更好地捕捉細節
+        batch=64,                  # 增加批次大小以充分利用GPU內存
         save_period=1,             # 每個epoch保存一次
         cache="disk",              # 使用磁盤緩存
         optimizer="AdamW",         # 繼續使用AdamW優化器
@@ -62,7 +62,7 @@ def main():
         kobj=8.0,                  # 增加關鍵點對象損失權重
         close_mosaic=0,            # 完全關閉馬賽克增強
         amp=True,                  # 自動混合精度
-        nbs=48,                    # 標稱批次大小
+        nbs=64,                    # 標稱批次大小調整為與batch一致
         overlap_mask=True,         # 掩碼重疊
         weight_decay=0.001,        # 增加權重衰減以提高泛化能力
         dropout=0.03,              # 增加dropout以防過擬合
