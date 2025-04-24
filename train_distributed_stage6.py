@@ -25,7 +25,7 @@ from ultralytics import YOLO
 
 def main():    
     # Initialize a new model from yaml configuration without pretrained weights
-    model = YOLO("/root/autodl-tmp/withcloud/ultralytics/runs/pose/train8/weights/best.pt")
+    model = YOLO("/root/autodl-tmp/withcloud/ultralytics/runs/pose/train9/weights/last.pt")
 
     # 打印使用的模塊路徑，確認是否正確
     if is_main_process():
@@ -71,7 +71,8 @@ def main():
         degrees=0.0,         # 關閉旋轉增強
         translate=0.1,       # 減少平移增強
         scale=0.1,           # 減少縮放增強
-        fliplr=0.5           # 保留水平翻轉
+        fliplr=0.5,          # 保留水平翻轉
+        resume=True
     )
 
 if __name__ == "__main__":
