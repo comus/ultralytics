@@ -44,11 +44,11 @@ def main():
         data="coco-pose.yaml",
         epochs=100,
         imgsz=1280,        # 提高回1280解析度
-        batch=64,          # 增加批次大小以充分利用GPU
+        batch=128,          # 增加批次大小以充分利用GPU
         save_period=1,     # 每個epoch保存
         cache="disk",      # 使用磁盤緩存
         optimizer="AdamW", # 繼續使用AdamW優化器
-        lr0=0.00002,       # 因增加批次大小而稍微提高學習率
+        lr0=0.00003,       # 因增加批次大小而稍微提高學習率
         lrf=0.01,          # 最終學習率因子
         cos_lr=True,       # 餘弦學習率調度
         warmup_epochs=2.0, # 熱身階段
