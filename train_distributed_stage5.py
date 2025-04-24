@@ -43,32 +43,32 @@ def main():
 
     # Train the model with hard-coded parameters
     results = model.train(
-        data="coco-pose.yaml",
-        epochs=100,
-        imgsz=1024,        # 恢復與第四次訓練相同的圖像大小
-        batch=48,          # 恢復與第四次訓練相同的批次大小
-        save_period=1,     # 每個epoch保存
-        cache="disk",      # 使用磁盤緩存
-        optimizer="SGD",    # 改用SGD優化器
-        lr0=0.00005,        # 保持較低學習率
-        momentum=0.937,     # 增加標準動量參數
-        weight_decay=0.0005, # 增加權重衰減防止過擬合
-        lrf=0.01,           # 最終學習率因子
-        cos_lr=True,        # 餘弦學習率調度
-        warmup_epochs=5.0,  # 增加熱身階段
-        device="0,1,2,3",   # 使用全部GPU加速訓練
-        patience=50,        # 增加耐心值防止過早停止
-        box=12.0,           # 保持與第四次相同的框損失權重
-        pose=18.0,          # 保持與第四次相同的姿態損失權重
-        kobj=4.0,           # 保持與第四次相同的關鍵點對象損失權重
-        multi_scale=True,   # 啟用多尺度訓練
-        close_mosaic=10,    # 最後幾個epoch關閉馬賽克增強
-        amp=False,          # 關閉混合精度訓練以提高穩定性
-        nbs=64,             # 標稱批次大小
-        overlap_mask=True,  # 啟用遮罩重疊
-        perspective=0.001,   # 重置透視增強強度
-        mosaic=0.8,         # 增加馬賽克增強概率
-        mixup=0.15,         # 增加mixup增強強度       # 確保從上次的訓練狀態恢復，包括優化器狀態
+        data="coco-pose.yaml",       # 数据集配置文件路径
+        epochs=150,                  # 训练轮数
+        imgsz=1280,                  # 图像大小
+        batch=96,                    # 批次大小
+        save_period=1,               # 每5个epoch保存一次
+        cache="disk",                # 使用磁盘缓存
+        optimizer="AdamW",           # 优化器选择
+        lr0=0.00002,                 # 初始学习率
+        lrf=0.005,                   # 最终学习率因子
+        cos_lr=True,                 # 余弦学习率调度
+        warmup_epochs=3.0,           # 预热阶段轮数
+        device="0,1,2,3",            # 使用的设备
+        patience=30,                 # 早停耐心值
+        box=12.0,                    # 框损失权重
+        pose=18.0,                   # 姿态损失权重
+        kobj=4.0,                    # 关键点对象性权重
+        multi_scale=True,            # 多尺度训练
+        close_mosaic=10,             # 最后10个epoch关闭马赽克增强
+        amp=True,                    # 自动混合精度
+        nbs=128,                     # 标称批次大小
+        overlap_mask=True,           # 掩码重叠
+        workers=8,                   # 每个进程的工作线程数
+        val=True,                    # 进行验证
+        plots=True,                  # 生成训练过程图表
+        weight_decay=0.0005,         # 权重衰减
+        dropout=0.02,                # dropout率
     )
 
 if __name__ == "__main__":
