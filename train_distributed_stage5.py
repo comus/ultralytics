@@ -46,7 +46,7 @@ def main():
         data="coco-pose.yaml",       # 数据集配置文件路径
         epochs=150,                  # 训练轮数
         imgsz=1024,                  # 降低图像尺寸以减少内存使用
-        batch=64,                    # 减小批次大小避免OOM
+        batch=96,                    # 减小批次大小避免OOM
         save_period=1,               # 每5个epoch保存一次
         cache="disk",                # 使用磁盘缓存
         optimizer="AdamW",           # 优化器选择
@@ -62,7 +62,7 @@ def main():
         multi_scale=True,            # 多尺度训练
         close_mosaic=10,             # 最后10个epoch关闭马赽克增强
         amp=True,                    # 自动混合精度
-        nbs=64,                      # 降低标称批次大小
+        nbs=96,                      # 降低标称批次大小
         overlap_mask=True,           # 掩码重叠
         workers=8,                   # 每个进程的工作线程数
         val=True,                    # 进行验证
