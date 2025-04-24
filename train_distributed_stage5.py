@@ -68,8 +68,7 @@ def main():
         overlap_mask=True,  # 啟用遮罩重疊
         perspective=0.001,   # 重置透視增強強度
         mosaic=0.8,         # 增加馬賽克增強概率
-        mixup=0.15,         # 增加mixup增強強度
-        resume=True         # 確保從上次的訓練狀態恢復，包括優化器狀態
+        mixup=0.15,         # 增加mixup增強強度       # 確保從上次的訓練狀態恢復，包括優化器狀態
     )
 
 if __name__ == "__main__":
