@@ -52,7 +52,7 @@ def main():
         lrf=0.01,          # 最終學習率因子
         cos_lr=True,       # 餘弦學習率調度
         warmup_epochs=2.0, # 熱身階段
-        device="0,1",      # 使用兩個GPU
+        device="0,1,2,3",      # 使用兩個GPU
         patience=30,       # 增加耐心值
         box=15.0,          # 進一步增加框損失權重
         pose=22.0,         # 進一步增加姿態損失權重 
