@@ -14,6 +14,8 @@ sys.path.insert(0, parent_dir)
 os.environ["PYTHONPATH"] = f"{current_dir}:{os.environ.get('PYTHONPATH', '')}"
 # 忽略 DDP 的 stride 不匹配警告
 warnings.filterwarnings("ignore", message="Grad strides do not match bucket view strides")
+# 忽略除零警告
+warnings.filterwarnings("ignore", message="divide by zero encountered in divide")
 
 # 檢查是否為主進程
 def is_main_process():
@@ -43,32 +45,32 @@ def main():
     results = model.train(
         data="coco-pose.yaml",
         epochs=100,
-        imgsz=1280,        # 維持高解析度
-        batch=96,          # 略微降低批次大小提高穩定性
+        imgsz=1024,        # 恢復與第四次訓練相同的圖像大小
+        batch=48,          # 恢復與第四次訓練相同的批次大小
         save_period=1,     # 每個epoch保存
         cache="disk",      # 使用磁盤緩存
-        optimizer="AdamW", # 繼續使用AdamW優化器
-        lr0=0.00002,       # 降低學習率提高穩定性
-        lrf=0.01,          # 最終學習率因子
-        cos_lr=True,       # 餘弦學習率調度
-        warmup_epochs=3.0, # 增加熱身階段
-        device="0,1,2,3",  # 使用多個GPU
-        patience=30,       # 增加耐心值
-        box=12.0,          # 調低框損失權重
-        pose=18.0,         # 調低姿態損失權重
-        kobj=4.0,          # 調低關鍵點對象損失權重
-        nbs=64,            # 調整標稱批次大小
-        degrees=5.0,       # 降低旋轉增強強度
-        translate=0.1,     # 降低平移增強強度
-        scale=0.15,        # 降低縮放增強強度
-        shear=2.0,         # 降低剪切增強強度
-        perspective=0.0005,# 降低透視增強強度
-        flipud=0.0,        # 停用上下翻轉
-        mosaic=0.5,        # 保持馬賽克增強概率
-        mixup=0.1,         # 降低mixup增強強度
-        copy_paste=0.1,    # 降低複製粘貼增強強度
-        amp=True,          # 啟用混合精度訓練
-        overlap_mask=True  # 重疊口罩
+        optimizer="SGD",    # 改用SGD優化器
+        lr0=0.00005,        # 保持較低學習率
+        momentum=0.937,     # 增加標準動量參數
+        weight_decay=0.0005, # 增加權重衰減防止過擬合
+        nesterov=True,      # 使用Nesterov動量可以進一步提升效果
+        lrf=0.01,           # 最終學習率因子
+        cos_lr=True,        # 餘弦學習率調度
+        warmup_epochs=5.0,  # 增加熱身階段
+        device="0,1,2,3",   # 使用全部GPU加速訓練
+        patience=50,        # 增加耐心值防止過早停止
+        box=12.0,           # 保持與第四次相同的框損失權重
+        pose=18.0,          # 保持與第四次相同的姿態損失權重
+        kobj=4.0,           # 保持與第四次相同的關鍵點對象損失權重
+        multi_scale=True,   # 啟用多尺度訓練
+        close_mosaic=10,    # 最後幾個epoch關閉馬賽克增強
+        amp=False,          # 關閉混合精度訓練以提高穩定性
+        nbs=64,             # 標稱批次大小
+        overlap_mask=True,  # 啟用遮罩重疊
+        perspective=0.001,   # 重置透視增強強度
+        mosaic=0.8,         # 增加馬賽克增強概率
+        mixup=0.15,         # 增加mixup增強強度
+        resume=True         # 確保從上次的訓練狀態恢復，包括優化器狀態
     )
 
 if __name__ == "__main__":
