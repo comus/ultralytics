@@ -53,7 +53,6 @@ def main():
         lr0=0.00005,        # 保持較低學習率
         momentum=0.937,     # 增加標準動量參數
         weight_decay=0.0005, # 增加權重衰減防止過擬合
-        nesterov=True,      # 使用Nesterov動量可以進一步提升效果
         lrf=0.01,           # 最終學習率因子
         cos_lr=True,        # 餘弦學習率調度
         warmup_epochs=5.0,  # 增加熱身階段
