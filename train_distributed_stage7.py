@@ -45,35 +45,39 @@ def main():
     # 訓練參數設置
     results = model.train(
         data="coco-pose.yaml",
-        epochs=50,                 # 減少訓練週期，更適合精調階段
-        imgsz=1600,                # 增加解析度以更好地捕捉細節
-        batch=64,                  # 增加批次大小以充分利用GPU內存
-        save_period=1,             # 每個epoch保存一次
-        cache="disk",              # 使用磁盤緩存
-        optimizer="AdamW",         # 繼續使用AdamW優化器
-        lr0=0.00001,               # 更低的學習率進行精細調整
-        lrf=0.002,                 # 更低的最終學習率比例
-        cos_lr=True,               # 餘弦學習率調整
-        warmup_epochs=2.0,         # 縮短熱身時間，與總週期相適應
-        device="0,1,2,3",          # 使用所有GPU
-        patience=25,               # 調整耐心值，與總週期相適應
-        box=15.0,                  # 增加框損失權重
-        pose=30.0,                 # 大幅增加姿態損失權重
-        kobj=8.0,                  # 增加關鍵點對象損失權重
-        close_mosaic=0,            # 完全關閉馬賽克增強
-        amp=True,                  # 自動混合精度
-        nbs=64,                    # 標稱批次大小調整為與batch一致
-        overlap_mask=True,         # 掩碼重疊
-        weight_decay=0.001,        # 增加權重衰減以提高泛化能力
-        dropout=0.03,              # 增加dropout以防過擬合
-        val=True,                  # 進行驗證
-        plots=True,                # 生成訓練圖表
-        degrees=0.0,               # 關閉旋轉增強
-        translate=0.1,             # 保留平移增強
-        scale=0.1,                 # 保留縮放增強
-        hsv_h=0.015,               # 輕微色調增強
-        hsv_s=0.2,                 # 適當的飽和度增強
-        hsv_v=0.2                  # 適當的亮度增強
+        epochs=50,            # 減少epochs數量以節省訓練時間
+        imgsz=1536,           # 進一步提高解析度以提升精度
+        batch=96,             # 增加批次大小以充分利用GPU資源
+        save_period=1,        # 每個epoch保存
+        cache="disk",         # 使用磁盤緩存
+        optimizer="AdamW",    # 繼續使用AdamW優化器
+        lr0=0.000024,         # 因增加批次大小而調整學習率(原本的3倍)
+        lrf=0.001,            # 最終學習率因子
+        cos_lr=True,          # 餘弦學習率調度
+        warmup_epochs=3.0,    # 較長的熱身期
+        device="0,1,2,3",     # 使用全部4個GPU
+        patience=40,          # 增加耐心值
+        box=10.0,             # 調整框損失權重
+        pose=30.0,            # 進一步提高姿態損失權重
+        kobj=8.0,             # 增加關鍵點對象損失權重
+        close_mosaic=0,       # 完全關閉馬賽克增強
+        amp=True,             # 啟用混合精度訓練
+        overlap_mask=True,    # 啟用重疊口罩
+        
+        # 數據增強參數 (根據官方文檔設置)
+        hsv_h=0.01,           # 色調變化 (0.0-1.0)
+        hsv_s=0.1,            # 飽和度變化 (0.0-1.0)
+        hsv_v=0.1,            # 亮度變化 (0.0-1.0)
+        degrees=0.0,          # 旋轉增強 (0.0-180.0)
+        translate=0.05,       # 平移增強 (0.0-1.0)
+        scale=0.05,           # 縮放增強 (>=0.0)
+        shear=0.0,            # 剪切增強 (-180.0-180.0)
+        perspective=0.0,      # 透視變換 (0.0-0.001)
+        flipud=0.0,           # 垂直翻轉概率 (0.0-1.0)
+        fliplr=0.5,           # 水平翻轉概率 (0.0-1.0)
+        mosaic=0.0,           # 馬賽克增強概率 (0.0-1.0)
+        mixup=0.0,            # Mixup增強概率 (0.0-1.0)
+        copy_paste=0.0        # 複製粘貼增強概率 (0.0-1.0)
     )
 
 if __name__ == "__main__":
