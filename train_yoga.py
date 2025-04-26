@@ -47,9 +47,8 @@ results = model.train(
     dropout=0.1,              # Dropout正則化
     
     # 多GPU訓練加速設置
-    sync_bn=True,             # 使用同步批量歸一化，適合多GPU
     nbs=64,                   # 標稱批次大小，用於學習率縮放
-    workers=12,               # 數據加載器工作進程數
+    workers=8,                # 數據加載器工作進程數，每個GPU 2個工作進程
     
     # 專案設置
     project="yoga_finetune",  # 專案名稱
