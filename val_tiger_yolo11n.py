@@ -4,4 +4,4 @@ from ultralytics import YOLO
 model = YOLO("yolo11n-pose.pt")  # load a pretrained model (recommended for training)
 
 # Train the model
-results = model.train(data="tiger-pose.yaml", epochs=100, imgsz=640)
+results = model.val(data="tiger-pose.yaml")

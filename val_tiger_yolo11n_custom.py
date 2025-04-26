@@ -4,4 +4,4 @@ from ultralytics import YOLO
 model = YOLO("/root/autodl-tmp/yolo11n-pose-custom/root/autodl-tmp/ultralytics/runs/pose/train52/weights/best.pt")
 
 # Train the model
-results = model.train(data="tiger-pose.yaml", epochs=100, imgsz=640)
+results = model.val(data="tiger-pose.yaml")
