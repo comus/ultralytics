@@ -283,3 +283,70 @@ For bug reports and feature requests related to Ultralytics software, please vis
   <img src="https://github.com/ultralytics/assets/raw/main/social/logo-transparent.png" width="3%" alt="space">
   <a href="https://discord.com/invite/ultralytics"><img src="https://github.com/ultralytics/assets/raw/main/social/logo-social-discord.png" width="3%" alt="Ultralytics Discord"></a>
 </div>
+
+# Yoga Pose Keypoint Analysis
+
+This repository contains tools for analyzing keypoint detection performance in yoga pose models, helping identify difficult poses and keypoints, and comparing multiple keypoint detection models.
+
+## Scripts
+
+### Keypoint Analysis
+
+The `analyze_keypoints.py` script evaluates a pose estimation model's keypoint detection performance on a validation dataset.
+
+```bash
+python analyze_keypoints.py --model runs/train/exp/weights/best.pt --data data/yoga_dataset.yaml --img-size 1280 --batch-size 16 --device 0 --find-difficult --num-difficult 10
+```
+
+#### Options:
+- `--model`: Path to model weights (.pt file)
+- `--data`: Path to data YAML file
+- `--img-size`: Image size for validation (default: 1280)
+- `--batch-size`: Batch size for validation (default: 16)
+- `--device`: Device for validation (default: '0')
+- `--find-difficult`: Find and visualize difficult poses
+- `--num-difficult`: Number of difficult poses to visualize (default: 10)
+
+### Model Comparison
+
+The `compare_models.py` script compares multiple yoga pose models and generates visualizations of their differences.
+
+```bash
+python compare_models.py --models model1.pt model2.pt model3.pt --data data/yoga_dataset.yaml --analyze-confidence
+```
+
+#### Options:
+- `--models`: Paths to model weights (.pt files) - at least two models required
+- `--data`: Path to data YAML file
+- `--output-dir`: Output directory for comparison results (default: 'model_comparison')
+- `--img-size`: Image size for validation (default: 1280)
+- `--batch-size`: Batch size for validation (default: 16)
+- `--device`: Device for validation (default: '0')
+- `--analyze-confidence`: Analyze confidence score differences between models
+- `--num-samples`: Number of samples to use for confidence difference visualization (default: 5)
+
+## Output
+
+### Keypoint Analysis Output
+
+The script produces the following in the `keypoint_analysis` directory:
+- Detection rates and average confidences for each keypoint
+- Bar plots for detection rates and confidences
+- Images of the most difficult poses to detect
+
+### Model Comparison Output
+
+The script produces the following in the `model_comparison` directory:
+- Performance metrics comparison (mAP, precision, recall)
+- Visual comparison of model predictions on sample images
+- Confidence distribution analysis (when `--analyze-confidence` is used)
+- Visualization of cases where models significantly disagree
+
+## Requirements
+
+- Python 3.8+
+- ultralytics
+- numpy
+- matplotlib
+- opencv-python
+- tqdm

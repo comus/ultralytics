@@ -1,0 +1,37 @@
+# 多人照片列表 (文件名, 人數)
+
+datasets/yoga82/images/val/Warrior_II_Pose_or_Virabhadrasana_II__image_314.jpg, 2
+datasets/yoga82/images/val/Lord_of_the_Dance_Pose_or_Natarajasana__image_357.jpg, 2
+datasets/yoga82/images/val/Warrior_III_Pose_or_Virabhadrasana_III__image_245.jpg, 2
+datasets/yoga82/images/val/Lord_of_the_Dance_Pose_or_Natarajasana__image_341.jpg, 5
+datasets/yoga82/images/val/Half_Moon_Pose_or_Ardha_Chandrasana__image_271.jpg, 6
+datasets/yoga82/images/val/Supta_Baddha_Konasana__image_235.jpg, 2
+datasets/yoga82/images/val/Legs-Up-the-Wall_Pose_or_Viparita_Karani__image_201.jpg, 2
+datasets/yoga82/images/val/Sitting pose 1 (normal)_image_472.jpg, 3
+datasets/yoga82/images/val/Sitting pose 1 (normal)_image_466.jpg, 2
+datasets/yoga82/images/val/Lord_of_the_Dance_Pose_or_Natarajasana__image_378.jpg, 2
+datasets/yoga82/images/val/Half_Moon_Pose_or_Ardha_Chandrasana__image_260.jpg, 2
+datasets/yoga82/images/val/Half_Lord_of_the_Fishes_Pose_or_Ardha_Matsyendrasana__image_274.jpg, 2
+datasets/yoga82/images/val/Lord_of_the_Dance_Pose_or_Natarajasana__image_352.jpg, 2
+datasets/yoga82/images/val/Warrior_II_Pose_or_Virabhadrasana_II__image_270.jpg, 2
+datasets/yoga82/images/val/Handstand_pose_or_Adho_Mukha_Vrksasana__image_183.jpg, 2
+datasets/yoga82/images/val/Chair_Pose_or_Utkatasana__image_259.jpg, 2
+datasets/yoga82/images/val/Corpse_Pose_or_Savasana__image_265.jpg, 2
+datasets/yoga82/images/val/Chair_Pose_or_Utkatasana__image_266.jpg, 2
+datasets/yoga82/images/val/viparita_virabhadrasana_or_reverse_warrior_pose_image_189.jpg, 2
+datasets/yoga82/images/val/Frog_Pose_or_Bhekasana_image_141.jpg, 2
+datasets/yoga82/images/val/Sitting pose 1 (normal)_image_390.jpg, 12
+datasets/yoga82/images/val/Lord_of_the_Dance_Pose_or_Natarajasana__image_316.jpg, 7
+datasets/yoga82/images/val/Side_Plank_Pose_or_Vasisthasana__image_325.jpg, 2
+datasets/yoga82/images/val/Tree_Pose_or_Vrksasana__image_304.jpg, 3
+datasets/yoga82/images/val/Lord_of_the_Dance_Pose_or_Natarajasana__image_307.jpg, 2
+datasets/yoga82/images/val/Scale_Pose_or_Tolasana__image_103.jpg, 2
+datasets/yoga82/images/val/Extended_Revolved_Triangle_Pose_or_Utthita_Trikonasana__image_279.jpg, 2
+datasets/yoga82/images/val/Side_Plank_Pose_or_Vasisthasana__image_290.jpg, 2
+datasets/yoga82/images/val/Extended_Revolved_Side_Angle_Pose_or_Utthita_Parsvakonasana__image_267.jpg, 2
+datasets/yoga82/images/val/Warrior_II_Pose_or_Virabhadrasana_II__image_268.jpg, 2
+datasets/yoga82/images/val/Wide-Angle_Seated_Forward_Bend_pose_or_Upavistha_Konasana__image_184.jpg, 2
+datasets/yoga82/images/val/Reclining_Hand-to-Big-Toe_Pose_or_Supta_Padangusthasana__image_126.jpg, 2
+datasets/yoga82/images/val/Half_Moon_Pose_or_Ardha_Chandrasana__image_240.jpg, 2
+datasets/yoga82/images/val/Head-to-Knee_Forward_Bend_pose_or_Janu_Sirsasana__image_154.jpg, 2
+datasets/yoga82/images/val/Half_Moon_Pose_or_Ardha_Chandrasana__image_243.jpg, 2

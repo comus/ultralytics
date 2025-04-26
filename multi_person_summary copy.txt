@@ -1,0 +1,30 @@
+# Yoga82 數據集多人檢測摘要
+
+分析圖片總數: 2390
+多人照片數量: 166 (6.95%)
+
+# 人數分佈
+0 人的照片: 16 張 (0.67%)
+1 人的照片: 2208 張 (92.38%)
+2 人的照片: 110 張 (4.60%)
+3 人的照片: 23 張 (0.96%)
+4 人的照片: 13 張 (0.54%)
+5 人的照片: 7 張 (0.29%)
+6 人的照片: 6 張 (0.25%)
+7 人的照片: 2 張 (0.08%)
+8 人的照片: 2 張 (0.08%)
+9 人的照片: 1 張 (0.04%)
+11 人的照片: 1 張 (0.04%)
+12 人的照片: 1 張 (0.04%)
+
+# 前10張多人照片示例:
+1. datasets/yoga82/images/train/Firefly_Pose_or_Tittibhasana__image_99.jpg - 2 人
+2. datasets/yoga82/images/train/viparita_virabhadrasana_or_reverse_warrior_pose_image_88.jpg - 2 人
+3. datasets/yoga82/images/train/Bound_Angle_Pose_or_Baddha_Konasana__image_175.jpg - 2 人
+4. datasets/yoga82/images/train/Wind_Relieving_pose_or_Pawanmuktasana_image_81.jpg - 2 人
+5. datasets/yoga82/images/train/Fish_Pose_or_Matsyasana__image_101.jpg - 3 人
+6. datasets/yoga82/images/train/viparita_virabhadrasana_or_reverse_warrior_pose_image_104.jpg - 2 人
+7. datasets/yoga82/images/train/Extended_Revolved_Triangle_Pose_or_Utthita_Trikonasana__image_202.jpg - 2 人
+8. datasets/yoga82/images/train/Tree_Pose_or_Vrksasana__image_180.jpg - 2 人
+9. datasets/yoga82/images/train/Bow_Pose_or_Dhanurasana__image_154.jpg - 2 人
+10. datasets/yoga82/images/train/Warrior_III_Pose_or_Virabhadrasana_III__image_5.jpg - 2 人
