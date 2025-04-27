@@ -47,7 +47,7 @@ def train_stage1(model_path, save_dir, device="0,1,2,3", batch=32):
     results = model.train(
         data="coco-pose.yaml",
         epochs=5,                  # 短訓練週期
-        imgsz=1600,                # 高解析度
+        imgsz=1280,                # 高解析度
         batch=batch,               # 批次大小
         save_period=1,             # 每個epoch保存
         cache="disk",                # 緩存圖像
@@ -90,7 +90,7 @@ def train_stage2(model_path, save_dir, device="0,1,2,3", batch=32):
     results = model.train(
         data="mixed_coco_yoga.yaml",  # 混合數據集
         epochs=120,                     # 增加訓練週期
-        imgsz=1600,                    # 高解析度
+        imgsz=1280,                    # 高解析度
         batch=batch,                   # 批次大小
         save_period=1,                 # 每個epoch保存
         cache="disk",                  # 使用磁盤緩存
@@ -152,7 +152,7 @@ def train_stage3(model_path, save_dir, device="0,1,2,3", batch=32):
     results = model.train(
         data="mixed_coco_yoga.yaml",   # 混合數據集
         epochs=60,                     # 增加訓練週期
-        imgsz=1600,                    # 高解析度
+        imgsz=1280,                    # 高解析度
         batch=batch,                   # 批次大小
         save_period=1,                 # 每個epoch保存
         cache="disk",                  # 使用磁盤緩存
@@ -215,7 +215,7 @@ def train_stage4(model_path, save_dir, device="0,1,2,3", batch=32):
     results = model.train(
         data="yoga82.yaml",            # 僅使用瑜伽數據
         epochs=10,                     # 短訓練週期
-        imgsz=1600,                    # 高解析度
+        imgsz=1280,                    # 高解析度
         batch=batch,                   # 批次大小
         save_period=1,                 # 每個epoch保存
         cache="disk",                  # 使用磁盤緩存
