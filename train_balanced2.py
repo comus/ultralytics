@@ -299,8 +299,8 @@ def main():
                         help='訓練設備 (默認: 0,1,2,3)')
     parser.add_argument('--batch', type=int, default=32, 
                         help='批次大小 (默認: 32)')
-    parser.add_argument('--save-dir', type=str, default='runs/pose/balanced_training', 
-                        help='保存目錄 (默認: runs/pose/balanced_training)')
+    parser.add_argument('--save-dir', type=str, default='runs/pose/balanced_training2', 
+                        help='保存目錄 (默認: runs/pose/balanced_training2)')
     parser.add_argument('--skip-stage', type=int, default=0, 
                         help='跳過前N個階段 (默認: 0，不跳過)')
     args = parser.parse_args()
