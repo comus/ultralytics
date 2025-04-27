@@ -68,7 +68,7 @@ def train_stage1(model_path, save_dir, device="0,1,2,3", batch=32):
         exist_ok=True,             # 如果目錄存在則覆蓋
         val=True,                  # 每個epoch驗證
 
-        workers=16,
+        workers=4,
     )
     
     # 返回最佳模型路徑
@@ -130,7 +130,7 @@ def train_stage2(model_path, save_dir, device="0,1,2,3", batch=32):
         exist_ok=True,                 # 如果目錄存在則覆蓋
         val=True,                      # 每個epoch驗證
 
-        workers=16,
+        workers=4,
     )
     
     # 返回最佳模型路徑
@@ -193,7 +193,7 @@ def train_stage3(model_path, save_dir, device="0,1,2,3", batch=32):
         exist_ok=True,                 # 如果目錄存在則覆蓋
         val=True,                      # 每個epoch驗證
 
-        workers=16,
+        workers=4,
     )
     
     # 返回最佳模型路徑
@@ -249,7 +249,7 @@ def train_stage4(model_path, save_dir, device="0,1,2,3", batch=32):
         exist_ok=True,                 # 如果目錄存在則覆蓋
         val=True,                      # 每個epoch驗證
 
-        workers=16,
+        workers=4,
     )
     
     return Path(save_dir) / "stage4_yoga_focus" / "weights" / "best.pt"
