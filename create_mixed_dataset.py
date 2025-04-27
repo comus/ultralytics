@@ -9,9 +9,9 @@ def parse_args():
     parser = argparse.ArgumentParser(description='Create mixed dataset with weighted sampling')
     parser.add_argument('--datasets-path', type=str, default='/root/autodl-tmp/withcloud/datasets',
                         help='Path to datasets directory')
-    parser.add_argument('--coco-weight', type=float, default=0.3,
+    parser.add_argument('--coco-weight', type=float, default=0.7,
                         help='Weight for COCO-pose samples')
-    parser.add_argument('--yoga-weight', type=float, default=0.7,
+    parser.add_argument('--yoga-weight', type=float, default=0.3,
                         help='Weight for Yoga82 samples')
     parser.add_argument('--output-dir', type=str, default='mixed_coco_yoga',
                         help='Output directory name (will be created under datasets path)')
