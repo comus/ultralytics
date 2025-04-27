@@ -234,7 +234,7 @@ def validate_on_both(model_path, save_dir):
 
 def main():
     parser = argparse.ArgumentParser(description='平衡訓練COCO和瑜伽姿勢的三階段訓練腳本')
-    parser.add_argument('--model', type=str, default='yolov8x-pose.pt', 
+    parser.add_argument('--model', type=str, default='/root/autodl-tmp/withcloud/ultralytics/runs/pose/train14/weights/best.pt', 
                         help='初始模型路徑 (默認: yolov8x-pose.pt)')
     parser.add_argument('--device', type=str, default='0,1,2,3', 
                         help='訓練設備 (默認: 0,1,2,3)')
