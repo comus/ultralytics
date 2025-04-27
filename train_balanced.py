@@ -47,7 +47,7 @@ def train_stage1(model_path, save_dir, device="0,1,2,3", batch=32):
     results = model.train(
         data="coco-pose.yaml",
         epochs=5,                  # 短訓練週期
-        imgsz=1280,                # 高解析度
+        imgsz=1600,                # 高解析度
         batch=batch,               # 批次大小
         save_period=1,             # 每個epoch保存
         cache="disk",                # 緩存圖像
@@ -88,7 +88,7 @@ def train_stage2(model_path, save_dir, device="0,1,2,3", batch=32):
     results = model.train(
         data="mixed_coco_yoga.yaml",  # 混合數據集
         epochs=30,                     # 增加訓練週期
-        imgsz=1280,                    # 高解析度
+        imgsz=1600,                    # 高解析度
         batch=batch,                   # 批次大小
         save_period=1,                 # 每個epoch保存
         cache="disk",                  # 使用磁盤緩存
@@ -148,7 +148,7 @@ def train_stage3(model_path, save_dir, device="0,1,2,3", batch=32):
     results = model.train(
         data="mixed_coco_yoga.yaml",   # 混合數據集
         epochs=20,                     # 增加訓練週期
-        imgsz=1280,                    # 高解析度
+        imgsz=1600,                    # 高解析度
         batch=batch,                   # 批次大小
         save_period=1,                 # 每個epoch保存
         cache="disk",                  # 使用磁盤緩存
@@ -162,8 +162,8 @@ def train_stage3(model_path, save_dir, device="0,1,2,3", batch=32):
         freeze=4,                      # 凍結前幾層，保留特徵
         box=7.0,                       # 邊界框損失權重
         cls=0.5,                       # 分類損失權重
-        pose=40.0,                     # 極高姿態損失權重，專注於姿勢精度
-        kobj=8.0,                      # 較高關鍵點可見性權重
+        pose=50.0,            # 極高姿態損失權重
+        kobj=10.0,            # 增加關鍵點可見性權重
         
         # 降低數據增強強度，專注於精細調整
         hsv_h=0.01,                    # 減少色調變化
@@ -219,18 +219,18 @@ def validate_on_both(model_path, save_dir):
         
         f.write("COCO-Pose 數據集結果:\n")
         f.write(f"Box mAP50: {coco_metrics.box.map50:.4f}\n")
-        f.write(f"Box mAP50-95: {coco_metrics.box.map50_95:.4f}\n")
+        f.write(f"Box mAP50-95: {coco_metrics.box.map:.4f}\n")
         f.write(f"Box mAP75: {coco_metrics.box.map75:.4f}\n")
         f.write(f"Pose mAP50: {coco_metrics.keypoints.map50:.4f}\n")
-        f.write(f"Pose mAP50-95: {coco_metrics.keypoints.map50_95:.4f}\n")
+        f.write(f"Pose mAP50-95: {coco_metrics.keypoints.map:.4f}\n")
         f.write(f"Pose mAP75: {coco_metrics.keypoints.map75:.4f}\n\n")
         
         f.write("Yoga82 數據集結果:\n")
         f.write(f"Box mAP50: {yoga_metrics.box.map50:.4f}\n")
-        f.write(f"Box mAP50-95: {yoga_metrics.box.map50_95:.4f}\n")
+        f.write(f"Box mAP50-95: {yoga_metrics.box.map:.4f}\n")
         f.write(f"Box mAP75: {yoga_metrics.box.map75:.4f}\n")
         f.write(f"Pose mAP50: {yoga_metrics.keypoints.map50:.4f}\n")
-        f.write(f"Pose mAP50-95: {yoga_metrics.keypoints.map50_95:.4f}\n")
+        f.write(f"Pose mAP50-95: {yoga_metrics.keypoints.map:.4f}\n")
         f.write(f"Pose mAP75: {yoga_metrics.keypoints.map75:.4f}\n")
     
     print(f"驗證結果摘要已保存到 {summary_path}")
