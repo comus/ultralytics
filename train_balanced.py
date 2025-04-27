@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 # 平衡訓練腳本：同時保持COCO-Pose性能和提升瑜伽姿勢識別能力
-# 採用漸進式微調策略的四階段訓練過程
+# 採用漸進式微調策略的三階段訓練過程
 
 import os
 import sys
@@ -47,7 +47,7 @@ def train_stage1(model_path, save_dir, device="0,1,2,3", batch=32):
     results = model.train(
         data="coco-pose.yaml",
         epochs=5,                  # 短訓練週期
-        imgsz=640,                # 高解析度
+        imgsz=1280,                # 高解析度
         batch=batch,               # 批次大小
         save_period=1,             # 每個epoch保存
         cache="disk",                # 緩存圖像
@@ -67,8 +67,6 @@ def train_stage1(model_path, save_dir, device="0,1,2,3", batch=32):
         name="stage1_coco_refresh", # 運行名稱
         exist_ok=True,             # 如果目錄存在則覆蓋
         val=True,                  # 每個epoch驗證
-
-        workers=4,
     )
     
     # 返回最佳模型路徑
@@ -89,8 +87,8 @@ def train_stage2(model_path, save_dir, device="0,1,2,3", batch=32):
     # 使用混合數據集進行訓練
     results = model.train(
         data="mixed_coco_yoga.yaml",  # 混合數據集
-        epochs=120,                     # 增加訓練週期
-        imgsz=640,                    # 高解析度
+        epochs=30,                     # 增加訓練週期
+        imgsz=1280,                    # 高解析度
         batch=batch,                   # 批次大小
         save_period=1,                 # 每個epoch保存
         cache="disk",                  # 使用磁盤緩存
@@ -100,7 +98,7 @@ def train_stage2(model_path, save_dir, device="0,1,2,3", batch=32):
         cos_lr=True,                   # 餘弦學習率調度
         warmup_epochs=3.0,             # 延長熱身期
         device=device,                 # 設備
-        patience=40,                   # 增加早停耐心值
+        patience=10,                   # 增加早停耐心值
         freeze=8,                      # 增加凍結層數量，保留COCO特徵
         box=7.0,                       # 邊界框損失權重
         cls=0.5,                       # 分類損失權重
@@ -129,8 +127,6 @@ def train_stage2(model_path, save_dir, device="0,1,2,3", batch=32):
         name="stage2_mixed_training",  # 運行名稱
         exist_ok=True,                 # 如果目錄存在則覆蓋
         val=True,                      # 每個epoch驗證
-
-        workers=4,
     )
     
     # 返回最佳模型路徑
@@ -151,8 +147,8 @@ def train_stage3(model_path, save_dir, device="0,1,2,3", batch=32):
     # 最終精細微調
     results = model.train(
         data="mixed_coco_yoga.yaml",   # 混合數據集
-        epochs=60,                     # 增加訓練週期
-        imgsz=640,                    # 高解析度
+        epochs=20,                     # 增加訓練週期
+        imgsz=1280,                    # 高解析度
         batch=batch,                   # 批次大小
         save_period=1,                 # 每個epoch保存
         cache="disk",                  # 使用磁盤緩存
@@ -162,12 +158,12 @@ def train_stage3(model_path, save_dir, device="0,1,2,3", batch=32):
         cos_lr=True,                   # 餘弦學習率衰減
         warmup_epochs=1.0,             # 短熱身
         device=device,                 # 設備
-        patience=20,                    # 早停耐心值
+        patience=8,                    # 早停耐心值
         freeze=4,                      # 凍結前幾層，保留特徵
         box=7.0,                       # 邊界框損失權重
         cls=0.5,                       # 分類損失權重
-        pose=50.0,            # 極高姿態損失權重
-        kobj=10.0,            # 增加關鍵點可見性權重
+        pose=40.0,                     # 極高姿態損失權重，專注於姿勢精度
+        kobj=8.0,                      # 較高關鍵點可見性權重
         
         # 降低數據增強強度，專注於精細調整
         hsv_h=0.01,                    # 減少色調變化
@@ -192,8 +188,6 @@ def train_stage3(model_path, save_dir, device="0,1,2,3", batch=32):
         name="stage3_fine_tuning",     # 運行名稱
         exist_ok=True,                 # 如果目錄存在則覆蓋
         val=True,                      # 每個epoch驗證
-
-        workers=4,
     )
     
     # 返回最佳模型路徑
@@ -298,7 +292,7 @@ def validate_on_both(model_path, save_dir):
     return summary_path
 
 def main():
-    parser = argparse.ArgumentParser(description='平衡訓練COCO和瑜伽姿勢的四階段訓練腳本')
+    parser = argparse.ArgumentParser(description='平衡訓練COCO和瑜伽姿勢的三階段訓練腳本')
     parser.add_argument('--model', type=str, default='/root/autodl-tmp/withcloud/ultralytics/runs/pose/train14/weights/best.pt', 
                         help='初始模型路徑 (默認: yolov8x-pose.pt)')
     parser.add_argument('--device', type=str, default='0,1,2,3', 
@@ -318,7 +312,7 @@ def main():
     # 獲取初始模型路徑
     model_path = args.model
     
-    # 執行四階段訓練
+    # 執行三階段訓練
     if args.skip_stage <= 0:
         model_path = train_stage1(model_path, save_dir, device=args.device, batch=args.batch)
         print(f"第一階段完成，最佳模型保存在: {model_path}")
@@ -334,7 +328,7 @@ def main():
     # if args.skip_stage <= 3:
     #     model_path = train_stage4(model_path, save_dir, device=args.device, batch=args.batch)
     #     print(f"第四階段完成，最佳模型保存在: {model_path}")
-    
+
     # 在兩個數據集上驗證最終模型
     summary_path = validate_on_both(model_path, save_dir)
     
