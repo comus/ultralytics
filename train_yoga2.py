@@ -45,8 +45,8 @@ def main():
     # 訓練參數設置
     results = model.train(
         data="yoga82.yaml",
-        epochs=120,                # 增加訓練週期以提高收斂質量
-        imgsz=1600,               # 高解析度有助於精確姿勢識別
+        epochs=60,                # 增加訓練週期以提高收斂質量
+        imgsz=640,               # 高解析度有助於精確姿勢識別
         batch=32,                 # 降低批次大小，提高梯度更新頻率
         save_period=1,            # 每個epoch保存
         cache="disk",             # 使用磁盤緩存
