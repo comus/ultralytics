@@ -47,7 +47,7 @@ def train_stage1(model_path, save_dir, device="0,1,2,3", batch=32):
     results = model.train(
         data="coco-pose.yaml",
         epochs=5,                  # 短訓練週期
-        imgsz=640,                # 高解析度
+        imgsz=1600,                # 高解析度
         batch=batch,               # 批次大小
         save_period=1,             # 每個epoch保存
         cache="disk",                # 緩存圖像
@@ -87,8 +87,8 @@ def train_stage2(model_path, save_dir, device="0,1,2,3", batch=32):
     # 使用混合數據集進行訓練
     results = model.train(
         data="mixed_coco_yoga.yaml",  # 混合數據集
-        epochs=60,                     # 增加訓練週期
-        imgsz=640,                    # 高解析度
+        epochs=120,                     # 增加訓練週期
+        imgsz=1600,                    # 高解析度
         batch=batch,                   # 批次大小
         save_period=1,                 # 每個epoch保存
         cache="disk",                  # 使用磁盤緩存
@@ -98,7 +98,7 @@ def train_stage2(model_path, save_dir, device="0,1,2,3", batch=32):
         cos_lr=True,                   # 餘弦學習率調度
         warmup_epochs=3.0,             # 延長熱身期
         device=device,                 # 設備
-        patience=10,                   # 增加早停耐心值
+        patience=40,                   # 增加早停耐心值
         freeze=8,                      # 增加凍結層數量，保留COCO特徵
         box=7.0,                       # 邊界框損失權重
         cls=0.5,                       # 分類損失權重
@@ -147,8 +147,8 @@ def train_stage3(model_path, save_dir, device="0,1,2,3", batch=32):
     # 最終精細微調
     results = model.train(
         data="mixed_coco_yoga.yaml",   # 混合數據集
-        epochs=40,                     # 增加訓練週期
-        imgsz=640,                    # 高解析度
+        epochs=60,                     # 增加訓練週期
+        imgsz=1600,                    # 高解析度
         batch=batch,                   # 批次大小
         save_period=1,                 # 每個epoch保存
         cache="disk",                  # 使用磁盤緩存
@@ -158,7 +158,7 @@ def train_stage3(model_path, save_dir, device="0,1,2,3", batch=32):
         cos_lr=True,                   # 餘弦學習率衰減
         warmup_epochs=1.0,             # 短熱身
         device=device,                 # 設備
-        patience=8,                    # 早停耐心值
+        patience=20,                    # 早停耐心值
         freeze=4,                      # 凍結前幾層，保留特徵
         box=7.0,                       # 邊界框損失權重
         cls=0.5,                       # 分類損失權重
@@ -209,7 +209,7 @@ def train_stage4(model_path, save_dir, device="0,1,2,3", batch=32):
     results = model.train(
         data="yoga82.yaml",            # 僅使用瑜伽數據
         epochs=10,                     # 短訓練週期
-        imgsz=640,                    # 高解析度
+        imgsz=1600,                    # 高解析度
         batch=batch,                   # 批次大小
         save_period=1,                 # 每個epoch保存
         cache="disk",                  # 使用磁盤緩存
