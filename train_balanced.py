@@ -76,7 +76,7 @@ def train_stage2(model_path, save_dir, device="0,1,2,3", batch=32):
     """
     第二階段: 混合數據平衡訓練階段
     目標: 在保持COCO知識的同時，學習瑜伽姿勢
-    特點: 使用混合數據集，平衡的損失權重
+    特點: 使用混合數據集，較高的損失權重，更多凍結層
     """
     print("=" * 80)
     print("第二階段：混合數據平衡訓練")
@@ -87,7 +87,7 @@ def train_stage2(model_path, save_dir, device="0,1,2,3", batch=32):
     # 使用混合數據集進行訓練
     results = model.train(
         data="mixed_coco_yoga.yaml",  # 混合數據集
-        epochs=20,                     # 適中訓練週期
+        epochs=30,                     # 增加訓練週期
         imgsz=1280,                    # 高解析度
         batch=batch,                   # 批次大小
         save_period=1,                 # 每個epoch保存
@@ -96,24 +96,24 @@ def train_stage2(model_path, save_dir, device="0,1,2,3", batch=32):
         lr0=0.0001,                    # 適中學習率
         lrf=0.01,                      # 學習率衰減因子
         cos_lr=True,                   # 餘弦學習率調度
-        warmup_epochs=2.0,             # 熱身期
+        warmup_epochs=3.0,             # 延長熱身期
         device=device,                 # 設備
-        patience=8,                    # 早停耐心值
-        freeze=3,                      # 凍結前幾層
+        patience=10,                   # 增加早停耐心值
+        freeze=8,                      # 增加凍結層數量，保留COCO特徵
         box=7.0,                       # 邊界框損失權重
         cls=0.5,                       # 分類損失權重
-        pose=18.0,                     # 適中的姿態損失權重
-        kobj=5.0,                      # 適中的關鍵點可見性權重
+        pose=30.0,                     # 大幅增加姿態損失權重
+        kobj=6.0,                      # 增加關鍵點可見性權重
         
-        # 優化的數據增強設置，適度保持姿勢完整性
-        hsv_h=0.015,                   # 適度色調變化
-        hsv_s=0.15,                    # 適度飽和度變化
-        hsv_v=0.15,                    # 適度亮度變化
-        degrees=5.0,                   # 適度旋轉
+        # 優化的數據增強設置，更好地保持姿勢完整性
+        hsv_h=0.01,                    # 減少色調變化
+        hsv_s=0.1,                     # 減少飽和度變化
+        hsv_v=0.1,                     # 減少亮度變化
+        degrees=4.0,                   # 適度旋轉
         translate=0.1,                 # 適度平移
-        scale=0.2,                     # 適度縮放
+        scale=0.15,                    # 減少縮放範圍
         fliplr=0.5,                    # 水平翻轉
-        perspective=0.0005,            # 適度透視變換
+        perspective=0.0003,            # 減少透視變換
         mosaic=0.15,                   # 適度馬賽克
         mixup=0.1,                     # 適度混合
         
@@ -136,7 +136,7 @@ def train_stage3(model_path, save_dir, device="0,1,2,3", batch=32):
     """
     第三階段: 精細微調階段
     目標: 在混合數據上進行最終精細調整
-    特點: 極低學習率，更多偏向瑜伽數據，精細調整
+    特點: 適當學習率，更高的姿態損失權重，精細調整
     """
     print("=" * 80)
     print("第三階段：精細微調")
@@ -147,33 +147,33 @@ def train_stage3(model_path, save_dir, device="0,1,2,3", batch=32):
     # 最終精細微調
     results = model.train(
         data="mixed_coco_yoga.yaml",   # 混合數據集
-        epochs=15,                     # 短訓練週期
+        epochs=20,                     # 增加訓練週期
         imgsz=1280,                    # 高解析度
         batch=batch,                   # 批次大小
         save_period=1,                 # 每個epoch保存
         cache="disk",                  # 使用磁盤緩存
         optimizer="AdamW",             # 優化器
-        lr0=0.00002,                   # 極低學習率
-        lrf=0.1,                       # 學習率衰減因子
-        cos_lr=False,                  # 線性學習率衰減
-        warmup_epochs=0.5,             # 短熱身
+        lr0=0.00005,                   # 提高學習率
+        lrf=0.05,                      # 學習率衰減因子
+        cos_lr=True,                   # 餘弦學習率衰減
+        warmup_epochs=1.0,             # 短熱身
         device=device,                 # 設備
-        patience=5,                    # 早停耐心值
-        freeze=0,                      # 不凍結層
+        patience=8,                    # 早停耐心值
+        freeze=4,                      # 凍結前幾層，保留特徵
         box=7.0,                       # 邊界框損失權重
         cls=0.5,                       # 分類損失權重
-        pose=20.0,                     # 較高姿態損失權重偏向瑜伽
-        kobj=6.0,                      # 較高關鍵點可見性權重
+        pose=40.0,                     # 極高姿態損失權重，專注於姿勢精度
+        kobj=8.0,                      # 較高關鍵點可見性權重
         
         # 降低數據增強強度，專注於精細調整
         hsv_h=0.01,                    # 減少色調變化
-        hsv_s=0.1,                     # 減少飽和度變化
-        hsv_v=0.1,                     # 減少亮度變化
-        degrees=3.0,                   # 減少旋轉角度
+        hsv_s=0.05,                    # 進一步減少飽和度變化
+        hsv_v=0.05,                    # 進一步減少亮度變化
+        degrees=2.0,                   # 減少旋轉角度
         translate=0.05,                # 減少平移範圍
-        scale=0.15,                    # 減少縮放範圍
+        scale=0.1,                     # 減少縮放範圍
         fliplr=0.5,                    # 水平翻轉概率
-        perspective=0.0003,            # 減少透視變換
+        perspective=0.0001,            # 減少透視變換
         mosaic=0.0,                    # 關閉馬賽克
         mixup=0.0,                     # 關閉混合增強
         copy_paste=0.0,                # 無複製粘貼
@@ -181,7 +181,7 @@ def train_stage3(model_path, save_dir, device="0,1,2,3", batch=32):
         # 訓練穩定性設置
         overlap_mask=True,             # 使用重疊掩碼
         amp=True,                      # 混合精度訓練
-        weight_decay=0.0005,           # 增加權重衰減提高泛化能力
+        weight_decay=0.0001,           # 降低權重衰減，避免過度正則化
         dropout=0.05,                  # 適度Dropout
         
         project=save_dir,              # 保存目錄
@@ -205,11 +205,11 @@ def validate_on_both(model_path, save_dir):
     
     # 在COCO上驗證
     print("\n在COCO數據集上驗證:")
-    coco_results = model.val(data="coco-pose.yaml")
+    coco_metrics = model.val(data="coco-pose.yaml")
     
     # 在Yoga上驗證
     print("\n在Yoga數據集上驗證:")
-    yoga_results = model.val(data="yoga82.yaml")
+    yoga_metrics = model.val(data="yoga82.yaml")
     
     # 保存驗證結果摘要
     summary_path = Path(save_dir) / "validation_summary.txt"
@@ -218,16 +218,20 @@ def validate_on_both(model_path, save_dir):
         f.write("=" * 50 + "\n\n")
         
         f.write("COCO-Pose 數據集結果:\n")
-        f.write(f"Box mAP50: {coco_results.box.map50:.4f}\n")
-        f.write(f"Box mAP50-95: {coco_results.box.map50_95:.4f}\n")
-        f.write(f"Pose mAP50: {coco_results.keypoints.map50:.4f}\n")
-        f.write(f"Pose mAP50-95: {coco_results.keypoints.map50_95:.4f}\n\n")
+        f.write(f"Box mAP50: {coco_metrics.box.map50:.4f}\n")
+        f.write(f"Box mAP50-95: {coco_metrics.box.map50_95:.4f}\n")
+        f.write(f"Box mAP75: {coco_metrics.box.map75:.4f}\n")
+        f.write(f"Pose mAP50: {coco_metrics.keypoints.map50:.4f}\n")
+        f.write(f"Pose mAP50-95: {coco_metrics.keypoints.map50_95:.4f}\n")
+        f.write(f"Pose mAP75: {coco_metrics.keypoints.map75:.4f}\n\n")
         
         f.write("Yoga82 數據集結果:\n")
-        f.write(f"Box mAP50: {yoga_results.box.map50:.4f}\n")
-        f.write(f"Box mAP50-95: {yoga_results.box.map50_95:.4f}\n")
-        f.write(f"Pose mAP50: {yoga_results.keypoints.map50:.4f}\n")
-        f.write(f"Pose mAP50-95: {yoga_results.keypoints.map50_95:.4f}\n")
+        f.write(f"Box mAP50: {yoga_metrics.box.map50:.4f}\n")
+        f.write(f"Box mAP50-95: {yoga_metrics.box.map50_95:.4f}\n")
+        f.write(f"Box mAP75: {yoga_metrics.box.map75:.4f}\n")
+        f.write(f"Pose mAP50: {yoga_metrics.keypoints.map50:.4f}\n")
+        f.write(f"Pose mAP50-95: {yoga_metrics.keypoints.map50_95:.4f}\n")
+        f.write(f"Pose mAP75: {yoga_metrics.keypoints.map75:.4f}\n")
     
     print(f"驗證結果摘要已保存到 {summary_path}")
     return summary_path
