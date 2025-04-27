@@ -52,12 +52,10 @@ def create_mixed_dataset(args):
     yoga_val_paths = [str(p.relative_to(dataset_path)) for p in yoga_val_images]
     
     # Calculate sample counts based on weights
-    total_train_samples = len(coco_train_paths) + len(yoga_train_paths)
-    print(f"COCO train samples: {len(coco_train_paths)}")
-    print(f"Yoga train samples: {len(yoga_train_paths)}")
+    print(f"COCO train samples (total available): {len(coco_train_paths)}")
+    print(f"Yoga train samples (total available): {len(yoga_train_paths)}")
     
     # Calculate how many samples to take from each dataset
-    # Adjust the numbers to match the weights while maintaining a reasonable total
     # We'll take all yoga samples, and adjust COCO samples to match the ratio
     target_coco_samples = int(len(yoga_train_paths) * args.coco_weight / args.yoga_weight)
     
@@ -65,6 +63,7 @@ def create_mixed_dataset(args):
     sampled_coco_train = random.sample(coco_train_paths, min(target_coco_samples, len(coco_train_paths)))
     
     print(f"Using {len(sampled_coco_train)} COCO samples and {len(yoga_train_paths)} Yoga samples")
+    print(f"Targeted ratio - COCO: {args.coco_weight:.2f}, Yoga: {args.yoga_weight:.2f}")
     print(f"Actual ratio - COCO: {len(sampled_coco_train)/(len(sampled_coco_train)+len(yoga_train_paths)):.2f}, "
           f"Yoga: {len(yoga_train_paths)/(len(sampled_coco_train)+len(yoga_train_paths)):.2f}")
     
@@ -72,57 +71,98 @@ def create_mixed_dataset(args):
     train_txt_path = output_path / 'train.txt'
     val_txt_path = output_path / 'val.txt'
     
+    # Counters to track processed images
+    coco_train_processed = 0
+    yoga_train_processed = 0
+    coco_val_processed = 0
+    yoga_val_processed = 0
+    
     # Process training images
     with open(train_txt_path, 'w') as f:
         # Process COCO training images
         for path in sampled_coco_train:
-            # Convert path format
-            if path.startswith('/'):
-                path = path[1:]  # Remove leading slash if present
+            # Handle path format: ./images/train2017/000000123456.jpg
+            # or /images/train2017/000000123456.jpg
+            if path.startswith('./'):
+                path = path[2:]  # Remove leading ./
+            elif path.startswith('/'):
+                path = path[1:]  # Remove leading /
                 
-            img_path = Path(dataset_path) / path
+            # Get full image path
+            img_path = dataset_path / path
+            
+            # Some COCO paths might be relative to a different directory
+            # Try alternative path if original doesn't exist
             if not img_path.exists():
-                continue
-                
-            # Get the corresponding label path
-            label_path = str(path).replace('images', 'labels').replace('.jpg', '.txt').replace('.png', '.txt')
-            label_path = Path(dataset_path) / label_path
+                # Try with coco-pose prepended
+                alt_path = dataset_path / 'coco-pose' / path
+                if alt_path.exists():
+                    img_path = alt_path
+                else:
+                    print(f"Warning: Could not find image at {img_path} or {alt_path}")
+                    continue
             
+            # Get image filename
+            img_filename = img_path.name
+            
+            # Get label path - it should be in 'labels' instead of 'images'
+            # and have .txt extension instead of .jpg/.png
+            label_rel_path = path.replace('images', 'labels').replace('.jpg', '.txt').replace('.png', '.txt')
+            label_path = dataset_path / label_rel_path
+            
+            # Also try with coco-pose prepended if needed
             if not label_path.exists():
-                continue
+                alt_label_path = dataset_path / 'coco-pose' / label_rel_path
+                if alt_label_path.exists():
+                    label_path = alt_label_path
+                else:
+                    print(f"Warning: Could not find label at {label_path} or {alt_label_path}")
+                    continue
+            
+            # Copy files to our dataset
+            dest_img = output_images_train / img_filename
+            dest_label = output_labels_train / img_filename.replace('.jpg', '.txt').replace('.png', '.txt')
+            
+            try:
+                shutil.copy(img_path, dest_img)
+                shutil.copy(label_path, dest_label)
                 
-            # Copy image and label to our dataset
-            dest_img = output_images_train / img_path.name
-            dest_label = output_labels_train / label_path.name
-            
-            shutil.copy(img_path, dest_img)
-            shutil.copy(label_path, dest_label)
-            
-            # Write to train.txt using the original format (./images/...)
-            f.write(f"./images/train/{img_path.name}\n")
+                # Write to train.txt using the standard format
+                f.write(f"./images/train/{img_filename}\n")
+                coco_train_processed += 1
+            except Exception as e:
+                print(f"Error copying files: {e}")
+                continue
         
         # Process Yoga training images
         for path in yoga_train_paths:
-            img_path = Path(dataset_path) / path
+            img_path = dataset_path / path
             if not img_path.exists():
+                print(f"Warning: Could not find Yoga image at {img_path}")
                 continue
-                
+            
             # Get the corresponding label path
             label_path = str(path).replace('images', 'labels').replace('.jpg', '.txt').replace('.png', '.txt')
-            label_path = Path(dataset_path) / label_path
+            label_path = dataset_path / label_path
             
             if not label_path.exists():
+                print(f"Warning: Could not find Yoga label at {label_path}")
                 continue
-                
+            
             # Copy image and label to our dataset
             dest_img = output_images_train / img_path.name
             dest_label = output_labels_train / label_path.name
             
-            shutil.copy(img_path, dest_img)
-            shutil.copy(label_path, dest_label)
-            
-            # Write to train.txt using the original format (./images/...)
-            f.write(f"./images/train/{img_path.name}\n")
+            try:
+                shutil.copy(img_path, dest_img)
+                shutil.copy(label_path, dest_label)
+                
+                # Write to train.txt
+                f.write(f"./images/train/{img_path.name}\n")
+                yoga_train_processed += 1
+            except Exception as e:
+                print(f"Error copying Yoga files: {e}")
+                continue
     
     # Process validation images
     with open(val_txt_path, 'w') as f:
@@ -130,48 +170,84 @@ def create_mixed_dataset(args):
         sampled_coco_val = random.sample(coco_val_paths, min(len(coco_val_paths), 500))
         
         for path in sampled_coco_val:
-            if path.startswith('/'):
-                path = path[1:]
-                
-            img_path = Path(dataset_path) / path
+            if path.startswith('./'):
+                path = path[2:]  # Remove leading ./
+            elif path.startswith('/'):
+                path = path[1:]  # Remove leading /
+            
+            # Get full image path
+            img_path = dataset_path / path
+            
+            # Try alternative path if original doesn't exist
             if not img_path.exists():
-                continue
-                
-            label_path = str(path).replace('images', 'labels').replace('.jpg', '.txt').replace('.png', '.txt')
-            label_path = Path(dataset_path) / label_path
+                alt_path = dataset_path / 'coco-pose' / path
+                if alt_path.exists():
+                    img_path = alt_path
+                else:
+                    continue
             
+            # Get image filename
+            img_filename = img_path.name
+            
+            # Get label path
+            label_rel_path = path.replace('images', 'labels').replace('.jpg', '.txt').replace('.png', '.txt')
+            label_path = dataset_path / label_rel_path
+            
+            # Try alternative label path if needed
             if not label_path.exists():
-                continue
+                alt_label_path = dataset_path / 'coco-pose' / label_rel_path
+                if alt_label_path.exists():
+                    label_path = alt_label_path
+                else:
+                    continue
+            
+            # Copy files
+            dest_img = output_images_val / img_filename
+            dest_label = output_labels_val / img_filename.replace('.jpg', '.txt').replace('.png', '.txt')
+            
+            try:
+                shutil.copy(img_path, dest_img)
+                shutil.copy(label_path, dest_label)
                 
-            dest_img = output_images_val / img_path.name
-            dest_label = output_labels_val / label_path.name
-            
-            shutil.copy(img_path, dest_img)
-            shutil.copy(label_path, dest_label)
-            
-            # Write to val.txt using the original format (./images/...)
-            f.write(f"./images/val/{img_path.name}\n")
+                # Write to val.txt
+                f.write(f"./images/val/{img_filename}\n")
+                coco_val_processed += 1
+            except Exception as e:
+                print(f"Error copying val files: {e}")
+                continue
         
         # Process all Yoga validation images
         for path in yoga_val_paths:
-            img_path = Path(dataset_path) / path
+            img_path = dataset_path / path
             if not img_path.exists():
                 continue
-                
+            
+            # Get the corresponding label path
             label_path = str(path).replace('images', 'labels').replace('.jpg', '.txt').replace('.png', '.txt')
             label_path = Path(dataset_path) / label_path
             
             if not label_path.exists():
                 continue
-                
+            
+            # Copy image and label to our dataset
             dest_img = output_images_val / img_path.name
             dest_label = output_labels_val / label_path.name
             
-            shutil.copy(img_path, dest_img)
-            shutil.copy(label_path, dest_label)
-            
-            # Write to val.txt using the original format (./images/...)
-            f.write(f"./images/val/{img_path.name}\n")
+            try:
+                shutil.copy(img_path, dest_img)
+                shutil.copy(label_path, dest_label)
+                
+                # Write to val.txt
+                f.write(f"./images/val/{img_path.name}\n")
+                yoga_val_processed += 1
+            except Exception as e:
+                print(f"Error copying Yoga val files: {e}")
+                continue
+    
+    # Print summary
+    print("\nSummary:")
+    print(f"Training images processed - COCO: {coco_train_processed}, Yoga: {yoga_train_processed}, Total: {coco_train_processed + yoga_train_processed}")
+    print(f"Validation images processed - COCO: {coco_val_processed}, Yoga: {yoga_val_processed}, Total: {coco_val_processed + yoga_val_processed}")
     
     # Create a new YAML configuration file
     yaml_path = output_path / 'mixed_coco_yoga.yaml'
@@ -191,7 +267,7 @@ names:
   0: person
 """)
     
-    print(f"Created mixed dataset at {output_path}")
+    print(f"\nCreated mixed dataset at {output_path}")
     print(f"Configuration file created at {yaml_path}")
     print(f"Use this configuration for training: --data {args.datasets_path}/{args.output_dir}/mixed_coco_yoga.yaml")
 
