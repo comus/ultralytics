@@ -57,15 +57,26 @@ def create_mixed_dataset(args):
     
     # Calculate how many samples to take from each dataset
     # We'll take all yoga samples, and adjust COCO samples to match the ratio
-    target_coco_samples = int(len(yoga_train_paths) * args.coco_weight / args.yoga_weight)
+    target_coco_train_samples = int(len(yoga_train_paths) * args.coco_weight / args.yoga_weight)
     
-    # Sample paths
-    sampled_coco_train = random.sample(coco_train_paths, min(target_coco_samples, len(coco_train_paths)))
+    # Sample training paths
+    sampled_coco_train = random.sample(coco_train_paths, min(target_coco_train_samples, len(coco_train_paths)))
     
-    print(f"Using {len(sampled_coco_train)} COCO samples and {len(yoga_train_paths)} Yoga samples")
+    print(f"Using {len(sampled_coco_train)} COCO training samples and {len(yoga_train_paths)} Yoga training samples")
     print(f"Targeted ratio - COCO: {args.coco_weight:.2f}, Yoga: {args.yoga_weight:.2f}")
-    print(f"Actual ratio - COCO: {len(sampled_coco_train)/(len(sampled_coco_train)+len(yoga_train_paths)):.2f}, "
+    print(f"Actual train ratio - COCO: {len(sampled_coco_train)/(len(sampled_coco_train)+len(yoga_train_paths)):.2f}, "
           f"Yoga: {len(yoga_train_paths)/(len(sampled_coco_train)+len(yoga_train_paths)):.2f}")
+    
+    # 計算驗證集的採樣數量 - 使用與訓練集相同的比例
+    # 我們使用全部的Yoga驗證樣本，並根據權重比例調整COCO驗證樣本數量
+    target_coco_val_samples = int(len(yoga_val_paths) * args.coco_weight / args.yoga_weight)
+    
+    # 確保採樣數量不超過可用的COCO驗證樣本數量
+    sampled_coco_val = random.sample(coco_val_paths, min(target_coco_val_samples, len(coco_val_paths)))
+    
+    print(f"Using {len(sampled_coco_val)} COCO validation samples and {len(yoga_val_paths)} Yoga validation samples")
+    print(f"Actual val ratio - COCO: {len(sampled_coco_val)/(len(sampled_coco_val)+len(yoga_val_paths)):.2f}, "
+          f"Yoga: {len(yoga_val_paths)/(len(sampled_coco_val)+len(yoga_val_paths)):.2f}")
     
     # Create train.txt and val.txt
     train_txt_path = output_path / 'train.txt'
@@ -166,9 +177,7 @@ def create_mixed_dataset(args):
     
     # Process validation images
     with open(val_txt_path, 'w') as f:
-        # Process COCO validation images (take a subset)
-        sampled_coco_val = random.sample(coco_val_paths, min(len(coco_val_paths), 500))
-        
+        # Process COCO validation images (使用計算後的樣本數)
         for path in sampled_coco_val:
             if path.startswith('./'):
                 path = path[2:]  # Remove leading ./
