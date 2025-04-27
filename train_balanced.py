@@ -274,17 +274,17 @@ def validate_on_both(model_path, save_dir):
         f.write(f"Box mAP50: {coco_metrics.box.map50:.4f}\n")
         f.write(f"Box mAP50-95: {coco_metrics.box.map:.4f}\n")
         f.write(f"Box mAP75: {coco_metrics.box.map75:.4f}\n")
-        f.write(f"Pose mAP50: {coco_metrics.keypoints.map50:.4f}\n")
-        f.write(f"Pose mAP50-95: {coco_metrics.keypoints.map:.4f}\n")
-        f.write(f"Pose mAP75: {coco_metrics.keypoints.map75:.4f}\n\n")
+        f.write(f"Pose mAP50: {coco_metrics.pose.map50:.4f}\n")
+        f.write(f"Pose mAP50-95: {coco_metrics.pose.map:.4f}\n")
+        f.write(f"Pose mAP75: {coco_metrics.pose.map75:.4f}\n\n")
         
         f.write("Yoga82 數據集結果:\n")
         f.write(f"Box mAP50: {yoga_metrics.box.map50:.4f}\n")
         f.write(f"Box mAP50-95: {yoga_metrics.box.map:.4f}\n")
         f.write(f"Box mAP75: {yoga_metrics.box.map75:.4f}\n")
-        f.write(f"Pose mAP50: {yoga_metrics.keypoints.map50:.4f}\n")
-        f.write(f"Pose mAP50-95: {yoga_metrics.keypoints.map:.4f}\n")
-        f.write(f"Pose mAP75: {yoga_metrics.keypoints.map75:.4f}\n")
+        f.write(f"Pose mAP50: {yoga_metrics.pose.map50:.4f}\n")
+        f.write(f"Pose mAP50-95: {yoga_metrics.pose.map:.4f}\n")
+        f.write(f"Pose mAP75: {yoga_metrics.pose.map75:.4f}\n")
     
     print(f"驗證結果摘要已保存到 {summary_path}")
     return summary_path
