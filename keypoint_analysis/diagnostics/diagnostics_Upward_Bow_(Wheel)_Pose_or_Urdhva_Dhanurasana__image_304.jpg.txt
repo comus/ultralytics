@@ -1,0 +1,196 @@
+DETAILED KEYPOINT DIAGNOSTICS FOR Upward_Bow_(Wheel)_Pose_or_Urdhva_Dhanurasana__image_304.jpg
+================================================================================
+
+Original image dimensions: 400x600
+
+ORIGINAL PREDICTION (from find_difficult_poses):
+  0: person, (0.0, 0.0), conf=0.1141
+  1: Keypoint 1, (0.0, 0.0), conf=0.0109
+  2: Keypoint 2, (0.0, 0.0), conf=0.0448
+  3: Keypoint 3, (0.0, 0.0), conf=0.0669
+  4: Keypoint 4, (0.0, 0.0), conf=0.3876
+  5: Keypoint 5, (151.9, 257.8), conf=0.9005
+  6: Keypoint 6, (171.3, 249.9), conf=0.8841
+  7: Keypoint 7, (156.6, 249.0), conf=0.8901
+  8: Keypoint 8, (180.4, 229.6), conf=0.8496
+  9: Keypoint 9, (182.3, 232.7), conf=0.8096
+  10: Keypoint 10, (189.2, 224.5), conf=0.8014
+  11: Keypoint 11, (162.7, 303.0), conf=0.9909
+  12: Keypoint 12, (176.0, 305.8), conf=0.9882
+  13: Keypoint 13, (240.0, 357.2), conf=0.9838
+  14: Keypoint 14, (262.9, 355.4), conf=0.9861
+  15: Keypoint 15, (293.2, 424.4), conf=0.8309
+  16: Keypoint 16, (326.4, 423.0), conf=0.8473
+
+Keypoints with (0,0) coordinates in original prediction:
+  Keypoint 0: confidence=0.1141
+  Keypoint 1: confidence=0.0109
+  Keypoint 2: confidence=0.0448
+  Keypoint 3: confidence=0.0669
+  Keypoint 4: confidence=0.3876
+
+========================================
+RE-PREDICTION (to match predict.py):
+========================================
+
+Using img_size: 640
+
+
+Reference code from predict.py:
+
+                    # From predict.py:
+                    from ultralytics import YOLO
+                    model = YOLO("yolo11n-pose.pt")
+                    results = model(img_path, save=True)  # This uses letterboxing internally
+                    for result in results:
+                        kpts = result.keypoints.data
+                        print(kpts)
+                    
+
+Original PIL dimensions: 400x600
+
+Comparing model() vs model.predict() methods:
+========================================
+Input shape to model(): (600, 400)
+Preprocessing shape: 640x640
+model() prediction shape: (600, 400)
+
+DIRECT model() KEYPOINT DATA (as predict.py would show):
+  0: person, (0.0, 0.0), conf=0.1119
+  1: Keypoint 1, (0.0, 0.0), conf=0.0197
+  2: Keypoint 2, (0.0, 0.0), conf=0.0505
+  3: Keypoint 3, (0.0, 0.0), conf=0.0176
+  4: Keypoint 4, (0.0, 0.0), conf=0.0758
+  5: Keypoint 5, (175.5, 264.0), conf=0.6699
+  6: Keypoint 6, (162.9, 266.8), conf=0.7292
+  7: Keypoint 7, (169.6, 209.0), conf=0.9079
+  8: Keypoint 8, (171.0, 195.4), conf=0.9378
+  9: Keypoint 9, (171.8, 147.3), conf=0.8894
+  10: Keypoint 10, (157.9, 159.3), conf=0.9293
+  11: Keypoint 11, (172.9, 326.3), conf=0.9979
+  12: Keypoint 12, (148.9, 331.2), conf=0.9981
+  13: Keypoint 13, (261.0, 382.0), conf=0.9972
+  14: Keypoint 14, (164.0, 391.4), conf=0.9978
+  15: Keypoint 15, (331.4, 480.9), conf=0.9864
+  16: Keypoint 16, (171.8, 517.6), conf=0.9883
+
+Keypoints with (0,0) coordinates but non-zero confidence:
+  Keypoint 0: confidence=0.1119
+  Keypoint 1: confidence=0.0197
+  Keypoint 2: confidence=0.0505
+  Keypoint 3: confidence=0.0176
+  Keypoint 4: confidence=0.0758
+
+model.predict() KEYPOINT DATA:
+  0: person, (0.0, 0.0), conf=0.1119
+  1: Keypoint 1, (0.0, 0.0), conf=0.0197
+  2: Keypoint 2, (0.0, 0.0), conf=0.0505
+  3: Keypoint 3, (0.0, 0.0), conf=0.0176
+  4: Keypoint 4, (0.0, 0.0), conf=0.0758
+  5: Keypoint 5, (175.5, 264.0), conf=0.6699
+  6: Keypoint 6, (162.9, 266.8), conf=0.7292
+  7: Keypoint 7, (169.6, 209.0), conf=0.9079
+  8: Keypoint 8, (171.0, 195.4), conf=0.9378
+  9: Keypoint 9, (171.8, 147.3), conf=0.8894
+  10: Keypoint 10, (157.9, 159.3), conf=0.9293
+  11: Keypoint 11, (172.9, 326.3), conf=0.9979
+  12: Keypoint 12, (148.9, 331.2), conf=0.9981
+  13: Keypoint 13, (261.0, 382.0), conf=0.9972
+  14: Keypoint 14, (164.0, 391.4), conf=0.9978
+  15: Keypoint 15, (331.4, 480.9), conf=0.9864
+  16: Keypoint 16, (171.8, 517.6), conf=0.9883
+
+DIFFERENCES BETWEEN model() AND model.predict():
+
+Prediction dimensions: 400x600
+Scale factors: width=1.0000, height=1.0000
+Mean confidence of valid keypoints: 0.6650
+
+GROUND TRUTH KEYPOINTS:
+  0: person, (127.3, 457.4), conf=1.0000
+  1: Keypoint 1, (135.4, 461.3), conf=0.9999
+  2: Keypoint 2, (135.4, 461.4), conf=1.0000
+  3: Keypoint 3, (143.7, 454.2), conf=0.9999
+  4: Keypoint 4, (143.8, 454.4), conf=1.0000
+  5: Keypoint 5, (151.4, 420.5), conf=0.9998
+  6: Keypoint 6, (146.5, 429.5), conf=1.0000
+  7: Keypoint 7, (151.7, 478.4), conf=0.1879
+  8: Keypoint 8, (152.5, 502.0), conf=0.9993
+  9: Keypoint 9, (165.2, 522.8), conf=0.1724
+  10: Keypoint 10, (169.1, 563.4), conf=0.9987
+  11: Keypoint 11, (194.9, 308.5), conf=1.0000
+  12: Keypoint 12, (201.6, 328.9), conf=1.0000
+  13: Keypoint 13, (182.1, 210.6), conf=0.9998
+  14: Keypoint 14, (299.4, 378.1), conf=0.9989
+  15: Keypoint 15, (169.3, 97.3), conf=0.9999
+  16: Keypoint 16, (338.6, 450.3), conf=0.9944
+
+COMPARISON WITH GROUND TRUTH:
+  Keypoint 0: person
+    GT:   (127.3, 457.4), conf=1.0000
+    Pred: (0.0, 0.0), conf=0.1119
+    Error: 0.8261 normalized, 474.8 pixels
+  Keypoint 1: 
+    GT:   (135.4, 461.3), conf=0.9999
+    Pred: (0.0, 0.0), conf=0.0197
+    Error: 0.8401 normalized, 480.8 pixels
+  Keypoint 2: 
+    GT:   (135.4, 461.4), conf=1.0000
+    Pred: (0.0, 0.0), conf=0.0505
+    Error: 0.8402 normalized, 480.9 pixels
+  Keypoint 3: 
+    GT:   (143.7, 454.2), conf=0.9999
+    Pred: (0.0, 0.0), conf=0.0176
+    Error: 0.8379 normalized, 476.4 pixels
+  Keypoint 4: 
+    GT:   (143.8, 454.4), conf=1.0000
+    Pred: (0.0, 0.0), conf=0.0758
+    Error: 0.8384 normalized, 476.6 pixels
+  Keypoint 5: 
+    GT:   (151.4, 420.5), conf=0.9998
+    Pred: (175.5, 264.0), conf=0.6699
+    Error: 0.2677 normalized, 158.3 pixels
+  Keypoint 6: 
+    GT:   (146.5, 429.5), conf=1.0000
+    Pred: (162.9, 266.8), conf=0.7292
+    Error: 0.2742 normalized, 163.5 pixels
+  Keypoint 7: 
+    GT:   (151.7, 478.4), conf=0.1879
+    Pred: (169.6, 209.0), conf=0.9079
+    Error: 0.4512 normalized, 270.0 pixels
+  Keypoint 8: 
+    GT:   (152.5, 502.0), conf=0.9993
+    Pred: (171.0, 195.4), conf=0.9378
+    Error: 0.5131 normalized, 307.2 pixels
+  Keypoint 9: 
+    GT:   (165.2, 522.8), conf=0.1724
+    Pred: (171.8, 147.3), conf=0.8894
+    Error: 0.6259 normalized, 375.5 pixels
+  Keypoint 10: 
+    GT:   (169.1, 563.4), conf=0.9987
+    Pred: (157.9, 159.3), conf=0.9293
+    Error: 0.6741 normalized, 404.3 pixels
+  Keypoint 11: 
+    GT:   (194.9, 308.5), conf=1.0000
+    Pred: (172.9, 326.3), conf=0.9979
+    Error: 0.0626 normalized, 28.4 pixels
+  Keypoint 12: 
+    GT:   (201.6, 328.9), conf=1.0000
+    Pred: (148.9, 331.2), conf=0.9981
+    Error: 0.1318 normalized, 52.8 pixels
+  Keypoint 13: 
+    GT:   (182.1, 210.6), conf=0.9998
+    Pred: (261.0, 382.0), conf=0.9972
+    Error: 0.3473 normalized, 188.7 pixels
+  Keypoint 14: 
+    GT:   (299.4, 378.1), conf=0.9989
+    Pred: (164.0, 391.4), conf=0.9978
+    Error: 0.3392 normalized, 136.1 pixels
+  Keypoint 15: 
+    GT:   (169.3, 97.3), conf=0.9999
+    Pred: (331.4, 480.9), conf=0.9864
+    Error: 0.7570 normalized, 416.4 pixels
+  Keypoint 16: 
+    GT:   (338.6, 450.3), conf=0.9944
+    Pred: (171.8, 517.6), conf=0.9883
+    Error: 0.4319 normalized, 179.9 pixels

@@ -1,0 +1,18 @@
+Model Keypoint Confidence Difference Analysis
+================================================================================
+
+Sample 1:
+Image: /Users/region/yolo11-pose-distiller/datasets/yoga82/images/val/Handstand_pose_or_Adho_Mukha_Vrksasana__image_221.jpg
+Average confidence std dev: 0.2435
+Keypoint std devs: [    0.36044     0.35167     0.36824      0.2568     0.27319     0.13227     0.12282     0.14932     0.14799     0.11634     0.07629     0.30497     0.31234     0.31678     0.32007     0.26095      0.2692]
+
+Sample 2:
+Image: /Users/region/yolo11-pose-distiller/datasets/yoga82/images/val/Extended_Revolved_Triangle_Pose_or_Utthita_Trikonasana__image_251.jpg
+Average confidence std dev: 0.1841
+Keypoint std devs: [    0.14464     0.17758     0.22756     0.25518     0.13538    0.022723    0.062908      0.1356     0.29628     0.15883     0.29535     0.16003     0.20083     0.17525     0.20467     0.22898     0.24787]
+
+Sample 3:
+Image: /Users/region/yolo11-pose-distiller/datasets/yoga82/images/val/Wind_Relieving_pose_or_Pawanmuktasana_image_158.jpg
+Average confidence std dev: 0.1237
+Keypoint std devs: [    0.07922     0.15895     0.08954    0.010886    0.024922    0.020643   0.0083037     0.11513    0.031138     0.18339    0.036828     0.17186     0.15531     0.21665     0.20515     0.28324     0.31133]
+

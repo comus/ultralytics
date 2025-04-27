@@ -1,0 +1,10 @@
+/Users/region/yolo11-pose-distiller/datasets/yoga82/images/val/Warrior_I_Pose_or_Virabhadrasana_I__image_185.jpg
+/Users/region/yolo11-pose-distiller/datasets/yoga82/images/val/Bound_Angle_Pose_or_Baddha_Konasana__image_236.jpg
+/Users/region/yolo11-pose-distiller/datasets/yoga82/images/val/Reclining_Hand-to-Big-Toe_Pose_or_Supta_Padangusthasana__image_132.jpg
+/Users/region/yolo11-pose-distiller/datasets/yoga82/images/val/Wild_Thing_pose_or_Camatkarasana__image_199.jpg
+/Users/region/yolo11-pose-distiller/datasets/yoga82/images/val/Low_Lunge_pose_or_Anjaneyasana__image_220.jpg
+/Users/region/yolo11-pose-distiller/datasets/yoga82/images/val/Rajakapotasana_image_231.jpg
+/Users/region/yolo11-pose-distiller/datasets/yoga82/images/val/Side_Plank_Pose_or_Vasisthasana__image_348.jpg
+/Users/region/yolo11-pose-distiller/datasets/yoga82/images/val/Warrior_II_Pose_or_Virabhadrasana_II__image_289.jpg
+/Users/region/yolo11-pose-distiller/datasets/yoga82/images/val/Extended_Revolved_Triangle_Pose_or_Utthita_Trikonasana__image_226.jpg
+/Users/region/yolo11-pose-distiller/datasets/yoga82/images/val/Extended_Revolved_Side_Angle_Pose_or_Utthita_Parsvakonasana__image_271.jpg

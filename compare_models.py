@@ -1,6 +1,6 @@
 #!/usr/bin/env python
-# 瑜伽姿勢模型比較工具
-# 此腳本用於比較多個YOLO關鍵點檢測模型的性能差異
+# Yoga Pose Model Comparison Tool
+# This script compares the performance of multiple YOLO keypoint detection models
 
 import os
 import sys
@@ -22,20 +22,20 @@ sys.path.insert(0, parent_dir)
 from ultralytics import YOLO
 
 
-def compare_models(model_paths, data_yaml, output_dir=None, img_size=1280, batch_size=16, device='0'):
+def compare_models(model_paths, data_yaml, output_dir=None, img_size=640, batch_size=16, device='0'):
     """
-    比較多個模型的性能並生成比較報告
+    Compare multiple models' performance and generate comparison report
     
-    參數:
-        model_paths: 模型權重路徑列表
-        data_yaml: 數據配置文件路徑
-        output_dir: 輸出目錄
-        img_size: 圖像大小
-        batch_size: 批次大小
-        device: 運行設備
+    Args:
+        model_paths: List of model weight paths
+        data_yaml: Data configuration file path
+        output_dir: Output directory
+        img_size: Image size
+        batch_size: Batch size
+        device: Running device
     """
     if len(model_paths) < 2:
-        raise ValueError("至少需要提供兩個模型進行比較")
+        raise ValueError("At least two models need to be provided for comparison")
     
     if output_dir is None:
         output_dir = Path("model_comparison")
@@ -43,78 +43,94 @@ def compare_models(model_paths, data_yaml, output_dir=None, img_size=1280, batch
         output_dir = Path(output_dir)
     output_dir.mkdir(exist_ok=True)
     
-    print(f"比較 {len(model_paths)} 個模型...")
+    print(f"Comparing {len(model_paths)} models...")
     
-    # 載入所有模型
+    # Load all models
     models = []
     model_names = []
     validation_results = []
     
     for i, model_path in enumerate(model_paths):
-        print(f"載入模型 {i+1}/{len(model_paths)}: {model_path}")
+        print(f"Loading model {i+1}/{len(model_paths)}: {model_path}")
         model = YOLO(model_path)
         models.append(model)
         model_name = Path(model_path).stem
         model_names.append(model_name)
         
-        # 執行驗證
-        print(f"驗證模型: {model_name}")
+        # Run validation
+        print(f"Validating model: {model_name}")
         results = model.val(data=data_yaml, imgsz=img_size, batch=batch_size, device=device)
         validation_results.append(results)
     
-    # 比較並可視化結果
+    # Compare and visualize results
     compare_metrics(model_names, validation_results, output_dir)
     
-    # 尋找範例圖像進行視覺比較
+    # Find sample images for visual comparison
     sample_images = find_sample_images(data_yaml, output_dir)
     
-    # 生成視覺化比較結果
+    # Generate visual comparison results
     if sample_images:
-        generate_visual_comparisons(models, model_names, output_dir)
+        generate_visual_comparisons(models, model_names, output_dir, device=device)
         
     return models, model_names, validation_results
 
 
 def compare_metrics(model_names, validation_results, output_dir):
     """
-    比較多個模型的性能指標
+    Compare performance metrics among multiple models
     
-    參數:
-        model_names: 模型名稱列表
-        validation_results: 驗證結果列表
-        output_dir: 輸出目錄
+    Args:
+        model_names: List of model names
+        validation_results: List of validation results
+        output_dir: Output directory
     """
-    print("\n比較模型性能指標...")
+    print("\nComparing model performance metrics...")
     metrics_dir = output_dir / "metrics"
     metrics_dir.mkdir(exist_ok=True)
     
-    # 提取關鍵指標
+    # Extract key metrics
     box_map50 = []
-    box_map50_95 = []
+    box_map = []
     pose_map50 = []
-    pose_map50_95 = []
+    pose_map = []
     
     for result in validation_results:
-        # 提取Box mAP
+        # Extract Box mAP
         box_map50.append(result.box.map50)
-        box_map50_95.append(result.box.map50_95)
+        box_map.append(result.box.map)
         
-        # 提取Pose mAP
-        pose_map50.append(result.keypoints.map50 if hasattr(result, 'keypoints') else 0)
-        pose_map50_95.append(result.keypoints.map50_95 if hasattr(result, 'keypoints') else 0)
+        # Extract Pose mAP - fix this to properly access pose metrics
+        # According to docs: https://docs.ultralytics.com/tasks/pose/#val
+        print(f"Result keys: {dir(result)}")
+        
+        # First try to access pose metrics directly
+        if hasattr(result, 'pose'):
+            pose_map50.append(result.pose.map50)
+            pose_map.append(result.pose.map)
+        # Fall back to keypoints if pose not available
+        elif hasattr(result, 'keypoints'):
+            pose_map50.append(result.keypoints.map50)
+            pose_map.append(result.keypoints.map)
+        else:
+            # If no pose-related attributes are found, print available metrics
+            print(f"Warning: No pose metrics found. Available attributes: {dir(result)}")
+            if hasattr(result, 'box'):
+                print(f"Box metrics: {dir(result.box)}")
+            pose_map50.append(0)
+            pose_map.append(0)
     
-    # 創建比較表格
+    # Create comparison table
     with open(metrics_dir / "metrics_comparison.txt", "w") as f:
-        f.write("模型性能指標比較\n")
+        f.write("Model Performance Metrics Comparison\n")
         f.write("=" * 80 + "\n\n")
-        f.write(f"{'模型名稱':<20} {'Box mAP50':<10} {'Box mAP50-95':<12} {'Pose mAP50':<10} {'Pose mAP50-95':<12}\n")
+        f.write(f"{'Model Name':<20} {'Box mAP50':<10} {'Box mAP':<12} {'Pose mAP50':<10} {'Pose mAP':<12}\n")
         f.write("-" * 80 + "\n")
         
         for i, name in enumerate(model_names):
-            f.write(f"{name:<20} {box_map50[i]:<10.4f} {box_map50_95[i]:<12.4f} {pose_map50[i]:<10.4f} {pose_map50_95[i]:<12.4f}\n")
+            f.write(f"{name:<20} {box_map50[i]:<10.4f} {box_map[i]:<12.4f} {pose_map50[i]:<10.4f} {pose_map[i]:<12.4f}\n")
     
-    # 繪製比較圖表
-    # mAP50 比較
+    # Draw comparison charts
+    # mAP50 comparison
     plt.figure(figsize=(12, 6))
     x = np.arange(len(model_names))
     width = 0.35
@@ -122,9 +138,9 @@ def compare_metrics(model_names, validation_results, output_dir):
     plt.bar(x - width/2, box_map50, width, label='Box mAP50')
     plt.bar(x + width/2, pose_map50, width, label='Pose mAP50')
     
-    plt.xlabel('模型')
+    plt.xlabel('Model')
     plt.ylabel('mAP50')
-    plt.title('模型 mAP50 性能比較')
+    plt.title('Model mAP50 Performance Comparison')
     plt.xticks(x, model_names, rotation=45, ha='right')
     plt.ylim(0, 1.0)
     plt.legend()
@@ -133,45 +149,45 @@ def compare_metrics(model_names, validation_results, output_dir):
     plt.savefig(metrics_dir / 'map50_comparison.png', dpi=300)
     plt.close()
     
-    # mAP50-95 比較
+    # mAP comparison
     plt.figure(figsize=(12, 6))
-    plt.bar(x - width/2, box_map50_95, width, label='Box mAP50-95')
-    plt.bar(x + width/2, pose_map50_95, width, label='Pose mAP50-95')
+    plt.bar(x - width/2, box_map, width, label='Box mAP')
+    plt.bar(x + width/2, pose_map, width, label='Pose mAP')
     
-    plt.xlabel('模型')
-    plt.ylabel('mAP50-95')
-    plt.title('模型 mAP50-95 性能比較')
+    plt.xlabel('Model')
+    plt.ylabel('mAP')
+    plt.title('Model mAP Performance Comparison')
     plt.xticks(x, model_names, rotation=45, ha='right')
     plt.ylim(0, 1.0)
     plt.legend()
     plt.grid(True, alpha=0.3)
     plt.tight_layout()
-    plt.savefig(metrics_dir / 'map50_95_comparison.png', dpi=300)
+    plt.savefig(metrics_dir / 'map_comparison.png', dpi=300)
     plt.close()
     
-    print(f"指標比較完成，結果已保存到: {metrics_dir}")
+    print(f"Metrics comparison completed, results saved to: {metrics_dir}")
 
 
 def find_sample_images(data_yaml, output_dir, limit=10):
     """
-    從驗證數據集中尋找範例圖像進行比較
+    Find sample images from validation dataset for comparison
     
-    參數:
-        data_yaml: 數據配置文件路徑
-        output_dir: 輸出目錄
-        limit: 最大圖像數量
+    Args:
+        data_yaml: Data configuration file path
+        output_dir: Output directory
+        limit: Maximum number of images
         
-    返回:
-        範例圖像路徑列表
+    Returns:
+        List of sample image paths
     """
-    print("\n尋找範例圖像進行視覺比較...")
+    print("\nFinding sample images for visual comparison...")
     
-    # 從yaml中獲取驗證資料集路徑
+    # Get validation dataset path from yaml
     from ultralytics.data.utils import check_det_dataset
     data_dict = check_det_dataset(data_yaml)
     val_images = []
     
-    # 獲取驗證圖像路徑
+    # Get validation image paths
     if 'val' in data_dict:
         import glob
         if isinstance(data_dict['val'], str):
@@ -179,25 +195,25 @@ def find_sample_images(data_yaml, output_dir, limit=10):
             if os.path.isdir(val_path):
                 val_images = glob.glob(os.path.join(val_path, '**/*.jpg'), recursive=True)
                 val_images += glob.glob(os.path.join(val_path, '**/*.png'), recursive=True)
-            # 如果val指向一個文本文件
+            # If val points to a text file
             elif os.path.isfile(val_path) and val_path.endswith('.txt'):
                 with open(val_path, 'r') as f:
                     lines = f.readlines()
                 val_images = [line.strip() for line in lines]
     
-    # 如果沒有找到驗證圖像
+    # If no validation images found
     if not val_images:
-        print("警告: 未找到驗證圖像")
+        print("Warning: No validation images found")
         return []
     
-    # 隨機選擇圖像
+    # Randomly select images
     import random
     if len(val_images) > limit:
         sample_images = random.sample(val_images, limit)
     else:
         sample_images = val_images
     
-    # 保存樣本圖像路徑到文件中
+    # Save sample image paths to file
     samples_dir = output_dir / "samples"
     samples_dir.mkdir(exist_ok=True)
     
@@ -205,59 +221,60 @@ def find_sample_images(data_yaml, output_dir, limit=10):
         for img_path in sample_images:
             f.write(f"{img_path}\n")
     
-    print(f"已選擇 {len(sample_images)} 張範例圖像進行比較")
+    print(f"Selected {len(sample_images)} sample images for comparison")
     return sample_images
 
 
-def generate_visual_comparisons(models, model_names, output_dir):
+def generate_visual_comparisons(models, model_names, output_dir, device='cpu'):
     """
-    為範例圖像生成視覺比較結果
+    Generate visual comparison results for sample images
     
-    參數:
-        models: 模型列表
-        model_names: 模型名稱列表
-        output_dir: 輸出目錄
+    Args:
+        models: List of models
+        model_names: List of model names
+        output_dir: Output directory
+        device: Running device
     """
-    print("\n生成視覺化比較結果...")
+    print("\nGenerating visual comparison results...")
     
     samples_dir = output_dir / "samples"
     visual_dir = output_dir / "visual_comparison"
     visual_dir.mkdir(exist_ok=True)
     
-    # 讀取樣本圖像路徑
+    # Read sample image paths
     sample_images = []
     if os.path.exists(samples_dir / "sample_images.txt"):
         with open(samples_dir / "sample_images.txt", "r") as f:
             sample_images = [line.strip() for line in f.readlines()]
     
     if not sample_images:
-        print("警告: 未找到範例圖像，無法生成視覺比較")
+        print("Warning: No sample images found, cannot generate visual comparison")
         return
     
-    # 對每個樣本圖像運行所有模型
-    for i, img_path in enumerate(tqdm(sample_images, desc="生成視覺比較")):
+    # Run all models on each sample image
+    for i, img_path in enumerate(tqdm(sample_images, desc="Generating visual comparison")):
         if not os.path.exists(img_path):
-            print(f"警告: 圖像不存在 - {img_path}")
+            print(f"Warning: Image does not exist - {img_path}")
             continue
         
-        # 讀取原始圖像
+        # Read original image
         img_original = cv2.imread(img_path)
         if img_original is None:
-            print(f"警告: 無法讀取圖像 - {img_path}")
+            print(f"Warning: Cannot read image - {img_path}")
             continue
         
-        # 為每個模型運行預測
+        # Run prediction for each model
         model_results = []
         for j, model in enumerate(models):
-            results = model.predict(img_path, conf=0.25, device='0', verbose=False)
+            results = model.predict(img_path, conf=0.25, device=device, verbose=False)
             model_results.append(results[0])
         
-        # 創建網格顯示所有模型結果
+        # Create grid to display all model results
         n_models = len(models)
-        grid_rows = 1 + (n_models // 3) if n_models > 3 else 2  # 至少2行
-        grid_cols = min(n_models, 3)  # 每行最多3個模型
+        grid_rows = 1 + (n_models // 3) if n_models > 3 else 2  # At least 2 rows
+        grid_cols = min(n_models, 3)  # Max 3 models per row
         
-        # 計算網格圖像大小
+        # Calculate grid image size
         h, w = img_original.shape[:2]
         aspect_ratio = w / h
         grid_width = 1200
@@ -265,19 +282,19 @@ def generate_visual_comparisons(models, model_names, output_dir):
         cell_height = int(cell_width / aspect_ratio)
         grid_height = cell_height * grid_rows
         
-        # 創建網格圖像
+        # Create grid image
         grid_img = np.ones((grid_height, grid_width, 3), dtype=np.uint8) * 255
         
-        # 第一行放原始圖像
+        # First row for original image
         img_resized = cv2.resize(img_original, (cell_width, cell_height))
         grid_img[0:cell_height, 0:cell_width] = img_resized
         
-        # 添加原始圖像標題
-        cv2.putText(grid_img, "原始圖像", (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 0), 2)
+        # Add original image title
+        cv2.putText(grid_img, "Original Image", (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 0), 2)
         
-        # 添加每個模型的結果
+        # Add each model's results
         for j, result in enumerate(model_results):
-            # 計算網格中的位置
+            # Calculate position in grid
             row = (j + 1) // grid_cols
             col = (j + 1) % grid_cols
             y1 = row * cell_height
@@ -285,48 +302,49 @@ def generate_visual_comparisons(models, model_names, output_dir):
             x1 = col * cell_width
             x2 = x1 + cell_width
             
-            # 獲取帶有預測的圖像
+            # Get image with predictions
             pred_img = result.plot(conf=0.25, line_width=2, font_size=1, kpt_line=True, 
-                                  kpt_radius=4, kpt_line_thickness=2)
+                                  kpt_radius=4)
             pred_img_resized = cv2.resize(pred_img, (cell_width, cell_height))
             
-            # 放入網格
+            # Place in grid
             grid_img[y1:y2, x1:x2] = pred_img_resized
             
-            # 添加模型名稱
+            # Add model name
             cv2.putText(grid_img, model_names[j], (x1 + 10, y1 + 30), 
                        cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 0), 2)
         
-        # 保存網格圖像
+        # Save grid image
         output_file = visual_dir / f"comparison_{i+1:03d}.jpg"
         cv2.imwrite(str(output_file), grid_img)
     
-    print(f"視覺比較已完成，結果已保存到: {visual_dir}")
+    print(f"Visual comparison completed, results saved to: {visual_dir}")
 
 
-def analyze_confidence_differences(models, model_names, data_yaml, output_dir, num_samples=5):
+def analyze_confidence_differences(models, model_names, data_yaml, output_dir, num_samples=5, device='cpu'):
     """
-    分析不同模型之間關鍵點置信度的差異
+    Analyze keypoint confidence differences between models
     
-    參數:
-        models: 模型列表
-        model_names: 模型名稱列表
-        data_yaml: 數據配置文件路徑
-        output_dir: 輸出目錄
-        num_samples: 顯示的樣本數量
+    Args:
+        models: List of models
+        model_names: List of model names
+        data_yaml: Data configuration file path
+        output_dir: Output directory
+        num_samples: Number of samples to display
+        device: Running device
     """
-    print("\n分析模型間關鍵點置信度差異...")
+    print("\nAnalyzing keypoint confidence differences between models...")
     
-    # 創建輸出目錄
+    # Create output directory
     conf_dir = output_dir / "confidence_analysis"
     conf_dir.mkdir(exist_ok=True)
     
-    # 從yaml中獲取驗證資料集路徑
+    # Get validation dataset path from yaml
     from ultralytics.data.utils import check_det_dataset
     data_dict = check_det_dataset(data_yaml)
     val_images = []
     
-    # 獲取驗證圖像路徑
+    # Get validation image paths
     if 'val' in data_dict:
         import glob
         if isinstance(data_dict['val'], str):
@@ -339,35 +357,35 @@ def analyze_confidence_differences(models, model_names, data_yaml, output_dir, n
                     lines = f.readlines()
                 val_images = [line.strip() for line in lines]
     
-    # 如果沒有找到驗證圖像
+    # If no validation images found
     if not val_images:
-        print("警告: 未找到驗證圖像，無法分析置信度差異")
+        print("Warning: No validation images found, cannot analyze confidence differences")
         return
     
-    # 隨機選擇圖像
+    # Randomly select images
     import random
-    sample_size = min(len(val_images), 50)  # 隨機分析50張圖像
+    sample_size = min(len(val_images), 50)  # Randomly analyze 50 images
     selected_images = random.sample(val_images, sample_size)
     
-    # 收集每個模型的關鍵點置信度
+    # Collect keypoint confidence for each model
     confidence_diffs = []
     
-    for img_path in tqdm(selected_images, desc="分析置信度差異"):
+    for img_path in tqdm(selected_images, desc="Analyzing confidence differences"):
         if not os.path.exists(img_path):
             continue
         
-        # 為每個模型運行預測
+        # Run prediction for each model
         all_kpt_confs = []
         for model in models:
-            results = model.predict(img_path, conf=0.25, device='0', verbose=False)
+            results = model.predict(img_path, conf=0.25, device=device, verbose=False)
             
-            # 如果有檢測到關鍵點
+            # If keypoints detected
             if len(results[0].keypoints) > 0:
-                kpts = results[0].keypoints.data[0]  # 只取第一個檢測對象
+                kpts = results[0].keypoints.data[0]  # Only take first detection object
                 
-                # 確保有關鍵點
+                # Ensure there are keypoints
                 if kpts.shape[0] > 0:
-                    # 提取置信度
+                    # Extract confidence values
                     conf_values = kpts[:, 2].cpu().numpy()
                     all_kpt_confs.append(conf_values)
                 else:
@@ -375,18 +393,18 @@ def analyze_confidence_differences(models, model_names, data_yaml, output_dir, n
             else:
                 all_kpt_confs.append(None)
         
-        # 計算模型間的置信度差異
+        # Calculate confidence differences between models
         if len(all_kpt_confs) == len(models) and all(x is not None for x in all_kpt_confs):
-            # 確保所有關鍵點配置相同
+            # Ensure all keypoint configurations are the same
             if len(set(x.shape[0] for x in all_kpt_confs)) == 1:
-                # 計算每個關鍵點的置信度標準差
+                # Calculate standard deviation for each keypoint confidence
                 kpt_stds = np.std(all_kpt_confs, axis=0)
                 
-                # 計算平均標準差
+                # Calculate average standard deviation
                 avg_std = np.mean(kpt_stds)
                 
-                # 儲存高標準差的案例
-                if avg_std > 0.1:  # 只關注標準差較大的案例
+                # Store cases with high standard deviation
+                if avg_std > 0.1:  # Only focus on cases with higher standard deviation
                     confidence_diffs.append({
                         'img_path': img_path,
                         'kpt_stds': kpt_stds,
@@ -394,66 +412,67 @@ def analyze_confidence_differences(models, model_names, data_yaml, output_dir, n
                         'confs': all_kpt_confs
                     })
     
-    # 按平均標準差排序
+    # Sort by average standard deviation
     if confidence_diffs:
         confidence_diffs.sort(key=lambda x: x['avg_std'], reverse=True)
         
-        # 將結果保存到文件
+        # Save results to file
         with open(conf_dir / "confidence_differences.txt", "w") as f:
-            f.write("模型關鍵點置信度差異分析\n")
+            f.write("Model Keypoint Confidence Difference Analysis\n")
             f.write("=" * 80 + "\n\n")
             
-            for i, diff in enumerate(confidence_diffs[:20]):  # 只顯示前20個差異最大的
-                f.write(f"樣本 {i+1}:\n")
-                f.write(f"圖像: {diff['img_path']}\n")
-                f.write(f"平均置信度標準差: {diff['avg_std']:.4f}\n")
-                f.write(f"關鍵點標準差: {diff['kpt_stds']}\n\n")
+            for i, diff in enumerate(confidence_diffs[:20]):  # Only show top 20 with largest differences
+                f.write(f"Sample {i+1}:\n")
+                f.write(f"Image: {diff['img_path']}\n")
+                f.write(f"Average confidence std dev: {diff['avg_std']:.4f}\n")
+                f.write(f"Keypoint std devs: {diff['kpt_stds']}\n\n")
         
-        # 視覺化差異最大的幾個案例
+        # Visualize cases with largest differences
         visualize_confidence_differences(models, model_names, 
                                         [d['img_path'] for d in confidence_diffs[:num_samples]], 
-                                        conf_dir, num_samples)
+                                        conf_dir, num_samples, device)
     else:
-        print("未找到顯著的置信度差異")
+        print("No significant confidence differences found")
     
-    print(f"置信度差異分析完成，結果已保存到: {conf_dir}")
+    print(f"Confidence difference analysis completed, results saved to: {conf_dir}")
 
 
-def visualize_confidence_differences(models, model_names, image_paths, output_dir, num_samples=5):
+def visualize_confidence_differences(models, model_names, image_paths, output_dir, num_samples=5, device='cpu'):
     """
-    視覺化模型間關鍵點置信度的顯著差異
+    Visualize significant keypoint confidence differences between models
     
-    參數:
-        models: 模型列表
-        model_names: 模型名稱列表
-        image_paths: 圖像路徑列表
-        output_dir: 輸出目錄
-        num_samples: 樣本數量
+    Args:
+        models: List of models
+        model_names: List of model names
+        image_paths: List of image paths
+        output_dir: Output directory
+        num_samples: Number of samples
+        device: Running device
     """
-    print(f"\n視覺化 {min(num_samples, len(image_paths))} 個置信度差異顯著的案例...")
+    print(f"\nVisualizing {min(num_samples, len(image_paths))} cases with significant confidence differences...")
     
     for i, img_path in enumerate(image_paths[:num_samples]):
         if not os.path.exists(img_path):
-            print(f"警告: 圖像不存在 - {img_path}")
+            print(f"Warning: Image does not exist - {img_path}")
             continue
         
-        # 讀取原始圖像
+        # Read original image
         img_original = cv2.imread(img_path)
         if img_original is None:
-            print(f"警告: 無法讀取圖像 - {img_path}")
+            print(f"Warning: Cannot read image - {img_path}")
             continue
         
         h, w = img_original.shape[:2]
         
-        # 為每個模型運行預測
+        # Run prediction for each model
         model_results = []
         all_kpt_confs = []
         
         for j, model in enumerate(models):
-            results = model.predict(img_path, conf=0.25, device='0', verbose=False)
+            results = model.predict(img_path, conf=0.25, device=device, verbose=False)
             model_results.append(results[0])
             
-            # 提取關鍵點置信度
+            # Extract keypoint confidence
             if len(results[0].keypoints) > 0:
                 kpts = results[0].keypoints.data[0]
                 if kpts.shape[0] > 0:
@@ -464,81 +483,81 @@ def visualize_confidence_differences(models, model_names, image_paths, output_di
             else:
                 all_kpt_confs.append(None)
         
-        # 創建網格顯示所有模型結果
+        # Create grid to display all model results
         n_models = len(models)
-        grid_rows = 1 + n_models  # 第一行放原始圖像
+        grid_rows = 1 + n_models  # First row for original image
         grid_cols = 1
         
-        # 設置網格尺寸
+        # Set grid size
         cell_height = 480
         cell_width = int(cell_height * (w / h))
         grid_height = cell_height * grid_rows
         grid_width = cell_width
         
-        # 創建網格圖像
+        # Create grid image
         grid_img = np.ones((grid_height, grid_width, 3), dtype=np.uint8) * 255
         
-        # 第一行放原始圖像
+        # First row for original image
         img_resized = cv2.resize(img_original, (cell_width, cell_height))
         grid_img[0:cell_height, 0:cell_width] = img_resized
         
-        # 添加原始圖像標題
-        cv2.putText(grid_img, "原始圖像", (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 0), 2)
+        # Add original image title
+        cv2.putText(grid_img, "Original Image", (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 0), 2)
         
-        # 添加每個模型的結果
+        # Add each model's results
         for j, result in enumerate(model_results):
-            row = j + 1  # 從第二行開始
+            row = j + 1  # Start from second row
             y1 = row * cell_height
             y2 = y1 + cell_height
             x1 = 0
             x2 = cell_width
             
-            # 獲取帶有預測的圖像
+            # Get image with predictions
             pred_img = result.plot(conf=0.25, line_width=2, font_size=1, kpt_line=True, 
-                                  kpt_radius=4, kpt_line_thickness=2)
+                                  kpt_radius=4)
             pred_img_resized = cv2.resize(pred_img, (cell_width, cell_height))
             
-            # 放入網格
+            # Place in grid
             grid_img[y1:y2, x1:x2] = pred_img_resized
             
-            # 添加模型名稱和置信度信息
+            # Add model name and confidence info
             model_title = f"{model_names[j]}"
             if all_kpt_confs[j] is not None:
                 avg_conf = np.mean(all_kpt_confs[j])
-                model_title += f" (平均置信度: {avg_conf:.3f})"
+                model_title += f" (Avg Conf: {avg_conf:.3f})"
             
             cv2.putText(grid_img, model_title, (x1 + 10, y1 + 30), 
                        cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 0), 2)
         
-        # 保存網格圖像
+        # Save grid image
         output_file = output_dir / f"conf_diff_{i+1:03d}.jpg"
         cv2.imwrite(str(output_file), grid_img)
     
-    print(f"置信度差異視覺化已完成，結果已保存到: {output_dir}")
+    print(f"Confidence difference visualization completed, results saved to: {output_dir}")
 
 
 def parse_args():
-    parser = argparse.ArgumentParser(description='比較多個瑜伽姿勢模型並生成比較報告')
-    parser.add_argument('--models', nargs='+', required=True, help='模型權重路徑列表（至少2個）')
-    parser.add_argument('--data', type=str, required=True, help='數據YAML文件路徑')
-    parser.add_argument('--output-dir', type=str, default='model_comparison', help='輸出目錄')
-    parser.add_argument('--img-size', type=int, default=1280, help='驗證用圖像大小')
-    parser.add_argument('--batch-size', type=int, default=16, help='驗證用批次大小')
-    parser.add_argument('--device', type=str, default='0', help='運行設備（例如: 0 或 cpu）')
-    parser.add_argument('--analyze-confidence', action='store_true', help='分析模型間關鍵點置信度差異')
-    parser.add_argument('--num-samples', type=int, default=5, help='用於置信度差異視覺化的樣本數量')
+    parser = argparse.ArgumentParser(description='Compare multiple yoga pose models and generate comparison report')
+    parser.add_argument('--models', nargs='+', required=True, help='List of model weight paths (at least 2)')
+    parser.add_argument('--data', type=str, required=True, help='Data YAML file path')
+    parser.add_argument('--output-dir', type=str, default='model_comparison', help='Output directory')
+    parser.add_argument('--img-size', type=int, default=640, help='Image size for validation')
+    parser.add_argument('--batch-size', type=int, default=16, help='Batch size for validation')
+    parser.add_argument('--device', type=str, default='cpu', help='Running device (e.g., 0 or cpu)')
+    parser.add_argument('--analyze-confidence', action='store_true', help='Analyze keypoint confidence differences between models')
+    parser.add_argument('--num-samples', type=int, default=5, help='Number of samples for confidence difference visualization')
     return parser.parse_args()
 
 
 if __name__ == '__main__':
     args = parse_args()
     
-    # 檢查是否提供了足夠的模型
+    # Check if enough models provided
     if len(args.models) < 2:
-        print("錯誤: 至少需要提供兩個模型進行比較")
+        print("Error: At least two models need to be provided for comparison")
         sys.exit(1)
     
-    # 進行模型比較
+    # Perform model comparison
     models, model_names, validation_results = compare_models(
         model_paths=args.models,
         data_yaml=args.data,
@@ -548,14 +567,15 @@ if __name__ == '__main__':
         device=args.device
     )
     
-    # 如果需要分析置信度差異
+    # If confidence difference analysis requested
     if args.analyze_confidence:
         analyze_confidence_differences(
             models=models,
             model_names=model_names,
             data_yaml=args.data,
             output_dir=Path(args.output_dir),
-            num_samples=args.num_samples
+            num_samples=args.num_samples,
+            device=args.device
         )
     
-    print("模型比較完成！") 
+    print("Model comparison completed!") 

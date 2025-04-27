@@ -1,0 +1,40 @@
+Keypoint Detection Statistics for yoga82
+==================================================
+
+Detection Rates:
+nose           : 1.0000
+left_eye       : 1.0000
+right_eye      : 1.0000
+left_ear       : 1.0000
+right_ear      : 1.0000
+left_shoulder  : 1.0000
+right_shoulder : 1.0000
+left_elbow     : 1.0000
+right_elbow    : 1.0000
+left_wrist     : 1.0000
+right_wrist    : 1.0000
+left_hip       : 1.0000
+right_hip      : 1.0000
+left_knee      : 1.0000
+right_knee     : 1.0000
+left_ankle     : 1.0000
+right_ankle    : 1.0000
+
+Average Confidences:
+nose           : 0.8931
+left_eye       : 0.7660
+right_eye      : 0.8125
+left_ear       : 0.6051
+right_ear      : 0.6270
+left_shoulder  : 0.9529
+right_shoulder : 0.9575
+left_elbow     : 0.9076
+right_elbow    : 0.9494
+left_wrist     : 0.8927
+right_wrist    : 0.9349
+left_hip       : 0.9692
+right_hip      : 0.9717
+left_knee      : 0.9276
+right_knee     : 0.9363
+left_ankle     : 0.7894
+right_ankle    : 0.8093

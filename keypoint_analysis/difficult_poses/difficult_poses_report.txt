@@ -1,0 +1,136 @@
+Most Difficult Poses Detection Report
+=============================
+
+Scoring criteria: This report combines keypoint prediction confidence and error compared to ground truth.
+Higher difficulty scores indicate poses where accurate keypoint detection is more challenging.
+
+Difficult Pose 1
+Image Path: /Users/region/yolo11-pose-distiller/datasets/yoga82/images/val/Supported_Headstand_pose_or_Salamba_Sirsasana__image_290.jpg
+Pose Type: Supported Headstand pose
+Difficulty Score: 0.779
+Confidence Difficulty: 0.794
+Error Score: 0.773
+Most Difficult Keypoints (sorted by error):
+  Keypoint 6 (6): Error 1.121
+  Keypoint 4 (4): Error 1.104
+  Keypoint 2 (2): Error 1.096
+  Keypoint 8 (8): Error 1.063
+  person (0): Error 1.060
+
+Difficult Pose 2
+Image Path: /Users/region/yolo11-pose-distiller/datasets/yoga82/images/val/Upward_Bow_(Wheel)_Pose_or_Urdhva_Dhanurasana__image_259.jpg
+Pose Type: Upward Bow (Wheel) Pose
+Difficulty Score: 0.561
+Confidence Difficulty: 0.480
+Error Score: 0.596
+Most Difficult Keypoints (sorted by error):
+  Keypoint 16 (16): Error 1.162
+  Keypoint 9 (9): Error 0.859
+  Keypoint 1 (1): Error 0.824
+  Keypoint 2 (2): Error 0.823
+  person (0): Error 0.815
+
+Difficult Pose 3
+Image Path: /Users/region/yolo11-pose-distiller/datasets/yoga82/images/val/Side_Crane_(Crow)_Pose_or_Parsva_Bakasana__image_167.jpg
+Pose Type: Side Crane (Crow) Pose
+Difficulty Score: 0.493
+Confidence Difficulty: 0.516
+Error Score: 0.483
+Most Difficult Keypoints (sorted by error):
+  Keypoint 9 (9): Error 1.023
+  Keypoint 10 (10): Error 0.994
+  Keypoint 7 (7): Error 0.922
+  Keypoint 3 (3): Error 0.907
+  Keypoint 13 (13): Error 0.784
+
+Difficult Pose 4
+Image Path: /Users/region/yolo11-pose-distiller/datasets/yoga82/images/val/Half_Lord_of_the_Fishes_Pose_or_Ardha_Matsyendrasana__image_270.jpg
+Pose Type: Half Lord of the Fishes Pose
+Difficulty Score: 0.483
+Confidence Difficulty: 0.580
+Error Score: 0.442
+Most Difficult Keypoints (sorted by error):
+  Keypoint 16 (16): Error 1.146
+  Keypoint 13 (13): Error 1.126
+  Keypoint 15 (15): Error 1.002
+  Keypoint 14 (14): Error 0.846
+  Keypoint 10 (10): Error 0.499
+
+Difficult Pose 5
+Image Path: /Users/region/yolo11-pose-distiller/datasets/yoga82/images/val/Scorpion_pose_or_vrischikasana_image_198.jpg
+Pose Type: Scorpion pose
+Difficulty Score: 0.428
+Confidence Difficulty: 0.392
+Error Score: 0.443
+Most Difficult Keypoints (sorted by error):
+  Keypoint 5 (5): Error 0.775
+  person (0): Error 0.767
+  Keypoint 1 (1): Error 0.766
+  Keypoint 3 (3): Error 0.759
+  Keypoint 2 (2): Error 0.738
+
+Difficult Pose 6
+Image Path: /Users/region/yolo11-pose-distiller/datasets/yoga82/images/val/Upward_Bow_(Wheel)_Pose_or_Urdhva_Dhanurasana__image_304.jpg
+Pose Type: Upward Bow (Wheel) Pose
+Difficulty Score: 0.423
+Confidence Difficulty: 0.330
+Error Score: 0.463
+Most Difficult Keypoints (sorted by error):
+  Keypoint 2 (2): Error 0.840
+  Keypoint 1 (1): Error 0.840
+  Keypoint 4 (4): Error 0.838
+  Keypoint 3 (3): Error 0.838
+  person (0): Error 0.826
+
+Difficult Pose 7
+Image Path: /Users/region/yolo11-pose-distiller/datasets/yoga82/images/val/Frog_Pose_or_Bhekasana_image_126.jpg
+Pose Type: Frog Pose
+Difficulty Score: 0.402
+Confidence Difficulty: 0.380
+Error Score: 0.412
+Most Difficult Keypoints (sorted by error):
+  person (0): Error 0.973
+  Keypoint 2 (2): Error 0.956
+  Keypoint 1 (1): Error 0.954
+  Keypoint 16 (16): Error 0.797
+  Keypoint 7 (7): Error 0.797
+
+Difficult Pose 8
+Image Path: /Users/region/yolo11-pose-distiller/datasets/yoga82/images/val/Half_Lord_of_the_Fishes_Pose_or_Ardha_Matsyendrasana__image_264.jpg
+Pose Type: Half Lord of the Fishes Pose
+Difficulty Score: 0.328
+Confidence Difficulty: 0.385
+Error Score: 0.304
+Most Difficult Keypoints (sorted by error):
+  Keypoint 13 (13): Error 1.131
+  Keypoint 16 (16): Error 1.094
+  Keypoint 15 (15): Error 1.035
+  Keypoint 14 (14): Error 0.830
+  Keypoint 2 (2): Error 0.519
+
+Difficult Pose 9
+Image Path: /Users/region/yolo11-pose-distiller/datasets/yoga82/images/val/Cow_Face_Pose_or_Gomukhasana__image_188.jpg
+Pose Type: Cow Face Pose
+Difficulty Score: 0.263
+Confidence Difficulty: 0.260
+Error Score: 0.264
+Most Difficult Keypoints (sorted by error):
+  Keypoint 16 (16): Error 1.149
+  Keypoint 13 (13): Error 1.130
+  Keypoint 15 (15): Error 1.036
+  Keypoint 14 (14): Error 1.028
+  Keypoint 12 (12): Error 0.034
+
+Difficult Pose 10
+Image Path: /Users/region/yolo11-pose-distiller/datasets/yoga82/images/val/Head-to-Knee_Forward_Bend_pose_or_Janu_Sirsasana__image_166.jpg
+Pose Type: Head-to-Knee Forward Bend pose
+Difficulty Score: 0.252
+Confidence Difficulty: 0.300
+Error Score: 0.231
+Most Difficult Keypoints (sorted by error):
+  Keypoint 1 (1): Error 0.630
+  Keypoint 3 (3): Error 0.609
+  Keypoint 4 (4): Error 0.600
+  Keypoint 14 (14): Error 0.546
+  Keypoint 16 (16): Error 0.469
+
