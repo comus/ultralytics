@@ -98,8 +98,8 @@ def create_mixed_dataset(args):
             shutil.copy(img_path, dest_img)
             shutil.copy(label_path, dest_label)
             
-            # Write to train.txt
-            f.write(f"{args.output_dir}/images/train/{img_path.name}\n")
+            # Write to train.txt using the original format (./images/...)
+            f.write(f"./images/train/{img_path.name}\n")
         
         # Process Yoga training images
         for path in yoga_train_paths:
@@ -121,8 +121,8 @@ def create_mixed_dataset(args):
             shutil.copy(img_path, dest_img)
             shutil.copy(label_path, dest_label)
             
-            # Write to train.txt
-            f.write(f"{args.output_dir}/images/train/{img_path.name}\n")
+            # Write to train.txt using the original format (./images/...)
+            f.write(f"./images/train/{img_path.name}\n")
     
     # Process validation images
     with open(val_txt_path, 'w') as f:
@@ -149,7 +149,8 @@ def create_mixed_dataset(args):
             shutil.copy(img_path, dest_img)
             shutil.copy(label_path, dest_label)
             
-            f.write(f"{args.output_dir}/images/val/{img_path.name}\n")
+            # Write to val.txt using the original format (./images/...)
+            f.write(f"./images/val/{img_path.name}\n")
         
         # Process all Yoga validation images
         for path in yoga_val_paths:
@@ -169,16 +170,17 @@ def create_mixed_dataset(args):
             shutil.copy(img_path, dest_img)
             shutil.copy(label_path, dest_label)
             
-            f.write(f"{args.output_dir}/images/val/{img_path.name}\n")
+            # Write to val.txt using the original format (./images/...)
+            f.write(f"./images/val/{img_path.name}\n")
     
     # Create a new YAML configuration file
     yaml_path = output_path / 'mixed_coco_yoga.yaml'
     with open(yaml_path, 'w') as f:
         f.write(f"""# Mixed COCO-Pose and Yoga82 dataset configuration
-path: {args.datasets_path}  # Base path to dataset
-train: {args.output_dir}/train.txt  # Training images
-val: {args.output_dir}/val.txt  # Validation images
-test: {args.output_dir}/val.txt  # Test images
+path: {args.datasets_path}/{args.output_dir}  # Base path to dataset
+train: train.txt  # Training images
+val: val.txt  # Validation images
+test: val.txt  # Test images
 
 # Keypoint configuration - same as COCO and Yoga82
 kpt_shape: [17, 3]  # Number of keypoints and dimensions (x,y,visibility)
@@ -191,7 +193,7 @@ names:
     
     print(f"Created mixed dataset at {output_path}")
     print(f"Configuration file created at {yaml_path}")
-    print(f"Use this configuration for training: --data {args.output_dir}/mixed_coco_yoga.yaml")
+    print(f"Use this configuration for training: --data {args.datasets_path}/{args.output_dir}/mixed_coco_yoga.yaml")
 
 if __name__ == "__main__":
     args = parse_args()
