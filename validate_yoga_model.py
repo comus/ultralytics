@@ -15,20 +15,27 @@ import torch
 import cv2
 from tqdm import tqdm
 
-def validate_with_multiple_thresholds(model_path, data_yaml, img_size=1280, batch_size=16, device='0'):
+def validate_with_multiple_thresholds(model_path, data_yaml, img_size=640, batch_size=16, device='0'):
     """Validate model with multiple confidence thresholds and generate performance plots"""
     model = YOLO(model_path)
     
     # Test with different confidence thresholds
     conf_thresholds = [0.05, 0.1, 0.15, 0.2, 0.25, 0.3, 0.4, 0.5]
-    kp_conf_thresholds = [0.01, 0.02, 0.05, 0.1, 0.15, 0.2, 0.3]
+    
+    # Test with different IoU thresholds
+    iou_thresholds = [0.5, 0.55, 0.6, 0.65, 0.7, 0.75, 0.8]
     
     results = {}
     print(f"Evaluating model: {model_path}")
     
     # Baseline validation with default settings
     baseline = model.val(data=data_yaml, imgsz=img_size, batch=batch_size, device=device)
-    print(f"Baseline mAP50-95: {baseline.box.map50_95:.4f}, mAP50: {baseline.box.map50:.4f}")
+    print(f"Baseline mAP: {baseline.box.map:.4f}, mAP50: {baseline.box.map50:.4f}")
+    
+    # Show available attributes for debugging
+    print(f"\nAvailable metrics attributes: {dir(baseline)}")
+    if hasattr(baseline, 'pose'):
+        print(f"Pose metrics: {dir(baseline.pose)}")
     
     # Test with different detection confidence thresholds
     print("\nTesting different detection confidence thresholds:")
@@ -36,25 +43,45 @@ def validate_with_multiple_thresholds(model_path, data_yaml, img_size=1280, batc
     for conf in conf_thresholds:
         metrics = model.val(data=data_yaml, imgsz=img_size, batch=batch_size, 
                            device=device, conf=conf, verbose=False)
-        map50_95 = metrics.box.map50_95
+        map_val = metrics.box.map
         map50 = metrics.box.map50
-        print(f"Conf: {conf:.2f}, mAP50-95: {map50_95:.4f}, mAP50: {map50:.4f}")
-        map_results.append((conf, map50_95, map50))
+        
+        # Get pose metrics if available
+        pose_map = 0
+        pose_map50 = 0
+        if hasattr(metrics, 'pose'):
+            pose_map = metrics.pose.map
+            pose_map50 = metrics.pose.map50
+            print(f"Conf: {conf:.2f}, Box mAP: {map_val:.4f}, Box mAP50: {map50:.4f}, Pose mAP: {pose_map:.4f}, Pose mAP50: {pose_map50:.4f}")
+        else:
+            print(f"Conf: {conf:.2f}, Box mAP: {map_val:.4f}, Box mAP50: {map50:.4f}")
+            
+        map_results.append((conf, map_val, map50, pose_map, pose_map50))
     
     results['conf_thresholds'] = map_results
     
-    # Test with different keypoint confidence thresholds
-    print("\nTesting different keypoint confidence thresholds:")
-    kp_results = []
-    for kp_conf in kp_conf_thresholds:
+    # Test with different IoU thresholds
+    print("\nTesting different IoU thresholds (for NMS):")
+    iou_results = []
+    for iou in iou_thresholds:
         metrics = model.val(data=data_yaml, imgsz=img_size, batch=batch_size, 
-                           device=device, conf=0.2, kpt_conf=kp_conf, verbose=False)
-        map50_95 = metrics.box.map50_95
+                           device=device, iou=iou, verbose=False)
+        map_val = metrics.box.map
         map50 = metrics.box.map50
-        print(f"KP Conf: {kp_conf:.3f}, mAP50-95: {map50_95:.4f}, mAP50: {map50:.4f}")
-        kp_results.append((kp_conf, map50_95, map50))
+        
+        # Get pose metrics if available
+        pose_map = 0
+        pose_map50 = 0
+        if hasattr(metrics, 'pose'):
+            pose_map = metrics.pose.map
+            pose_map50 = metrics.pose.map50
+            print(f"IoU: {iou:.2f}, Box mAP: {map_val:.4f}, Box mAP50: {map50:.4f}, Pose mAP: {pose_map:.4f}, Pose mAP50: {pose_map50:.4f}")
+        else:
+            print(f"IoU: {iou:.2f}, Box mAP: {map_val:.4f}, Box mAP50: {map50:.4f}")
+            
+        iou_results.append((iou, map_val, map50, pose_map, pose_map50))
     
-    results['kp_conf_thresholds'] = kp_results
+    results['iou_thresholds'] = iou_results
     
     # Plot results
     plot_thresholds(results, save_dir=Path(os.path.dirname(model_path)))
@@ -70,27 +97,45 @@ def plot_thresholds(results, save_dir):
     if 'conf_thresholds' in results:
         conf_data = np.array(results['conf_thresholds'])
         plt.figure(figsize=(10, 6))
-        plt.plot(conf_data[:, 0], conf_data[:, 1], 'o-', label='mAP50-95')
-        plt.plot(conf_data[:, 0], conf_data[:, 2], 's-', label='mAP50')
+        
+        # Plot box metrics
+        plt.plot(conf_data[:, 0], conf_data[:, 1], 'o-', label='Box mAP')
+        plt.plot(conf_data[:, 0], conf_data[:, 2], 's-', label='Box mAP50')
+        
+        # Plot pose metrics if available (non-zero)
+        if np.sum(conf_data[:, 3]) > 0:
+            plt.plot(conf_data[:, 0], conf_data[:, 3], '^-', label='Pose mAP')
+            plt.plot(conf_data[:, 0], conf_data[:, 4], 'D-', label='Pose mAP50')
+            
         plt.xlabel('Confidence Threshold')
         plt.ylabel('mAP')
         plt.title('Detection Confidence Threshold vs mAP')
         plt.legend()
         plt.grid(True, alpha=0.3)
+        plt.tight_layout()
         plt.savefig(save_dir / 'detection_conf_map.png', dpi=300, bbox_inches='tight')
         
-    # Plot keypoint confidence thresholds vs mAP
-    if 'kp_conf_thresholds' in results:
-        kp_data = np.array(results['kp_conf_thresholds'])
+    # Plot IoU thresholds vs mAP
+    if 'iou_thresholds' in results:
+        iou_data = np.array(results['iou_thresholds'])
         plt.figure(figsize=(10, 6))
-        plt.plot(kp_data[:, 0], kp_data[:, 1], 'o-', label='mAP50-95')
-        plt.plot(kp_data[:, 0], kp_data[:, 2], 's-', label='mAP50')
-        plt.xlabel('Keypoint Confidence Threshold')
+        
+        # Plot box metrics
+        plt.plot(iou_data[:, 0], iou_data[:, 1], 'o-', label='Box mAP')
+        plt.plot(iou_data[:, 0], iou_data[:, 2], 's-', label='Box mAP50')
+        
+        # Plot pose metrics if available (non-zero)
+        if np.sum(iou_data[:, 3]) > 0:
+            plt.plot(iou_data[:, 0], iou_data[:, 3], '^-', label='Pose mAP')
+            plt.plot(iou_data[:, 0], iou_data[:, 4], 'D-', label='Pose mAP50')
+            
+        plt.xlabel('IoU Threshold')
         plt.ylabel('mAP')
-        plt.title('Keypoint Confidence Threshold vs mAP')
+        plt.title('IoU Threshold vs mAP')
         plt.legend()
         plt.grid(True, alpha=0.3)
-        plt.savefig(save_dir / 'keypoint_conf_map.png', dpi=300, bbox_inches='tight')
+        plt.tight_layout()
+        plt.savefig(save_dir / 'iou_threshold_map.png', dpi=300, bbox_inches='tight')
     
     print(f"Plots saved to {save_dir}")
 
@@ -148,7 +193,7 @@ def visualize_predictions(model_path, data_yaml, output_dir=None, num_samples=10
     
     print(f"Visualizations saved to {output_dir}")
 
-def analyze_class_performance(model_path, data_yaml, img_size=1280, batch_size=16, device='0'):
+def analyze_class_performance(model_path, data_yaml, img_size=640, batch_size=16, device='0'):
     """Analyze performance by class to identify problematic yoga poses"""
     model = YOLO(model_path)
     
@@ -213,7 +258,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='Validate Yoga Pose Model with Various Metrics')
     parser.add_argument('--model', type=str, required=True, help='Path to model weights (.pt file)')
     parser.add_argument('--data', type=str, required=True, help='Path to data YAML file')
-    parser.add_argument('--img-size', type=int, default=1280, help='Image size for validation')
+    parser.add_argument('--img-size', type=int, default=640, help='Image size for validation')
     parser.add_argument('--batch-size', type=int, default=16, help='Batch size for validation')
     parser.add_argument('--device', type=str, default='0', help='Device for validation (e.g., 0 or 0,1)')
     parser.add_argument('--visualize', action='store_true', help='Generate prediction visualizations')
