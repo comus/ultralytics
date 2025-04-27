@@ -1,7 +1,7 @@
 # Mixed COCO-Pose and Yoga82 dataset configuration
-path: /root/autodl-tmp/withcloud/datasets  # Base path to dataset
-train: mixed_coco_yoga/train.txt  # Training images
-val: mixed_coco_yoga/val.txt  # Validation images
+path: ../datasets/mixed_coco_yoga # dataset root dir
+train: train.txt # train images (relative to 'path') 56599 images
+val: val.txt # val images (relative to 'path') 2346 images
 
 # Keypoint configuration - same as COCO and Yoga82
 kpt_shape: [17, 3]  # Number of keypoints and dimensions (x,y,visibility)
