@@ -45,7 +45,7 @@ def train_stage1(model_path, save_dir, device="0,1,2,3", batch=32):
     
     # 僅在COCO上進行短期訓練，避免遺忘
     results = model.train(
-        data="ultralytics/cfg/datasets/coco-pose.yaml",
+        data="coco-pose.yaml",
         epochs=5,                  # 短訓練週期
         imgsz=1280,                # 高解析度
         batch=batch,               # 批次大小
@@ -205,7 +205,7 @@ def validate_on_both(model_path, save_dir):
     
     # 在COCO上驗證
     print("\n在COCO數據集上驗證:")
-    coco_results = model.val(data="ultralytics/cfg/datasets/coco-pose.yaml")
+    coco_results = model.val(data="coco-pose.yaml")
     
     # 在Yoga上驗證
     print("\n在Yoga數據集上驗證:")

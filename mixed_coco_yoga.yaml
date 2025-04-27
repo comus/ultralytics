@@ -1,29 +1,12 @@
-# 混合COCO-Pose和Yoga82數據集配置
-# 使用多數據源訓練，保持COCO知識同時增強瑜伽姿勢識別能力
+# Mixed COCO-Pose and Yoga82 dataset configuration
+path: ../datasets/mixed_coco_yoga
+train: train.txt
+val: val.txt
 
-# 基本配置
-path: ./datasets  # 基礎路徑，相對於訓練腳本位置
-train: 
-  - coco-pose/train2017.txt  # COCO訓練集（權重較小）
-  - yoga82/images/train  # Yoga82訓練集（權重較大）
-val: 
-  - coco-pose/val2017.txt  # COCO驗證集
-  - yoga82/images/val  # Yoga82驗證集
-test: yoga82/images/val  # 主要測試集
-
-# 樣本權重 - 確保Yoga樣本有較高權重
-instance_weights:
-  - 0.3  # COCO訓練集權重
-  - 0.7  # Yoga82訓練集權重
-
-# 關鍵點配置 - 與COCO和Yoga82相同
-kpt_shape: [17, 3]  # 關鍵點數量和維度 (x,y,可見性)
+# Keypoint configuration - same as COCO and Yoga82
+kpt_shape: [17, 3]  # Number of keypoints and dimensions (x,y,visibility)
 flip_idx: [0, 2, 1, 4, 3, 6, 5, 8, 7, 10, 9, 12, 11, 14, 13, 16, 15]
 
-# 類別
+# Classes
 names:
   0: person
-
-# 若需單獨評估，可使用這些區分驗證集
-# coco_val: coco-pose/val2017.txt
-# yoga_val: yoga82/images/val 
