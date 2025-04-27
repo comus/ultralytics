@@ -50,7 +50,7 @@ def train_stage1(model_path, save_dir, device="0,1,2,3", batch=32):
         imgsz=1280,                # 高解析度
         batch=batch,               # 批次大小
         save_period=1,             # 每個epoch保存
-        cache=True,                # 緩存圖像
+        cache="disk",                # 緩存圖像
         optimizer="AdamW",         # 優化器
         lr0=0.00005,               # 較低學習率避免遺忘原始知識
         lrf=0.2,                   # 學習率衰減因子
