@@ -98,7 +98,7 @@ def train_stage2(model_path, save_dir, device="0,1,2,3", batch=32):
         cos_lr=True,                   # 餘弦學習率調度
         warmup_epochs=3.0,             # 延長熱身期
         device=device,                 # 設備
-        patience=10,                   # 增加早停耐心值
+        patience=50,                   # 增加早停耐心值
         freeze=8,                      # 增加凍結層數量，保留COCO特徵
         box=7.0,                       # 邊界框損失權重
         cls=0.5,                       # 分類損失權重
@@ -158,7 +158,7 @@ def train_stage3(model_path, save_dir, device="0,1,2,3", batch=32):
         cos_lr=True,                   # 餘弦學習率衰減
         warmup_epochs=1.0,             # 短熱身
         device=device,                 # 設備
-        patience=8,                    # 早停耐心值
+        patience=25,                    # 早停耐心值
         freeze=4,                      # 凍結前幾層，保留特徵
         box=7.0,                       # 邊界框損失權重
         cls=0.5,                       # 分類損失權重
