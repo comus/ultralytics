@@ -598,8 +598,8 @@ class v8PoseLoss(v8DetectionLoss):
             pred_kpt = pred_kpts[masks]
             
             # 修改這裡：將閾值設為 0.7
-            kpt_mask = gt_kpt[..., 2] > 0.7 if gt_kpt.shape[-1] == 3 else torch.full_like(gt_kpt[..., 0], True)
-            
+            kpt_mask = gt_kpt[..., 2] > 0.3 if gt_kpt.shape[-1] == 3 else torch.full_like(gt_kpt[..., 0], True)
+
             kpts_loss = self.keypoint_loss(pred_kpt, gt_kpt, kpt_mask, area)  # pose loss
 
             if pred_kpt.shape[-1] == 3:
