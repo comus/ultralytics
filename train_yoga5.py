@@ -36,9 +36,9 @@ def train_stage1(model):
         lr0=0.0003,             # 較小的學習率
         lrf=0.01,               
         cos_lr=True,            
-        warmup_epochs=3.0,       
+        warmup_epochs=5.0,       # 增加熱身期
         device="0,1,2,3",       
-        patience=10,             
+        patience=15,             # 增加早停耐心值
         project="runs/pose",     # 設置項目目錄
         name="train_stage1",     # 設置階段名稱
         
@@ -53,13 +53,13 @@ def train_stage1(model):
         hsv_h=0.015,            
         hsv_s=0.1,              
         hsv_v=0.1,              
-        degrees=5.0,            
-        translate=0.07,         
-        scale=0.15,             
+        degrees=3.0,            # 更小的旋轉角度
+        translate=0.05,         # 更小的平移範圍
+        scale=0.1,              # 更小的縮放範圍
         fliplr=0.5,             
         perspective=0.0003,     
-        mosaic=0.1,             
-        mixup=0.05,             
+        mosaic=0.05,            # 更小的馬賽克增強
+        mixup=0.02,             # 更小的混合增強
         copy_paste=0.0,         
         
         # 正則化設置
@@ -87,12 +87,12 @@ def train_stage2(model):
         save_period=1,           
         cache="disk",            
         optimizer="AdamW",       
-        lr0=0.0005,             # 適中的學習率
+        lr0=0.0004,             # 適中的學習率
         lrf=0.01,               
         cos_lr=True,            
-        warmup_epochs=3.0,       
+        warmup_epochs=5.0,       # 保持較長的熱身期
         device="0,1,2,3",       
-        patience=10,             
+        patience=15,             # 保持較大的早停耐心值
         project="runs/pose",     # 設置項目目錄
         name="train_stage2",     # 設置階段名稱
         
@@ -100,20 +100,20 @@ def train_stage2(model):
         box=7.0,                
         cls=0.5,                
         dfl=1.5,                
-        pose=60.0,              # 適中的姿態損失權重
-        kobj=12.0,              # 適中的關鍵點可見性權重
+        pose=50.0,              # 適中的姿態損失權重
+        kobj=10.0,              # 適中的關鍵點可見性權重
         
         # 適中的數據增強
         hsv_h=0.015,            
-        hsv_s=0.15,             
-        hsv_v=0.15,             
-        degrees=8.0,            
-        translate=0.1,          
-        scale=0.2,              
+        hsv_s=0.1,              
+        hsv_v=0.1,              
+        degrees=5.0,            # 適中的旋轉角度
+        translate=0.07,         # 適中的平移範圍
+        scale=0.15,             # 適中的縮放範圍
         fliplr=0.5,             
-        perspective=0.0004,     
-        mosaic=0.15,            
-        mixup=0.1,              
+        perspective=0.0003,     
+        mosaic=0.1,             # 適中的馬賽克增強
+        mixup=0.05,             # 適中的混合增強
         copy_paste=0.0,         
         
         # 正則化設置
@@ -141,12 +141,12 @@ def train_stage3(model):
         save_period=1,           
         cache="disk",            
         optimizer="AdamW",       
-        lr0=0.0007,             # 較大的學習率
+        lr0=0.0005,             # 較大的學習率
         lrf=0.01,               
         cos_lr=True,            
-        warmup_epochs=3.0,       
+        warmup_epochs=5.0,       # 保持較長的熱身期
         device="0,1,2,3",       
-        patience=10,             
+        patience=15,             # 保持較大的早停耐心值
         project="runs/pose",     # 設置項目目錄
         name="train_stage3",     # 設置階段名稱
         
@@ -154,20 +154,20 @@ def train_stage3(model):
         box=7.0,                
         cls=0.5,                
         dfl=1.5,                
-        pose=80.0,              # 較大的姿態損失權重
-        kobj=16.0,              # 較大的關鍵點可見性權重
+        pose=60.0,              # 較大的姿態損失權重
+        kobj=12.0,              # 較大的關鍵點可見性權重
         
         # 較強的數據增強
         hsv_h=0.015,            
-        hsv_s=0.2,              
-        hsv_v=0.2,              
-        degrees=10.0,           
-        translate=0.15,         
-        scale=0.25,             
+        hsv_s=0.15,             
+        hsv_v=0.15,             
+        degrees=8.0,            # 較大的旋轉角度
+        translate=0.1,          # 較大的平移範圍
+        scale=0.2,              # 較大的縮放範圍
         fliplr=0.5,             
-        perspective=0.0005,     
-        mosaic=0.2,             
-        mixup=0.15,             
+        perspective=0.0004,     
+        mosaic=0.15,            # 較大的馬賽克增強
+        mixup=0.1,              # 較大的混合增強
         copy_paste=0.0,         
         
         # 正則化設置
