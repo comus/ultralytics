@@ -42,31 +42,31 @@ def train_stage1(model):
         project="runs/pose",     # 設置項目目錄
         name="train_stage1",     # 設置階段名稱
         
-        # 第一階段使用較小的損失權重
+        # 第一階段使用適中的損失權重
         box=7.0,                
         cls=0.5,                
         dfl=1.5,                
-        pose=40.0,              # 較小的姿態損失權重
-        kobj=8.0,               # 較小的關鍵點可見性權重
+        pose=50.0,              # 適中的姿態損失權重
+        kobj=10.0,              # 適中的關鍵點可見性權重
         
         # 溫和的數據增強
         hsv_h=0.015,            
         hsv_s=0.1,              
         hsv_v=0.1,              
-        degrees=3.0,            # 更小的旋轉角度
-        translate=0.05,         # 更小的平移範圍
-        scale=0.1,              # 更小的縮放範圍
+        degrees=5.0,            # 適中的旋轉角度
+        translate=0.07,         # 適中的平移範圍
+        scale=0.15,             # 適中的縮放範圍
         fliplr=0.5,             
         perspective=0.0003,     
-        mosaic=0.05,            # 更小的馬賽克增強
-        mixup=0.02,             # 更小的混合增強
+        mosaic=0.1,             # 適中的馬賽克增強
+        mixup=0.05,             # 適中的混合增強
         copy_paste=0.0,         
         
         # 正則化設置
         overlap_mask=True,      
         amp=True,               
         val=True,               
-        freeze=12,              # 凍結到P3層
+        freeze=8,               # 適中的凍結層數
         close_mosaic=15,        
         weight_decay=0.00005,   
         dropout=0.03,           
@@ -87,7 +87,7 @@ def train_stage2(model):
         save_period=1,           
         cache="disk",            
         optimizer="AdamW",       
-        lr0=0.0004,             # 適中的學習率
+        lr0=0.0003,             # 保持學習率
         lrf=0.01,               
         cos_lr=True,            
         warmup_epochs=5.0,       # 保持較長的熱身期
@@ -100,27 +100,27 @@ def train_stage2(model):
         box=7.0,                
         cls=0.5,                
         dfl=1.5,                
-        pose=50.0,              # 適中的姿態損失權重
-        kobj=10.0,              # 適中的關鍵點可見性權重
+        pose=55.0,              # 適中的姿態損失權重
+        kobj=11.0,              # 適中的關鍵點可見性權重
         
         # 適中的數據增強
         hsv_h=0.015,            
         hsv_s=0.1,              
         hsv_v=0.1,              
-        degrees=5.0,            # 適中的旋轉角度
-        translate=0.07,         # 適中的平移範圍
-        scale=0.15,             # 適中的縮放範圍
+        degrees=5.0,            # 保持旋轉角度
+        translate=0.07,         # 保持平移範圍
+        scale=0.15,             # 保持縮放範圍
         fliplr=0.5,             
         perspective=0.0003,     
-        mosaic=0.1,             # 適中的馬賽克增強
-        mixup=0.05,             # 適中的混合增強
+        mosaic=0.1,             # 保持馬賽克增強
+        mixup=0.05,             # 保持混合增強
         copy_paste=0.0,         
         
         # 正則化設置
         overlap_mask=True,      
         amp=True,               
         val=True,               
-        freeze=8,               # 只凍結到P4層
+        freeze=6,               # 適度解凍
         close_mosaic=15,        
         weight_decay=0.00005,   
         dropout=0.03,           
@@ -141,7 +141,7 @@ def train_stage3(model):
         save_period=1,           
         cache="disk",            
         optimizer="AdamW",       
-        lr0=0.0005,             # 較大的學習率
+        lr0=0.0003,             # 保持學習率
         lrf=0.01,               
         cos_lr=True,            
         warmup_epochs=5.0,       # 保持較長的熱身期
@@ -150,31 +150,31 @@ def train_stage3(model):
         project="runs/pose",     # 設置項目目錄
         name="train_stage3",     # 設置階段名稱
         
-        # 第三階段使用較大的損失權重
+        # 第三階段使用適中的損失權重
         box=7.0,                
         cls=0.5,                
         dfl=1.5,                
-        pose=60.0,              # 較大的姿態損失權重
-        kobj=12.0,              # 較大的關鍵點可見性權重
+        pose=60.0,              # 適中的姿態損失權重
+        kobj=12.0,              # 適中的關鍵點可見性權重
         
-        # 較強的數據增強
+        # 適中的數據增強
         hsv_h=0.015,            
-        hsv_s=0.15,             
-        hsv_v=0.15,             
-        degrees=8.0,            # 較大的旋轉角度
-        translate=0.1,          # 較大的平移範圍
-        scale=0.2,              # 較大的縮放範圍
+        hsv_s=0.1,              
+        hsv_v=0.1,              
+        degrees=5.0,            # 保持旋轉角度
+        translate=0.07,         # 保持平移範圍
+        scale=0.15,             # 保持縮放範圍
         fliplr=0.5,             
-        perspective=0.0004,     
-        mosaic=0.15,            # 較大的馬賽克增強
-        mixup=0.1,              # 較大的混合增強
+        perspective=0.0003,     
+        mosaic=0.1,             # 保持馬賽克增強
+        mixup=0.05,             # 保持混合增強
         copy_paste=0.0,         
         
         # 正則化設置
         overlap_mask=True,      
         amp=True,               
         val=True,               
-        freeze=4,               # 只凍結淺層特徵
+        freeze=4,               # 適度解凍
         close_mosaic=15,        
         weight_decay=0.00005,   
         dropout=0.03,           

@@ -25,8 +25,7 @@ from ultralytics import YOLO
 
 def main():    
     # 從最佳權重開始進行精調
-    # 假設上次訓練的最佳權重路徑，請根據實際情況調整
-    model = YOLO("/root/autodl-tmp/withcloud/root/autodl-tmp/withcloud/ultralytics/runs/pose/train14/weights/best.pt")
+    model = YOLO("/root/autodl-tmp/withcloud/ultralytics/runs/pose/train14/weights/best.pt")
 
     # 打印使用的模塊路徑，確認是否正確
     if is_main_process():
@@ -45,47 +44,47 @@ def main():
     # 訓練參數設置
     results = model.train(
         data="yoga82.yaml",
-        epochs=80,                # 保持不變
+        epochs=150,               # 增加訓練週期
         imgsz=640,               
-        batch=16,                # 保持不變
+        batch=16,                
         save_period=1,           
         cache="disk",            
         optimizer="AdamW",       
-        lr0=0.0005,             # 提高學習率
+        lr0=0.0003,             # 降低學習率
         lrf=0.01,               
         cos_lr=True,            
-        warmup_epochs=3.0,       
+        warmup_epochs=5.0,       # 增加熱身期
         device="0,1,2,3",       
-        patience=10,             
+        patience=15,             # 增加早停耐心值
         
-        # 損失權重保持不變
+        # 損失權重調整
         box=7.0,                
         cls=0.5,                
         dfl=1.5,                
-        pose=60.0,              
-        kobj=12.0,              
+        pose=60.0,              # 適中的姿態損失權重
+        kobj=12.0,              # 適中的關鍵點可見性權重
         
-        # 適度增強數據增強
+        # 溫和的數據增強
         hsv_h=0.015,            
-        hsv_s=0.15,             # 增加飽和度變化
-        hsv_v=0.15,             # 增加亮度變化
-        degrees=8.0,            # 增加旋轉角度
-        translate=0.1,          # 增加平移範圍
-        scale=0.2,              # 增加縮放範圍
+        hsv_s=0.1,              
+        hsv_v=0.1,              
+        degrees=5.0,            # 減小旋轉角度
+        translate=0.07,         # 減小平移範圍
+        scale=0.15,             # 減小縮放範圍
         fliplr=0.5,             
-        perspective=0.0004,     # 適度增加透視變換
-        mosaic=0.15,            # 增加馬賽克增強
-        mixup=0.1,              # 增加混合增強
+        perspective=0.0003,     # 減小透視變換
+        mosaic=0.1,             # 減小馬賽克增強
+        mixup=0.05,             # 減小混合增強
         copy_paste=0.0,         
         
-        # 調整正則化
+        # 正則化設置
         overlap_mask=True,      
         amp=True,               
         val=True,               
-        freeze=10,              # 減少凍結層數，只凍結backbone
+        freeze=8,               # 減少凍結層數，更接近 train_yoga3
         close_mosaic=15,        
-        weight_decay=0.00005,   
-        dropout=0.03,           
+        weight_decay=0.00005,   # 減小權重衰減
+        dropout=0.03,           # 減小dropout
         
         # 多GPU訓練設置
         nbs=64,                 
