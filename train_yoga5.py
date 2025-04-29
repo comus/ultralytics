@@ -54,7 +54,7 @@ def train_stage1(model):
         hsv_h=0.015,            
         hsv_s=0.15,             
         hsv_v=0.15,             
-        degrees=10.0,           # 較大的旋轉角度
+        degrees=180.0,           # 較大的旋轉角度
         translate=0.1,          # 較大的平移範圍
         scale=0.25,             # 較大的縮放範圍
         fliplr=0.5,             
@@ -109,7 +109,7 @@ def train_stage2(model):
         hsv_h=0.015,            
         hsv_s=0.12,             
         hsv_v=0.12,             
-        degrees=7.5,            # 適中的旋轉角度
+        degrees=90,            # 適中的旋轉角度
         translate=0.08,         # 適中的平移範圍
         scale=0.2,              # 適中的縮放範圍
         fliplr=0.5,             
@@ -190,7 +190,7 @@ def train_stage3(model):
 
 def main():    
     # 從最佳權重開始進行精調
-    model = YOLO("/root/autodl-tmp/withcloud/ultralytics/runs/pose/train14/weights/best.pt")
+    model = YOLO("/root/autodl-tmp/withcloud/train66/weights/best.pt")
 
     # 打印使用的模塊路徑，確認是否正確
     if is_main_process():
