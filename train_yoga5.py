@@ -39,8 +39,9 @@ def train_stage1(model):
         warmup_epochs=5.0,       # 增加熱身期
         device="0,1,2,3",       
         patience=15,             # 增加早停耐心值
-        project="runs/pose",     # 設置項目目錄
+        project="train_yoga5",     # 設置項目目錄
         name="train_stage1",     # 設置階段名稱
+        exist_ok=True,
         
         # 第一階段使用適中的損失權重
         box=7.0,                
@@ -93,8 +94,9 @@ def train_stage2(model):
         warmup_epochs=5.0,       # 保持較長的熱身期
         device="0,1,2,3",       
         patience=15,             # 保持較大的早停耐心值
-        project="runs/pose",     # 設置項目目錄
+        project="train_yoga5",     # 設置項目目錄
         name="train_stage2",     # 設置階段名稱
+        exist_ok=True,
         
         # 第二階段使用適中的損失權重
         box=7.0,                
@@ -147,8 +149,9 @@ def train_stage3(model):
         warmup_epochs=5.0,       # 保持較長的熱身期
         device="0,1,2,3",       
         patience=15,             # 保持較大的早停耐心值
-        project="runs/pose",     # 設置項目目錄
+        project="train_yoga5",     # 設置項目目錄
         name="train_stage3",     # 設置階段名稱
+        exist_ok=True,
         
         # 第三階段使用適中的損失權重
         box=7.0,                
@@ -208,12 +211,12 @@ def main():
     results1 = train_stage1(model)
     
     # 使用第一階段的最佳權重
-    model = YOLO("runs/pose/train_stage1/weights/best.pt")
+    model = YOLO("train_yoga5/train_stage1/weights/best.pt")
     print("開始第二階段訓練...")
     results2 = train_stage2(model)
     
     # 使用第二階段的最佳權重
-    model = YOLO("runs/pose/train_stage2/weights/best.pt")
+    model = YOLO("train_yoga5/train_stage2/weights/best.pt")
     print("開始第三階段訓練...")
     results3 = train_stage3(model)
 
