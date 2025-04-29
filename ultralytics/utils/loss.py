@@ -139,13 +139,25 @@ class KeypointLoss(nn.Module):
         """Initialize the KeypointLoss class with keypoint sigmas."""
         super().__init__()
         self.sigmas = sigmas
+        self.keypoint_weights = torch.ones(17)
+        
+        # 可以根據實際情況調整權重
+        ankle_weight = 2.0  # 可以嘗試不同的值：1.5, 2.0, 2.5 等
+        self.keypoint_weights[15:17] = ankle_weight
+        
+        # 也可以為其他關鍵點設置不同的權重
+        # 例如：降低一些容易預測的關鍵點的權重
+        self.keypoint_weights[0:5] = 0.8  # 臉部關鍵點
+        
+        # 確保權重的平均值接近 1，避免整體損失scale改變太多
+        self.keypoint_weights = self.keypoint_weights * (17 / self.keypoint_weights.sum())
 
     def forward(self, pred_kpts, gt_kpts, kpt_mask, area):
         """Calculate keypoint loss factor and Euclidean distance loss for keypoints."""
         d = (pred_kpts[..., 0] - gt_kpts[..., 0]).pow(2) + (pred_kpts[..., 1] - gt_kpts[..., 1]).pow(2)
+        weighted_loss = d * self.keypoint_weights.to(d.device)
         kpt_loss_factor = kpt_mask.shape[1] / (torch.sum(kpt_mask != 0, dim=1) + 1e-9)
-        # e = d / (2 * (area * self.sigmas) ** 2 + 1e-9)  # from formula
-        e = d / ((2 * self.sigmas).pow(2) * (area + 1e-9) * 2)  # from cocoeval
+        e = weighted_loss / ((2 * self.sigmas).pow(2) * (area + 1e-9) * 2)
         return (kpt_loss_factor.view(-1, 1) * ((1 - torch.exp(-e)) * kpt_mask)).mean()
 
 
