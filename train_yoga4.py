@@ -25,6 +25,7 @@ from ultralytics import YOLO
 
 def main():    
     # 從最佳權重開始進行精調
+    # 假設上次訓練的最佳權重路徑，請根據實際情況調整
     model = YOLO("/root/autodl-tmp/withcloud/root/autodl-tmp/withcloud/ultralytics/runs/pose/train14/weights/best.pt")
 
     # 打印使用的模塊路徑，確認是否正確
@@ -44,51 +45,51 @@ def main():
     # 訓練參數設置
     results = model.train(
         data="yoga82.yaml",
-        epochs=150,               # 增加訓練週期
+        epochs=200,               # 增加訓練週期
         imgsz=640,               
-        batch=16,                
+        batch=24,                # 減小批次大小
         save_period=1,           
         cache="disk",            
         optimizer="AdamW",       
-        lr0=0.0003,             # 降低學習率
+        lr0=0.00075,            # 降低學習率
         lrf=0.01,               
         cos_lr=True,            
-        warmup_epochs=5.0,       # 增加熱身期
+        warmup_epochs=8.0,      # 增加熱身時間
         device="0,1,2,3",       
-        patience=15,             # 增加早停耐心值
+        patience=40,            # 增加早停耐心值
         
         # 損失權重調整
         box=7.0,                
         cls=0.5,                
         dfl=1.5,                
-        pose=60.0,              # 適中的姿態損失權重
-        kobj=12.0,              # 適中的關鍵點可見性權重
+        pose=60.0,              # 提高姿態損失權重
+        kobj=12.0,              # 提高關鍵點可見性權重
         
-        # 溫和的數據增強
-        hsv_h=0.015,            
-        hsv_s=0.1,              
-        hsv_v=0.1,              
-        degrees=5.0,            # 減小旋轉角度
-        translate=0.07,         # 減小平移範圍
-        scale=0.15,             # 減小縮放範圍
+        # 優化的數據增強
+        hsv_h=0.015,            # 稍微增加色調變化
+        hsv_s=0.15,             # 增加飽和度變化
+        hsv_v=0.15,             # 增加亮度變化
+        degrees=10.0,           # 增加旋轉角度
+        translate=0.1,          # 增加平移範圍
+        scale=0.25,             # 增加縮放範圍
         fliplr=0.5,             
-        perspective=0.0003,     # 減小透視變換
-        mosaic=0.1,             # 減小馬賽克增強
-        mixup=0.05,             # 減小混合增強
+        perspective=0.0005,     # 稍微增加透視變換
+        mosaic=0.15,            # 增加馬賽克增強
+        mixup=0.1,              # 增加混合增強
         copy_paste=0.0,         
         
-        # 正則化設置
+        # 訓練穩定性設置
         overlap_mask=True,      
         amp=True,               
         val=True,               
-        freeze=8,               # 減少凍結層數，更接近 train_yoga3
-        close_mosaic=15,        
-        weight_decay=0.00005,   # 減小權重衰減
-        dropout=0.03,           # 減小dropout
+        freeze=8,               # 減少凍結層數，讓模型更好地適應新任務
+        close_mosaic=20,        # 延後關閉馬賽克增強
+        weight_decay=0.0001,    
+        dropout=0.05,           
         
         # 多GPU訓練設置
         nbs=64,                 
-        workers=8,              
+        workers=16,             # 增加工作進程數
     )
 
 if __name__ == "__main__":
