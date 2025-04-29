@@ -25,7 +25,7 @@ from ultralytics import YOLO
 
 def main():    
     # 從最佳權重開始進行精調
-    model = YOLO("/root/autodl-tmp/withcloud/ultralytics/runs/pose/train14/weights/best.pt")
+    model = YOLO("/root/autodl-tmp/withcloud/root/autodl-tmp/withcloud/ultralytics/runs/pose/train14/weights/best.pt")
 
     # 打印使用的模塊路徑，確認是否正確
     if is_main_process():
