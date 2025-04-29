@@ -596,7 +596,7 @@ class v8PoseLoss(v8DetectionLoss):
             area = xyxy2xywh(target_bboxes[masks])[:, 2:].prod(1, keepdim=True)
             pred_kpt = pred_kpts[masks]
             
-            # 修改這裡：將閾值設為 0.7
+            # 修改這裡：將閾值設為 0.3
             kpt_mask = gt_kpt[..., 2] > 0.3 if gt_kpt.shape[-1] == 3 else torch.full_like(gt_kpt[..., 0], True)
 
             kpts_loss = self.keypoint_loss(pred_kpt, gt_kpt, kpt_mask, area)  # pose loss
