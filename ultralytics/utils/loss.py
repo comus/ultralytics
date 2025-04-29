@@ -141,15 +141,14 @@ class KeypointLoss(nn.Module):
         self.sigmas = sigmas
         self.keypoint_weights = torch.ones(17)
         
-        # 可以根據實際情況調整權重
-        ankle_weight = 2.0  # 可以嘗試不同的值：1.5, 2.0, 2.5 等
-        self.keypoint_weights[15:17] = ankle_weight
+        # 更細緻的權重分配
+        self.keypoint_weights[15:17] = 2.5    # 腳踝權重進一步提高
+        self.keypoint_weights[13:15] = 2.0    # 膝蓋權重提高
+        self.keypoint_weights[11:13] = 1.8    # 髖部權重適度提高
+        self.keypoint_weights[5:11] = 1.2     # 軀幹關鍵點適度提高
+        self.keypoint_weights[0:5] = 0.8      # 臉部關鍵點降低
         
-        # 也可以為其他關鍵點設置不同的權重
-        # 例如：降低一些容易預測的關鍵點的權重
-        self.keypoint_weights[0:5] = 0.8  # 臉部關鍵點
-        
-        # 確保權重的平均值接近 1，避免整體損失scale改變太多
+        # 確保權重平均值為1
         self.keypoint_weights = self.keypoint_weights * (17 / self.keypoint_weights.sum())
 
     def forward(self, pred_kpts, gt_kpts, kpt_mask, area):
