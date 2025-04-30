@@ -51,16 +51,16 @@ def main():
         save_period=1,         # 每個epoch保存
         cache="disk",          # 使用磁盤緩存
         optimizer="AdamW",     # 繼續使用AdamW優化器
-        lr0=0.000015,          # 降低學習率（因為圖像尺寸較小）
+        lr0=0.00002,           # 提高學習率以突破當前瓶頸
         lrf=0.01,              # 保持最終學習率因子
         momentum=0.85,         # 保持動量值
-        weight_decay=0.0001,   # 保持權重衰減
-        warmup_epochs=2.0,     # 保持熱身
+        weight_decay=0.0002,   # 增加權重衰減以增強正則化
+        warmup_epochs=3.0,     # 增加熱身週期
         warmup_momentum=0.8,   # 保持熱身動量
         warmup_bias_lr=0.01,   # 保持熱身偏置學習率
         box=6.0,               # 保持框損失權重
-        pose=30.0,             # 提高姿態損失權重
-        kobj=8.0,              # 提高關鍵點對象損失權重
+        pose=28.0,             # 降低姿態損失權重
+        kobj=7.5,              # 降低關鍵點對象損失權重
         cls=0.2,               # 保持分類損失權重 
         dfl=1.0,               # 保持分布焦點損失權重
         nbs=64,                # 保持標稱批次大小
@@ -68,16 +68,16 @@ def main():
         close_mosaic=0,        # 保持關閉馬賽克增強
         amp=True,              # 保持混合精度訓練
         device="0,1,2,3",      # 使用全部4個GPU
-        dropout=0.2,           # 保持dropout正則化
+        dropout=0.25,          # 增加dropout以增強正則化
         overlap_mask=True,     # 保持重疊口罩
         patience=50,           # 保持耐心值
         val=True,              # 確保每個epoch驗證
         freeze=15,             # 保持凍結前15層
         
-        # 數據增強參數微調
-        hsv_h=0.02,            # 增加色調變化
-        hsv_s=0.2,             # 增加飽和度變化
-        hsv_v=0.2,             # 增加亮度變化
+        # 數據增強參數優化
+        hsv_h=0.015,           # 適中的色調變化
+        hsv_s=0.15,            # 適中的飽和度變化
+        hsv_v=0.15,            # 適中的亮度變化
         degrees=0.0,           # 保持關閉旋轉
         translate=0.05,        # 保持最小平移
         scale=0.1,             # 保持最小縮放
