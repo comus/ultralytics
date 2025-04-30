@@ -25,7 +25,7 @@ from ultralytics import YOLO
 
 def main():    
     # 使用最佳權重
-    model = YOLO("/root/autodl-tmp/withcloud/root/autodl-tmp/withcloud/ultralytics/runs/pose/train14/weights/best.pt")
+    model = YOLO("/root/autodl-tmp/withcloud/ultralytics/runs/pose/train14/weights/best.pt")
 
     # 打印使用的模塊路徑，確認是否正確
     if is_main_process():
@@ -41,51 +41,51 @@ def main():
         except (ImportError, AttributeError) as e:
             print(f"警告: 自定義層檢查失敗 - {e}")
 
-    # 訓練參數設置 - 優化640解析度訓練
+    # 訓練參數設置 - 優化利用4個4090 GPU
     results = model.train(
         data="coco-pose.yaml",
-        epochs=150,              # 增加訓練週期以彌補解析度不足
+        epochs=150,              # 保持增加訓練週期
         imgsz=640,               # 保持640解析度
-        batch=32,                # 減小批次大小以提高更新頻率
+        batch=120,               # 大幅增加批次大小以充分利用GPU
         save_period=1,           # 每個epoch保存
         cache="disk",            # 使用磁盤緩存
         optimizer="SGD",         # 保持使用SGD優化器
-        lr0=0.001,               # 保持較高學習率
-        lrf=0.00001,             # 更低的最終學習率因子，更長的學習過程
-        momentum=0.95,           # 增加動量以幫助收斂
-        weight_decay=0.0001,     # 減少權重衰減
-        warmup_epochs=5.0,       # 增加熱身期
+        lr0=0.003,               # 增加學習率以匹配更大的批次大小
+        lrf=0.00001,             # 保持更低的最終學習率因子
+        momentum=0.95,           # 保持較高動量
+        weight_decay=0.0001,     # 保持較低權重衰減
+        warmup_epochs=3.0,       # 減少熱身期，加速訓練
         warmup_momentum=0.8,     # 保持熱身動量
         warmup_bias_lr=0.1,      # 保持熱身偏置學習率
-        box=2.0,                 # 進一步降低框損失權重
-        pose=50.0,               # 顯著增加姿態損失權重
-        kobj=20.0,               # 顯著增加關鍵點對象損失權重
-        cls=0.05,                # 極小化分類損失權重
+        box=2.0,                 # 保持降低框損失權重
+        pose=50.0,               # 保持顯著增加姿態損失權重
+        kobj=20.0,               # 保持顯著增加關鍵點對象損失權重
+        cls=0.05,                # 保持極小化分類損失權重
         dfl=0.5,                 # 保持分布焦點損失權重
-        nbs=64,                  # 標準標稱批次大小
-        cos_lr=True,             # 啟用餘弦學習率調度
+        nbs=128,                 # 增加標稱批次大小
+        cos_lr=True,             # 保持啟用餘弦學習率調度
         amp=True,                # 保持混合精度訓練
         device="0,1,2,3",        # 使用全部4個GPU
         dropout=0.0,             # 保持關閉dropout
         overlap_mask=True,       # 保持重疊口罩
-        patience=100,            # 增加耐心值，讓訓練持續更久
+        patience=100,            # 保持增加耐心值
         val=True,                # 確保每個epoch驗證
-        freeze=[0, 1, 2, 3, 4],  # 只凍結前5層，讓更多層參與訓練
+        freeze=[0, 1, 2, 3, 4],  # 保持只凍結前5層
         
         # 數據增強參數優化
-        hsv_h=0.0,               # 關閉色調變化
-        hsv_s=0.0,               # 關閉飽和度變化
-        hsv_v=0.0,               # 關閉亮度變化
+        hsv_h=0.0,               # 保持關閉色調變化
+        hsv_s=0.0,               # 保持關閉飽和度變化
+        hsv_v=0.0,               # 保持關閉亮度變化
         degrees=0.0,             # 保持關閉旋轉
-        translate=0.0,           # 關閉平移
-        scale=0.0,               # 關閉縮放
+        translate=0.0,           # 保持關閉平移
+        scale=0.0,               # 保持關閉縮放
         fliplr=0.5,              # 保持水平翻轉
         mosaic=0.0,              # 保持關閉馬賽克
         mixup=0.0,               # 保持關閉mixup
         copy_paste=0.0,          # 保持關閉複製粘貼
-        perspective=0.0,         # 關閉透視變換
+        perspective=0.0,         # 保持關閉透視變換
         rect=True,               # 保持矩形訓練
-        workers=8                # 保持工作線程數
+        workers=16               # 增加工作線程數以加速數據加載
     )
 
 if __name__ == "__main__":
