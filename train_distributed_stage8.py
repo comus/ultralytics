@@ -64,7 +64,7 @@ def main():
         dfl=0.5,                 # 降低分布焦點損失權重
         nbs=64,                  # 調整標稱批次大小
         cos_lr=False,            # 關閉餘弦學習率調度
-        one_cycle=True,          # 啟用單週期學習率
+        # one_cycle=True,          # 啟用單週期學習率
         amp=True,                # 保持混合精度訓練
         device="0,1,2,3",        # 使用全部4個GPU
         dropout=0.0,             # 關閉dropout
