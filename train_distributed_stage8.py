@@ -46,21 +46,21 @@ def main():
     results = model.train(
         data="coco-pose.yaml",
         epochs=100,             # 保持訓練週期
-        imgsz=640,             # 降低到640解析度
-        batch=64,              # 增加批次大小（因為圖像尺寸減小）
+        imgsz=640,             # 保持640解析度
+        batch=64,              # 保持批次大小
         save_period=1,         # 每個epoch保存
         cache="disk",          # 使用磁盤緩存
         optimizer="AdamW",     # 繼續使用AdamW優化器
-        lr0=0.00002,           # 略微提高學習率（因為圖像尺寸減小）
+        lr0=0.000015,          # 降低學習率（因為圖像尺寸較小）
         lrf=0.01,              # 保持最終學習率因子
         momentum=0.85,         # 保持動量值
         weight_decay=0.0001,   # 保持權重衰減
-        warmup_epochs=2.0,     # 添加短暫熱身
+        warmup_epochs=2.0,     # 保持熱身
         warmup_momentum=0.8,   # 保持熱身動量
         warmup_bias_lr=0.01,   # 保持熱身偏置學習率
         box=6.0,               # 保持框損失權重
-        pose=25.0,             # 保持姿態損失權重
-        kobj=7.0,              # 保持關鍵點對象損失權重
+        pose=30.0,             # 提高姿態損失權重
+        kobj=8.0,              # 提高關鍵點對象損失權重
         cls=0.2,               # 保持分類損失權重 
         dfl=1.0,               # 保持分布焦點損失權重
         nbs=64,                # 保持標稱批次大小
@@ -75,9 +75,9 @@ def main():
         freeze=15,             # 保持凍結前15層
         
         # 數據增強參數微調
-        hsv_h=0.015,           # 略微增加色調變化
-        hsv_s=0.15,            # 略微增加飽和度變化
-        hsv_v=0.15,            # 略微增加亮度變化
+        hsv_h=0.02,            # 增加色調變化
+        hsv_s=0.2,             # 增加飽和度變化
+        hsv_v=0.2,             # 增加亮度變化
         degrees=0.0,           # 保持關閉旋轉
         translate=0.05,        # 保持最小平移
         scale=0.1,             # 保持最小縮放
