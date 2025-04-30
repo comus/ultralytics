@@ -41,20 +41,20 @@ def main():
         except (ImportError, AttributeError) as e:
             print(f"警告: 自定義層檢查失敗 - {e}")
 
-    # 訓練參數設置 - 優化利用4個4090 GPU
+    # 訓練參數設置 - 更平衡的配置
     results = model.train(
         data="coco-pose.yaml",
         epochs=150,              # 保持增加訓練週期
         imgsz=640,               # 保持640解析度
-        batch=120,               # 大幅增加批次大小以充分利用GPU
+        batch=64,                # 中等批次大小，平衡速度和穩定性
         save_period=1,           # 每個epoch保存
         cache="disk",            # 使用磁盤緩存
         optimizer="SGD",         # 保持使用SGD優化器
-        lr0=0.003,               # 增加學習率以匹配更大的批次大小
+        lr0=0.0015,              # 較為保守的學習率
         lrf=0.00001,             # 保持更低的最終學習率因子
         momentum=0.95,           # 保持較高動量
         weight_decay=0.0001,     # 保持較低權重衰減
-        warmup_epochs=3.0,       # 減少熱身期，加速訓練
+        warmup_epochs=5.0,       # 恢復較長熱身期以增加穩定性
         warmup_momentum=0.8,     # 保持熱身動量
         warmup_bias_lr=0.1,      # 保持熱身偏置學習率
         box=2.0,                 # 保持降低框損失權重
@@ -62,7 +62,7 @@ def main():
         kobj=20.0,               # 保持顯著增加關鍵點對象損失權重
         cls=0.05,                # 保持極小化分類損失權重
         dfl=0.5,                 # 保持分布焦點損失權重
-        nbs=128,                 # 增加標稱批次大小
+        nbs=64,                  # 回到較小的標稱批次大小
         cos_lr=True,             # 保持啟用餘弦學習率調度
         amp=True,                # 保持混合精度訓練
         device="0,1,2,3",        # 使用全部4個GPU
@@ -85,7 +85,7 @@ def main():
         copy_paste=0.0,          # 保持關閉複製粘貼
         perspective=0.0,         # 保持關閉透視變換
         rect=True,               # 保持矩形訓練
-        workers=16               # 增加工作線程數以加速數據加載
+        workers=12               # 使用中等數量的工作線程
     )
 
 if __name__ == "__main__":
