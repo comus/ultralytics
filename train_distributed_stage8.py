@@ -25,7 +25,7 @@ from ultralytics import YOLO
 
 def main():    
     # 使用第七次訓練的最佳權重
-    model = YOLO("/root/autodl-tmp/withcloud/root/autodl-tmp/withcloud/ultralytics/runs/pose/train14/weights/best.pt")
+    model = YOLO("/root/autodl-tmp/withcloud/ultralytics/runs/pose/train14/weights/best.pt")
 
     # 打印使用的模塊路徑，確認是否正確
     if is_main_process():
@@ -45,7 +45,7 @@ def main():
     results = model.train(
         data="coco-pose.yaml",
         epochs=100,              # 減少總訓練週期
-        imgsz=720,               # 增加到720解析度
+        imgsz=640,               # 保持640解析度（符合原始目標）
         batch=64,                # 調整批次大小
         save_period=1,           # 每個epoch保存
         cache="disk",            # 使用磁盤緩存
