@@ -24,8 +24,7 @@ def is_main_process():
 from ultralytics import YOLO
 
 def main():    
-    # 從最佳權重開始進行精調
-    # 假設上次訓練的最佳權重路徑，請根據實際情況調整
+    # 使用第七次訓練的最佳權重
     model = YOLO("/root/autodl-tmp/withcloud/ultralytics/runs/pose/train14/weights/best.pt")
 
     # 打印使用的模塊路徑，確認是否正確
@@ -45,46 +44,50 @@ def main():
     # 訓練參數設置
     results = model.train(
         data="coco-pose.yaml",
-        epochs=100,             # 保持訓練週期
-        imgsz=640,             # 使用640解析度
-        batch=96,              # 適中的批次大小，確保每張圖片有足夠的計算資源
+        epochs=150,             # 增加訓練週期
+        imgsz=640,             # 保持640解析度
+        batch=128,             # 增加批次大小
         save_period=1,         # 每個epoch保存
         cache="disk",          # 使用磁盤緩存
         optimizer="AdamW",     # 使用AdamW優化器
-        lr0=0.00005,           # 使用較小的學習率以保持穩定性
-        lrf=0.01,              # 標準最終學習率因子
-        momentum=0.937,        # 使用官方推薦的動量值
-        weight_decay=0.0005,   # 使用官方推薦的權重衰減
-        warmup_epochs=5.0,     # 增加熱身週期，幫助模型適應新的圖像尺寸
-        warmup_momentum=0.8,   # 使用官方推薦的熱身動量
-        warmup_bias_lr=0.1,    # 使用官方推薦的熱身偏置學習率
-        box=7.5,               # 使用官方推薦的框損失權重
-        pose=20.0,             # 增加姿態損失權重，因為這是主要目標
-        kobj=4.0,              # 增加關鍵點對象損失權重
-        cls=0.5,               # 使用官方推薦的分類損失權重
-        dfl=1.5,               # 使用官方推薦的分布焦點損失權重
-        nbs=64,                # 使用官方推薦的標稱批次大小
+        lr0=0.00002,           # 降低學習率
+        lrf=0.005,             # 降低最終學習率因子
+        momentum=0.937,        # 保持動量值
+        weight_decay=0.0005,   # 保持權重衰減
+        warmup_epochs=3.0,     # 適中的熱身週期
+        warmup_momentum=0.8,   # 保持熱身動量
+        warmup_bias_lr=0.1,    # 保持熱身偏置學習率
+        box=5.0,               # 降低框損失權重
+        pose=30.0,             # 顯著增加姿態損失權重
+        kobj=8.0,              # 增加關鍵點對象損失權重
+        cls=0.3,               # 降低分類損失權重
+        dfl=1.0,               # 降低分布焦點損失權重
+        nbs=128,               # 增加標稱批次大小
         cos_lr=True,           # 啟用餘弦學習率調度
-        close_mosaic=10,       # 最後10個epoch關閉馬賽克增強
+        close_mosaic=20,       # 提前關閉馬賽克增強
         amp=True,              # 啟用混合精度訓練
         device="0,1,2,3",      # 使用全部4個GPU
-        dropout=0.1,           # 適度的dropout以防止過擬合
+        dropout=0.15,          # 適度增加dropout
         overlap_mask=True,     # 啟用重疊口罩
         patience=50,           # 保持耐心值
         val=True,              # 確保每個epoch驗證
-        freeze=0,              # 不凍結任何層，充分利用預訓練模型
+        freeze=0,              # 不凍結任何層
         
         # 數據增強參數優化
-        hsv_h=0.015,           # 使用官方推薦的色調變化
-        hsv_s=0.7,             # 使用官方推薦的飽和度變化
-        hsv_v=0.4,             # 使用官方推薦的亮度變化
-        degrees=0.0,           # 關閉旋轉（因為姿態估計對旋轉敏感）
-        translate=0.1,         # 使用官方推薦的平移範圍
-        scale=0.5,             # 使用官方推薦的縮放範圍
-        fliplr=0.5,            # 使用官方推薦的水平翻轉
-        mosaic=1.0,            # 啟用馬賽克增強
-        mixup=0.0,             # 關閉mixup（因為姿態估計對mixup敏感）
-        copy_paste=0.0         # 關閉複製粘貼
+        hsv_h=0.01,            # 減少色調變化
+        hsv_s=0.3,             # 減少飽和度變化
+        hsv_v=0.2,             # 減少亮度變化
+        degrees=0.0,           # 保持關閉旋轉
+        translate=0.05,        # 減少平移範圍
+        scale=0.3,             # 減少縮放範圍
+        fliplr=0.5,            # 保持水平翻轉
+        mosaic=0.8,            # 減少馬賽克增強強度
+        mixup=0.0,             # 保持關閉mixup
+        copy_paste=0.0,        # 保持關閉複製粘貼
+        multi_scale=True,      # 啟用多尺度訓練
+        rect=True,             # 啟用矩形訓練
+        workers=8,             # 增加工作線程數
+        plots=True             # 啟用訓練過程圖表
     )
 
 if __name__ == "__main__":
