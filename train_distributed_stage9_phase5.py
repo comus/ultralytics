@@ -28,66 +28,66 @@ def main():
     目標：盡可能接近1280分辨率的0.43 mAP
     策略：混合策略、超極端權重、混合分辨率訓練
     """
-    # 使用第四階段的最佳權重
-    model_path = "runs/pose/stage9_phase4_practical/weights/best.pt"
-    model = YOLO(model_path)
+    # # 使用第四階段的最佳權重
+    # model_path = "runs/pose/stage9_phase4_practical/weights/best.pt"
+    # model = YOLO(model_path)
     
-    if is_main_process():
-        print(f"\n=== 第五階段：極限突破訓練 ===")
-        print(f"載入模型: {model_path}")
-        print("目標：盡可能接近1280分辨率的0.43 mAP")
+    # if is_main_process():
+    #     print(f"\n=== 第五階段：極限突破訓練 ===")
+    #     print(f"載入模型: {model_path}")
+    #     print("目標：盡可能接近1280分辨率的0.43 mAP")
         
-        # 檢查模塊路徑
-        import ultralytics
-        print(f"使用的 Ultralytics 模塊路徑: {os.path.dirname(ultralytics.__file__)}")
+    #     # 檢查模塊路徑
+    #     import ultralytics
+    #     print(f"使用的 Ultralytics 模塊路徑: {os.path.dirname(ultralytics.__file__)}")
     
-    # 第五階段A：混合分辨率策略 - 先使用較大分辨率"預熱"模型
-    print("\n=== 第五階段A：混合分辨率預熱 ===")
-    phase5a_results = model.train(
-        data="coco-pose.yaml",
-        epochs=30,                    # 短期訓練
-        imgsz=720,                    # 稍高分辨率
-        batch=64,                     # 較小批次以適應更高分辨率
-        save_period=1,                # 每個epoch保存
-        cache="disk",                 # 磁盤緩存
-        optimizer="AdamW",            # AdamW優化器
-        lr0=0.0001,                   # 低學習率
-        lrf=0.0001,                   # 極低最終學習率
-        momentum=0.937,               # 標準動量
-        weight_decay=0.00001,         # 極低權重衰減
-        warmup_epochs=3.0,            # 短暫熱身
-        box=1.0,                      # 最低框損失權重
-        pose=220.0,                   # 超高姿態損失權重
-        kobj=90.0,                    # 超高關鍵點對象損失權重
-        cls=0.005,                    # 極低分類損失權重
-        dfl=0.05,                     # 極低分布焦點損失權重
-        cos_lr=True,                  # 餘弦學習率調度
-        amp=True,                     # 混合精度訓練
-        device="0,1,2,3",             # GPU
-        overlap_mask=True,            # 重疊口罩
-        patience=50,                  # 耐心值
-        val=True,                     # 驗證
-        plots=True,                   # 圖表
-        label_smoothing=0.2,          # 增加標籤平滑
-        multi_scale=True,             # 多尺度訓練
-        rect=False,                   # 關閉矩形訓練以便多尺度
+    # # 第五階段A：混合分辨率策略 - 先使用較大分辨率"預熱"模型
+    # print("\n=== 第五階段A：混合分辨率預熱 ===")
+    # phase5a_results = model.train(
+    #     data="coco-pose.yaml",
+    #     epochs=30,                    # 短期訓練
+    #     imgsz=720,                    # 稍高分辨率
+    #     batch=64,                     # 較小批次以適應更高分辨率
+    #     save_period=1,                # 每個epoch保存
+    #     cache="disk",                 # 磁盤緩存
+    #     optimizer="AdamW",            # AdamW優化器
+    #     lr0=0.0001,                   # 低學習率
+    #     lrf=0.0001,                   # 極低最終學習率
+    #     momentum=0.937,               # 標準動量
+    #     weight_decay=0.00001,         # 極低權重衰減
+    #     warmup_epochs=3.0,            # 短暫熱身
+    #     box=1.0,                      # 最低框損失權重
+    #     pose=220.0,                   # 超高姿態損失權重
+    #     kobj=90.0,                    # 超高關鍵點對象損失權重
+    #     cls=0.005,                    # 極低分類損失權重
+    #     dfl=0.05,                     # 極低分布焦點損失權重
+    #     cos_lr=True,                  # 餘弦學習率調度
+    #     amp=True,                     # 混合精度訓練
+    #     device="0,1,2,3",             # GPU
+    #     overlap_mask=True,            # 重疊口罩
+    #     patience=50,                  # 耐心值
+    #     val=True,                     # 驗證
+    #     plots=True,                   # 圖表
+    #     label_smoothing=0.2,          # 增加標籤平滑
+    #     multi_scale=True,             # 多尺度訓練
+    #     rect=False,                   # 關閉矩形訓練以便多尺度
         
-        # 最小化數據增強
-        hsv_h=0.0,                    # 關閉色調
-        hsv_s=0.0,                    # 關閉飽和度
-        hsv_v=0.05,                   # 最小亮度
-        degrees=0.0,                  # 關閉旋轉
-        translate=0.0,                # 關閉平移
-        scale=0.1,                    # 最小縮放
-        fliplr=0.5,                   # 保留水平翻轉
-        mosaic=0.0,                   # 關閉馬賽克
-        mixup=0.0,                    # 關閉mixup
-        copy_paste=0.0,               # 關閉複製粘貼
+    #     # 最小化數據增強
+    #     hsv_h=0.0,                    # 關閉色調
+    #     hsv_s=0.0,                    # 關閉飽和度
+    #     hsv_v=0.05,                   # 最小亮度
+    #     degrees=0.0,                  # 關閉旋轉
+    #     translate=0.0,                # 關閉平移
+    #     scale=0.1,                    # 最小縮放
+    #     fliplr=0.5,                   # 保留水平翻轉
+    #     mosaic=0.0,                   # 關閉馬賽克
+    #     mixup=0.0,                    # 關閉mixup
+    #     copy_paste=0.0,               # 關閉複製粘貼
         
-        project="runs/pose",          # 項目名稱
-        name="stage9_phase5a",        # 訓練名稱
-        exist_ok=True                 # 覆蓋已有目錄
-    )
+    #     project="runs/pose",          # 項目名稱
+    #     name="stage9_phase5a",        # 訓練名稱
+    #     exist_ok=True                 # 覆蓋已有目錄
+    # )
     
     # 獲取階段5A最佳權重
     phase5a_best = YOLO("runs/pose/stage9_phase5a/weights/best.pt")
@@ -113,7 +113,7 @@ def main():
         cls=0.001,                    # 極低分類損失權重
         dfl=0.01,                     # 極低分布焦點損失權重
         cos_lr=True,                  # 餘弦學習率調度
-        one_cycle=True,               # 使用one-cycle策略
+        # one_cycle=True,               # 使用one-cycle策略
         amp=True,                     # 混合精度訓練
         device="0,1,2,3",             # GPU
         overlap_mask=True,            # 重疊口罩
