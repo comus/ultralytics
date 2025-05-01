@@ -28,7 +28,7 @@ def main():
     目標：達到與1280分辨率相當的mAP (0.43)
     """
     # 使用第八次訓練的最佳權重
-    model_path = "/root/autodl-tmp/withcloud/ultralytics/runs/pose/train14/weights/best.pt"
+    model_path = "/root/autodl-tmp/withcloud/root/autodl-tmp/withcloud/ultralytics/runs/pose/train52/weights/best.pt"
     model = YOLO(model_path)
     
     if is_main_process():
@@ -91,12 +91,12 @@ def main():
         copy_paste=0.0,            # 不使用
         
         project="runs/pose",       # 項目名稱
-        name="stage9_phase1_practical", # 訓練名稱
+        name="yolo_stage9_phase1_practical", # 訓練名稱
         exist_ok=True              # 覆蓋已有目錄
     )
     
     # 獲取第一階段最佳權重
-    phase1_best = YOLO("runs/pose/stage9_phase1_practical/weights/best.pt")
+    phase1_best = YOLO("runs/pose/yolo_stage9_phase1_practical/weights/best.pt")
     
     # 第2階段：解凍部分backbone，使用較小學習率，添加數據增強
     print("\n=== 第2階段：解凍部分backbone，添加高級數據增強 ===")
@@ -142,12 +142,12 @@ def main():
         copy_paste=0.0,            # 不使用
         
         project="runs/pose",       # 項目名稱
-        name="stage9_phase2_practical", # 訓練名稱
+        name="yolo_stage9_phase2_practical", # 訓練名稱
         exist_ok=True              # 覆蓋已有目錄
     )
     
     # 獲取第二階段最佳權重
-    phase2_best = YOLO("runs/pose/stage9_phase2_practical/weights/best.pt")
+    phase2_best = YOLO("runs/pose/yolo_stage9_phase2_practical/weights/best.pt")
     
     # 第3階段：完全解凍，極低學習率，多尺度訓練
     print("\n=== 第3階段：完全解凍，開啟多尺度訓練 ===")
@@ -192,12 +192,12 @@ def main():
         copy_paste=0.0,            # 關閉
         
         project="runs/pose",       # 項目名稱
-        name="stage9_phase3_practical", # 訓練名稱
+        name="yolo_stage9_phase3_practical", # 訓練名稱
         exist_ok=True              # 覆蓋已有目錄
     )
     
     # 獲取第三階段最佳權重
-    phase3_best = YOLO("runs/pose/stage9_phase3_practical/weights/best.pt")
+    phase3_best = YOLO("runs/pose/yolo_stage9_phase3_practical/weights/best.pt")
     
     # 第4階段：最終微調 - 極低學習率，無數據增強
     print("\n=== 第4階段：最終微調 - 極低學習率，無數據增強 ===")
@@ -241,7 +241,7 @@ def main():
         rect=True,                 # 矩形訓練
         
         project="runs/pose",       # 項目名稱
-        name="stage9_phase4_practical", # 訓練名稱
+        name="yolo_stage9_phase4_practical", # 訓練名稱
         exist_ok=True              # 覆蓋已有目錄
     )
     
