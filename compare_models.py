@@ -1,581 +1,544 @@
-#!/usr/bin/env python
-# Yoga Pose Model Comparison Tool
-# This script compares the performance of multiple YOLO keypoint detection models
-
 import os
-import sys
-import argparse
+import torch
 import numpy as np
 import matplotlib.pyplot as plt
-import cv2
-from pathlib import Path
-import torch
+import seaborn as sns
 from tqdm import tqdm
-from collections import defaultdict
-
-# 添加本地路徑到 Python 路徑中，確保使用本地版本
-current_dir = os.path.dirname(os.path.abspath(__file__))
-parent_dir = os.path.dirname(current_dir)
-sys.path.insert(0, current_dir)
-sys.path.insert(0, parent_dir)
-
 from ultralytics import YOLO
+from PIL import Image
+import cv2
+from sklearn.decomposition import PCA
+from sklearn.manifold import TSNE
+import pandas as pd
+from scipy.stats import pearsonr, spearmanr
+import torchvision.transforms as transforms
 
+# 設置路徑
+VAL_IMAGES_PATH = "/Users/region/yolo11-pose-distiller/datasets/coco-pose/images/val2017"
+YOLO_MODEL_PATH = "yolo11n-pose.pt"  # 請確保路徑正確
+GDE_MODEL_PATH = "super_phase5_1_v2/weights/best.pt"  # 請確保路徑正確
+OUTPUT_DIR = "model_comparison_outputs"
 
-def compare_models(model_paths, data_yaml, output_dir=None, img_size=640, batch_size=16, device='0'):
-    """
-    Compare multiple models' performance and generate comparison report
-    
-    Args:
-        model_paths: List of model weight paths
-        data_yaml: Data configuration file path
-        output_dir: Output directory
-        img_size: Image size
-        batch_size: Batch size
-        device: Running device
-    """
-    if len(model_paths) < 2:
-        raise ValueError("At least two models need to be provided for comparison")
-    
-    if output_dir is None:
-        output_dir = Path("model_comparison")
-    else:
-        output_dir = Path(output_dir)
-    output_dir.mkdir(exist_ok=True)
-    
-    print(f"Comparing {len(model_paths)} models...")
-    
-    # Load all models
-    models = []
-    model_names = []
-    validation_results = []
-    
-    for i, model_path in enumerate(model_paths):
-        print(f"Loading model {i+1}/{len(model_paths)}: {model_path}")
-        model = YOLO(model_path)
-        models.append(model)
-        model_name = Path(model_path).stem
-        model_names.append(model_name)
-        
-        # Run validation
-        print(f"Validating model: {model_name}")
-        results = model.val(data=data_yaml, imgsz=img_size, batch=batch_size, device=device)
-        validation_results.append(results)
-    
-    # Compare and visualize results
-    compare_metrics(model_names, validation_results, output_dir)
-    
-    # Find sample images for visual comparison
-    sample_images = find_sample_images(data_yaml, output_dir)
-    
-    # Generate visual comparison results
-    if sample_images:
-        generate_visual_comparisons(models, model_names, output_dir, device=device)
-        
-    return models, model_names, validation_results
+os.makedirs(OUTPUT_DIR, exist_ok=True)
 
-
-def compare_metrics(model_names, validation_results, output_dir):
-    """
-    Compare performance metrics among multiple models
-    
-    Args:
-        model_names: List of model names
-        validation_results: List of validation results
-        output_dir: Output directory
-    """
-    print("\nComparing model performance metrics...")
-    metrics_dir = output_dir / "metrics"
-    metrics_dir.mkdir(exist_ok=True)
-    
-    # Extract key metrics
-    box_map50 = []
-    box_map = []
-    pose_map50 = []
-    pose_map = []
-    
-    for result in validation_results:
-        # Extract Box mAP
-        box_map50.append(result.box.map50)
-        box_map.append(result.box.map)
+class FeatureExtractor:
+    def __init__(self, model):
+        self.model = model
+        self.features = {}
+        self.hooks = []
         
-        # Extract Pose mAP - fix this to properly access pose metrics
-        # According to docs: https://docs.ultralytics.com/tasks/pose/#val
-        print(f"Result keys: {dir(result)}")
-        
-        # First try to access pose metrics directly
-        if hasattr(result, 'pose'):
-            pose_map50.append(result.pose.map50)
-            pose_map.append(result.pose.map)
-        # Fall back to keypoints if pose not available
-        elif hasattr(result, 'keypoints'):
-            pose_map50.append(result.keypoints.map50)
-            pose_map.append(result.keypoints.map)
-        else:
-            # If no pose-related attributes are found, print available metrics
-            print(f"Warning: No pose metrics found. Available attributes: {dir(result)}")
-            if hasattr(result, 'box'):
-                print(f"Box metrics: {dir(result.box)}")
-            pose_map50.append(0)
-            pose_map.append(0)
-    
-    # Create comparison table
-    with open(metrics_dir / "metrics_comparison.txt", "w") as f:
-        f.write("Model Performance Metrics Comparison\n")
-        f.write("=" * 80 + "\n\n")
-        f.write(f"{'Model Name':<20} {'Box mAP50':<10} {'Box mAP':<12} {'Pose mAP50':<10} {'Pose mAP':<12}\n")
-        f.write("-" * 80 + "\n")
-        
-        for i, name in enumerate(model_names):
-            f.write(f"{name:<20} {box_map50[i]:<10.4f} {box_map[i]:<12.4f} {pose_map50[i]:<10.4f} {pose_map[i]:<12.4f}\n")
-    
-    # Draw comparison charts
-    # mAP50 comparison
-    plt.figure(figsize=(12, 6))
-    x = np.arange(len(model_names))
-    width = 0.35
-    
-    plt.bar(x - width/2, box_map50, width, label='Box mAP50')
-    plt.bar(x + width/2, pose_map50, width, label='Pose mAP50')
-    
-    plt.xlabel('Model')
-    plt.ylabel('mAP50')
-    plt.title('Model mAP50 Performance Comparison')
-    plt.xticks(x, model_names, rotation=45, ha='right')
-    plt.ylim(0, 1.0)
-    plt.legend()
-    plt.grid(True, alpha=0.3)
-    plt.tight_layout()
-    plt.savefig(metrics_dir / 'map50_comparison.png', dpi=300)
-    plt.close()
-    
-    # mAP comparison
-    plt.figure(figsize=(12, 6))
-    plt.bar(x - width/2, box_map, width, label='Box mAP')
-    plt.bar(x + width/2, pose_map, width, label='Pose mAP')
-    
-    plt.xlabel('Model')
-    plt.ylabel('mAP')
-    plt.title('Model mAP Performance Comparison')
-    plt.xticks(x, model_names, rotation=45, ha='right')
-    plt.ylim(0, 1.0)
-    plt.legend()
-    plt.grid(True, alpha=0.3)
-    plt.tight_layout()
-    plt.savefig(metrics_dir / 'map_comparison.png', dpi=300)
-    plt.close()
-    
-    print(f"Metrics comparison completed, results saved to: {metrics_dir}")
-
-
-def find_sample_images(data_yaml, output_dir, limit=10):
-    """
-    Find sample images from validation dataset for comparison
-    
-    Args:
-        data_yaml: Data configuration file path
-        output_dir: Output directory
-        limit: Maximum number of images
-        
-    Returns:
-        List of sample image paths
-    """
-    print("\nFinding sample images for visual comparison...")
-    
-    # Get validation dataset path from yaml
-    from ultralytics.data.utils import check_det_dataset
-    data_dict = check_det_dataset(data_yaml)
-    val_images = []
-    
-    # Get validation image paths
-    if 'val' in data_dict:
-        import glob
-        if isinstance(data_dict['val'], str):
-            val_path = data_dict['val']
-            if os.path.isdir(val_path):
-                val_images = glob.glob(os.path.join(val_path, '**/*.jpg'), recursive=True)
-                val_images += glob.glob(os.path.join(val_path, '**/*.png'), recursive=True)
-            # If val points to a text file
-            elif os.path.isfile(val_path) and val_path.endswith('.txt'):
-                with open(val_path, 'r') as f:
-                    lines = f.readlines()
-                val_images = [line.strip() for line in lines]
-    
-    # If no validation images found
-    if not val_images:
-        print("Warning: No validation images found")
-        return []
-    
-    # Randomly select images
-    import random
-    if len(val_images) > limit:
-        sample_images = random.sample(val_images, limit)
-    else:
-        sample_images = val_images
-    
-    # Save sample image paths to file
-    samples_dir = output_dir / "samples"
-    samples_dir.mkdir(exist_ok=True)
-    
-    with open(samples_dir / "sample_images.txt", "w") as f:
-        for img_path in sample_images:
-            f.write(f"{img_path}\n")
-    
-    print(f"Selected {len(sample_images)} sample images for comparison")
-    return sample_images
-
-
-def generate_visual_comparisons(models, model_names, output_dir, device='cpu'):
-    """
-    Generate visual comparison results for sample images
-    
-    Args:
-        models: List of models
-        model_names: List of model names
-        output_dir: Output directory
-        device: Running device
-    """
-    print("\nGenerating visual comparison results...")
-    
-    samples_dir = output_dir / "samples"
-    visual_dir = output_dir / "visual_comparison"
-    visual_dir.mkdir(exist_ok=True)
-    
-    # Read sample image paths
-    sample_images = []
-    if os.path.exists(samples_dir / "sample_images.txt"):
-        with open(samples_dir / "sample_images.txt", "r") as f:
-            sample_images = [line.strip() for line in f.readlines()]
-    
-    if not sample_images:
-        print("Warning: No sample images found, cannot generate visual comparison")
-        return
-    
-    # Run all models on each sample image
-    for i, img_path in enumerate(tqdm(sample_images, desc="Generating visual comparison")):
-        if not os.path.exists(img_path):
-            print(f"Warning: Image does not exist - {img_path}")
-            continue
-        
-        # Read original image
-        img_original = cv2.imread(img_path)
-        if img_original is None:
-            print(f"Warning: Cannot read image - {img_path}")
-            continue
-        
-        # Run prediction for each model
-        model_results = []
-        for j, model in enumerate(models):
-            results = model.predict(img_path, conf=0.25, device=device, verbose=False)
-            model_results.append(results[0])
-        
-        # Create grid to display all model results
-        n_models = len(models)
-        grid_rows = 1 + (n_models // 3) if n_models > 3 else 2  # At least 2 rows
-        grid_cols = min(n_models, 3)  # Max 3 models per row
-        
-        # Calculate grid image size
-        h, w = img_original.shape[:2]
-        aspect_ratio = w / h
-        grid_width = 1200
-        cell_width = grid_width // grid_cols
-        cell_height = int(cell_width / aspect_ratio)
-        grid_height = cell_height * grid_rows
-        
-        # Create grid image
-        grid_img = np.ones((grid_height, grid_width, 3), dtype=np.uint8) * 255
-        
-        # First row for original image
-        img_resized = cv2.resize(img_original, (cell_width, cell_height))
-        grid_img[0:cell_height, 0:cell_width] = img_resized
-        
-        # Add original image title
-        cv2.putText(grid_img, "Original Image", (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 0), 2)
-        
-        # Add each model's results
-        for j, result in enumerate(model_results):
-            # Calculate position in grid
-            row = (j + 1) // grid_cols
-            col = (j + 1) % grid_cols
-            y1 = row * cell_height
-            y2 = y1 + cell_height
-            x1 = col * cell_width
-            x2 = x1 + cell_width
+    def register_hook(self, layer_name, layer):
+        def hook(module, input, output):
+            # 確保輸出是可處理的類型
+            if isinstance(output, torch.Tensor):
+                self.features[layer_name] = output.detach().cpu()
+            elif isinstance(output, tuple) and all(isinstance(o, torch.Tensor) for o in output):
+                self.features[layer_name] = output[0].detach().cpu()
             
-            # Get image with predictions
-            pred_img = result.plot(conf=0.25, line_width=2, font_size=1, kpt_line=True, 
-                                  kpt_radius=4)
-            pred_img_resized = cv2.resize(pred_img, (cell_width, cell_height))
-            
-            # Place in grid
-            grid_img[y1:y2, x1:x2] = pred_img_resized
-            
-            # Add model name
-            cv2.putText(grid_img, model_names[j], (x1 + 10, y1 + 30), 
-                       cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 0), 2)
+        handle = layer.register_forward_hook(hook)
+        self.hooks.append(handle)
         
-        # Save grid image
-        output_file = visual_dir / f"comparison_{i+1:03d}.jpg"
-        cv2.imwrite(str(output_file), grid_img)
-    
-    print(f"Visual comparison completed, results saved to: {visual_dir}")
-
-
-def analyze_confidence_differences(models, model_names, data_yaml, output_dir, num_samples=5, device='cpu'):
-    """
-    Analyze keypoint confidence differences between models
-    
-    Args:
-        models: List of models
-        model_names: List of model names
-        data_yaml: Data configuration file path
-        output_dir: Output directory
-        num_samples: Number of samples to display
-        device: Running device
-    """
-    print("\nAnalyzing keypoint confidence differences between models...")
-    
-    # Create output directory
-    conf_dir = output_dir / "confidence_analysis"
-    conf_dir.mkdir(exist_ok=True)
-    
-    # Get validation dataset path from yaml
-    from ultralytics.data.utils import check_det_dataset
-    data_dict = check_det_dataset(data_yaml)
-    val_images = []
-    
-    # Get validation image paths
-    if 'val' in data_dict:
-        import glob
-        if isinstance(data_dict['val'], str):
-            val_path = data_dict['val']
-            if os.path.isdir(val_path):
-                val_images = glob.glob(os.path.join(val_path, '**/*.jpg'), recursive=True)
-                val_images += glob.glob(os.path.join(val_path, '**/*.png'), recursive=True)
-            elif os.path.isfile(val_path) and val_path.endswith('.txt'):
-                with open(val_path, 'r') as f:
-                    lines = f.readlines()
-                val_images = [line.strip() for line in lines]
-    
-    # If no validation images found
-    if not val_images:
-        print("Warning: No validation images found, cannot analyze confidence differences")
-        return
-    
-    # Randomly select images
-    import random
-    sample_size = min(len(val_images), 50)  # Randomly analyze 50 images
-    selected_images = random.sample(val_images, sample_size)
-    
-    # Collect keypoint confidence for each model
-    confidence_diffs = []
-    
-    for img_path in tqdm(selected_images, desc="Analyzing confidence differences"):
-        if not os.path.exists(img_path):
-            continue
+    def clear_hooks(self):
+        for hook in self.hooks:
+            hook.remove()
+        self.hooks = []
         
-        # Run prediction for each model
-        all_kpt_confs = []
-        for model in models:
-            results = model.predict(img_path, conf=0.25, device=device, verbose=False)
-            
-            # If keypoints detected
-            if len(results[0].keypoints) > 0:
-                kpts = results[0].keypoints.data[0]  # Only take first detection object
+    def clear_features(self):
+        self.features = {}
+
+def get_layer_by_id(model, layer_id):
+    """通過索引獲取模型的層"""
+    try:
+        return model.model.model[layer_id]
+    except (IndexError, AttributeError):
+        return None
+
+def list_model_layers(model):
+    """列出模型的所有層結構"""
+    layers = []
+    try:
+        for i, m in enumerate(model.model.model):
+            layers.append((i, type(m).__name__, m))
+    except AttributeError:
+        print("無法訪問模型層")
+    return layers
+
+def load_models():
+    print("Loading models...")
+    yolo_model = YOLO(YOLO_MODEL_PATH)
+    gde_model = YOLO(GDE_MODEL_PATH)
+    
+    print("YOLO model layers:")
+    yolo_layers = list_model_layers(yolo_model)
+    for i, type_name, _ in yolo_layers[:10]:  # 只顯示前10層
+        print(f"Layer {i}: {type_name}")
+    print("...")
+    
+    print("\nGDE model layers:")
+    gde_layers = list_model_layers(gde_model)
+    for i, type_name, _ in gde_layers[:10]:  # 只顯示前10層
+        print(f"Layer {i}: {type_name}")
+    print("...")
+    
+    return yolo_model, gde_model, yolo_layers, gde_layers
+
+def identify_comparable_layers(yolo_layers, gde_layers):
+    """識別兩個模型中可比較的層"""
+    paired_layers = []
+    
+    # 按類型分組配對相似的層
+    yolo_by_type = {}
+    gde_by_type = {}
+    
+    # 排除一些通用層 (如 Concat, Upsample 等)
+    excluded_types = {"Concat", "nn.Upsample", "Upsample", "nn.modules.upsampling.Upsample"}
+    
+    for i, type_name, layer in yolo_layers:
+        if type_name not in excluded_types:
+            if type_name not in yolo_by_type:
+                yolo_by_type[type_name] = []
+            yolo_by_type[type_name].append((i, layer))
+    
+    for i, type_name, layer in gde_layers:
+        if type_name not in excluded_types:
+            # 特殊處理: 配對 C3k2 與 C3k2_Ghost, C3k2_DFFM
+            mapped_type = type_name
+            if type_name in ["C3k2_Ghost", "C3k2_DFFM"]:
+                mapped_type = "C3k2"  # 映射到相應的YOLO層類型
                 
-                # Ensure there are keypoints
-                if kpts.shape[0] > 0:
-                    # Extract confidence values
-                    conf_values = kpts[:, 2].cpu().numpy()
-                    all_kpt_confs.append(conf_values)
-                else:
-                    all_kpt_confs.append(None)
-            else:
-                all_kpt_confs.append(None)
+            if mapped_type not in gde_by_type:
+                gde_by_type[mapped_type] = []
+            gde_by_type[mapped_type].append((i, layer))
+    
+    # 尋找共同的層類型
+    common_types = set(yolo_by_type.keys()) & set(gde_by_type.keys())
+    
+    print(f"Found common layer types: {common_types}")
+    
+    # 為每種類型配對層
+    for type_name in common_types:
+        yolo_type_layers = yolo_by_type[type_name]
+        gde_type_layers = gde_by_type[type_name]
         
-        # Calculate confidence differences between models
-        if len(all_kpt_confs) == len(models) and all(x is not None for x in all_kpt_confs):
-            # Ensure all keypoint configurations are the same
-            if len(set(x.shape[0] for x in all_kpt_confs)) == 1:
-                # Calculate standard deviation for each keypoint confidence
-                kpt_stds = np.std(all_kpt_confs, axis=0)
+        min_count = min(len(yolo_type_layers), len(gde_type_layers))
+        
+        # 配對相同位置的層
+        for i in range(min_count):
+            yolo_idx, yolo_layer = yolo_type_layers[i]
+            gde_idx, gde_layer = gde_type_layers[i]
+            paired_layers.append((yolo_idx, gde_idx, yolo_layer, gde_layer, type_name))
+    
+    # 特殊處理: 配對 GDEPose / Pose 層
+    if "Pose" in yolo_by_type and "GDEPose" in gde_by_type:
+        y_idx, y_layer = yolo_by_type["Pose"][0]
+        g_idx, g_layer = gde_by_type["GDEPose"][0]
+        paired_layers.append((y_idx, g_idx, y_layer, g_layer, "Pose/GDEPose"))
+    
+    # 根據層在模型中的位置排序
+    paired_layers.sort(key=lambda x: x[0])
+    
+    return paired_layers
+
+def process_images(yolo_model, gde_model, paired_layers, num_images=50):
+    """處理圖像並提取特徵"""
+    # 獲取圖像列表
+    image_files = os.listdir(VAL_IMAGES_PATH)
+    image_files = [f for f in image_files if f.endswith(('.jpg', '.jpeg', '.png'))]
+    
+    if num_images > 0 and num_images < len(image_files):
+        image_files = image_files[:num_images]
+    
+    # 設置特徵提取器
+    yolo_extractor = FeatureExtractor(yolo_model)
+    gde_extractor = FeatureExtractor(gde_model)
+    
+    # 為每一對層註冊鉤子
+    for yolo_idx, gde_idx, yolo_layer, gde_layer, layer_type in paired_layers:
+        yolo_extractor.register_hook(f"{layer_type}_{yolo_idx}", yolo_layer)
+        gde_extractor.register_hook(f"{layer_type}_{gde_idx}", gde_layer)
+    
+    all_similarities = {f"{layer_type}_{yolo_idx}_{gde_idx}": [] for yolo_idx, gde_idx, _, _, layer_type in paired_layers}
+    
+    # 處理每張圖像
+    for img_file in tqdm(image_files, desc="Processing images"):
+        img_path = os.path.join(VAL_IMAGES_PATH, img_file)
+        
+        # 清除之前的特徵
+        yolo_extractor.clear_features()
+        gde_extractor.clear_features()
+        
+        # 使用兩個模型處理圖像
+        yolo_results = yolo_model(img_path, verbose=False)
+        gde_results = gde_model(img_path, verbose=False)
+        
+        # 計算每一對層的相似度
+        for yolo_idx, gde_idx, _, _, layer_type in paired_layers:
+            yolo_key = f"{layer_type}_{yolo_idx}"
+            gde_key = f"{layer_type}_{gde_idx}"
+            
+            if yolo_key in yolo_extractor.features and gde_key in gde_extractor.features:
+                yolo_feat = yolo_extractor.features[yolo_key]
+                gde_feat = gde_extractor.features[gde_key]
                 
-                # Calculate average standard deviation
-                avg_std = np.mean(kpt_stds)
-                
-                # Store cases with high standard deviation
-                if avg_std > 0.1:  # Only focus on cases with higher standard deviation
-                    confidence_diffs.append({
-                        'img_path': img_path,
-                        'kpt_stds': kpt_stds,
-                        'avg_std': avg_std,
-                        'confs': all_kpt_confs
+                # 確保特徵維度相符，如果不相符則嘗試適配
+                try:
+                    if yolo_feat.shape != gde_feat.shape:
+                        # 如果只是批次大小不同，可以選第一個元素
+                        if len(yolo_feat.shape) > 1 and len(gde_feat.shape) > 1 and yolo_feat.shape[1:] == gde_feat.shape[1:]:
+                            yolo_feat = yolo_feat[0:1]
+                            gde_feat = gde_feat[0:1]
+                            
+                    # 將特徵轉為扁平的numpy數組
+                    yf_flat = yolo_feat.view(yolo_feat.size(0), -1).numpy()
+                    gf_flat = gde_feat.view(gde_feat.size(0), -1).numpy()
+                    
+                    # 計算相關性
+                    corr_matrix = np.corrcoef(yf_flat.flatten(), gf_flat.flatten())
+                    pearson_corr = corr_matrix[0, 1]
+                    
+                    # 計算餘弦相似度
+                    cos_sim = np.dot(yf_flat.flatten(), gf_flat.flatten()) / (
+                        np.linalg.norm(yf_flat.flatten()) * np.linalg.norm(gf_flat.flatten()) + 1e-8
+                    )
+                    
+                    # 計算MSE
+                    mse = np.mean((yf_flat.flatten() - gf_flat.flatten()) ** 2)
+                    
+                    all_similarities[f"{layer_type}_{yolo_idx}_{gde_idx}"].append({
+                        'image': img_file,
+                        'pearson_corr': pearson_corr,
+                        'cosine_sim': cos_sim,
+                        'mse': mse
                     })
+                except Exception as e:
+                    print(f"Error processing features for layer {yolo_key}/{gde_key}: {e}")
     
-    # Sort by average standard deviation
-    if confidence_diffs:
-        confidence_diffs.sort(key=lambda x: x['avg_std'], reverse=True)
+    # 清除鉤子
+    yolo_extractor.clear_hooks()
+    gde_extractor.clear_hooks()
+    
+    return all_similarities, yolo_extractor, gde_extractor
+
+def analyze_similarities(all_similarities, paired_layers):
+    """分析特徵相似度並產生統計數據"""
+    results = {}
+    
+    for yolo_idx, gde_idx, _, _, layer_type in paired_layers:
+        key = f"{layer_type}_{yolo_idx}_{gde_idx}"
         
-        # Save results to file
-        with open(conf_dir / "confidence_differences.txt", "w") as f:
-            f.write("Model Keypoint Confidence Difference Analysis\n")
-            f.write("=" * 80 + "\n\n")
+        if key in all_similarities and all_similarities[key]:
+            stats = all_similarities[key]
             
-            for i, diff in enumerate(confidence_diffs[:20]):  # Only show top 20 with largest differences
-                f.write(f"Sample {i+1}:\n")
-                f.write(f"Image: {diff['img_path']}\n")
-                f.write(f"Average confidence std dev: {diff['avg_std']:.4f}\n")
-                f.write(f"Keypoint std devs: {diff['kpt_stds']}\n\n")
+            # 計算平均和標準差
+            avg_pearson = np.mean([s['pearson_corr'] for s in stats if not np.isnan(s['pearson_corr'])])
+            std_pearson = np.std([s['pearson_corr'] for s in stats if not np.isnan(s['pearson_corr'])])
+            
+            avg_cosine = np.mean([s['cosine_sim'] for s in stats if not np.isnan(s['cosine_sim'])])
+            std_cosine = np.std([s['cosine_sim'] for s in stats if not np.isnan(s['cosine_sim'])])
+            
+            avg_mse = np.mean([s['mse'] for s in stats if not np.isnan(s['mse'])])
+            std_mse = np.std([s['mse'] for s in stats if not np.isnan(s['mse'])])
+            
+            results[key] = {
+                'yolo_idx': yolo_idx,
+                'gde_idx': gde_idx,
+                'layer_type': layer_type,
+                'avg_pearson': avg_pearson,
+                'std_pearson': std_pearson,
+                'avg_cosine': avg_cosine,
+                'std_cosine': std_cosine,
+                'avg_mse': avg_mse,
+                'std_mse': std_mse,
+                'samples': len(stats)
+            }
+    
+    return results
+
+def visualize_results(analysis_results, paired_layers):
+    """可視化分析結果"""
+    if not analysis_results:
+        print("沒有可視化的結果")
+        return pd.DataFrame()
+    
+    # 準備數據
+    layer_keys = list(analysis_results.keys())
+    layer_names = [f"{results['layer_type']}\nYOLO_{results['yolo_idx']}/GDE_{results['gde_idx']}" 
+                  for key, results in analysis_results.items()]
+    pearson_values = [results['avg_pearson'] for key, results in analysis_results.items()]
+    cosine_values = [results['avg_cosine'] for key, results in analysis_results.items()]
+    mse_values = [results['avg_mse'] for key, results in analysis_results.items()]
+    
+    # 1. 相似度條形圖
+    plt.figure(figsize=(18, 10))
+    
+    # Pearson相關係數
+    plt.subplot(3, 1, 1)
+    bars = plt.bar(range(len(layer_names)), pearson_values, color='skyblue')
+    plt.axhline(y=0.5, color='r', linestyle='-', alpha=0.3)
+    plt.axhline(y=0.7, color='g', linestyle='-', alpha=0.3)
+    plt.ylabel('Pearson Correlation')
+    plt.title('Average Pearson Correlation Between YOLO and GDE Layers')
+    plt.xticks(range(len(layer_names)), layer_names, rotation=90)
+    
+    # 為每個柱子添加數值標籤
+    for i, bar in enumerate(bars):
+        height = bar.get_height()
+        plt.text(bar.get_x() + bar.get_width()/2., height + 0.02,
+                f'{height:.3f}', ha='center', va='bottom')
+    
+    # 餘弦相似度
+    plt.subplot(3, 1, 2)
+    bars = plt.bar(range(len(layer_names)), cosine_values, color='lightgreen')
+    plt.axhline(y=0.5, color='r', linestyle='-', alpha=0.3)
+    plt.axhline(y=0.7, color='g', linestyle='-', alpha=0.3)
+    plt.ylabel('Cosine Similarity')
+    plt.title('Average Cosine Similarity Between YOLO and GDE Layers')
+    plt.xticks(range(len(layer_names)), layer_names, rotation=90)
+    
+    for i, bar in enumerate(bars):
+        height = bar.get_height()
+        plt.text(bar.get_x() + bar.get_width()/2., height + 0.02,
+                f'{height:.3f}', ha='center', va='bottom')
+    
+    # MSE
+    plt.subplot(3, 1, 3)
+    bars = plt.bar(range(len(layer_names)), mse_values, color='salmon')
+    plt.ylabel('Mean Squared Error')
+    plt.title('Average MSE Between YOLO and GDE Layers')
+    plt.xticks(range(len(layer_names)), layer_names, rotation=90)
+    
+    for i, bar in enumerate(bars):
+        height = bar.get_height()
+        plt.text(bar.get_x() + bar.get_width()/2., height + 0.02,
+                f'{height:.3f}', ha='center', va='bottom')
+    
+    plt.tight_layout()
+    plt.savefig(os.path.join(OUTPUT_DIR, "layer_similarity_metrics.png"), dpi=300, bbox_inches='tight')
+    plt.close()
+    
+    # 2. 網絡深度相關性圖
+    plt.figure(figsize=(15, 8))
+    
+    # 按層索引排序
+    sorted_indices = [i for i in range(len(layer_keys))]
+    sorted_indices.sort(key=lambda i: analysis_results[layer_keys[i]]['yolo_idx'])
+    
+    sorted_pearson = [pearson_values[i] for i in sorted_indices]
+    sorted_cosine = [cosine_values[i] for i in sorted_indices]
+    sorted_layer_names = [layer_names[i] for i in sorted_indices]
+    
+    plt.plot(range(len(sorted_layer_names)), sorted_pearson, 'o-', label='Pearson Correlation', color='blue')
+    plt.plot(range(len(sorted_layer_names)), sorted_cosine, 's-', label='Cosine Similarity', color='green')
+    plt.xticks(range(len(sorted_layer_names)), sorted_layer_names, rotation=90)
+    plt.axhline(y=0.5, color='r', linestyle='--', alpha=0.3, label='Threshold 0.5')
+    plt.axhline(y=0.7, color='purple', linestyle='--', alpha=0.3, label='Threshold 0.7')
+    plt.title('Layer Similarity Through Network Depth')
+    plt.ylabel('Similarity Score')
+    plt.xlabel('Model Layers')
+    plt.legend()
+    plt.grid(True, linestyle='--', alpha=0.7)
+    plt.tight_layout()
+    plt.savefig(os.path.join(OUTPUT_DIR, "depth_similarity.png"), dpi=300, bbox_inches='tight')
+    plt.close()
+    
+    # 3. 熱力圖 - 如果層數足夠多
+    if len(layer_keys) > 5:
+        similarity_matrix = np.zeros((len(layer_keys), 3))
+        for i, key in enumerate(layer_keys):
+            similarity_matrix[i, 0] = analysis_results[key]['avg_pearson']
+            similarity_matrix[i, 1] = analysis_results[key]['avg_cosine']
+            similarity_matrix[i, 2] = analysis_results[key]['avg_mse']
         
-        # Visualize cases with largest differences
-        visualize_confidence_differences(models, model_names, 
-                                        [d['img_path'] for d in confidence_diffs[:num_samples]], 
-                                        conf_dir, num_samples, device)
+        plt.figure(figsize=(10, 8))
+        sns.heatmap(similarity_matrix, 
+                    annot=True, 
+                    fmt=".3f", 
+                    xticklabels=['Pearson', 'Cosine', 'MSE'],
+                    yticklabels=layer_names,
+                    cmap='viridis')
+        plt.title('Layer Similarity Metrics Heatmap')
+        plt.tight_layout()
+        plt.savefig(os.path.join(OUTPUT_DIR, "similarity_heatmap.png"), dpi=300, bbox_inches='tight')
+        plt.close()
+    
+    # 4. 保存數值結果到CSV
+    results_df = pd.DataFrame([
+        {
+            'YOLO Index': results['yolo_idx'],
+            'GDE Index': results['gde_idx'],
+            'Layer Type': results['layer_type'],
+            'Avg Pearson': results['avg_pearson'],
+            'Std Pearson': results['std_pearson'],
+            'Avg Cosine': results['avg_cosine'],
+            'Std Cosine': results['std_cosine'],
+            'Avg MSE': results['avg_mse'],
+            'Std MSE': results['std_mse'],
+            'Samples': results['samples']
+        }
+        for key, results in analysis_results.items()
+    ])
+    
+    results_df.to_csv(os.path.join(OUTPUT_DIR, "layer_similarity_stats.csv"), index=False)
+    
+    return results_df
+
+def visualize_feature_maps(yolo_model, gde_model, paired_layers, yolo_extractor, gde_extractor, num_images=3):
+    """可視化並比較兩個模型的特徵圖"""
+    # 隨機選擇一些圖像
+    image_files = os.listdir(VAL_IMAGES_PATH)
+    image_files = [f for f in image_files if f.endswith(('.jpg', '.jpeg', '.png'))]
+    selected_images = np.random.choice(image_files, min(num_images, len(image_files)), replace=False)
+    
+    # 選擇一些關鍵層進行可視化 (比如前5個和後5個)
+    if len(paired_layers) > 10:
+        visualize_layers = paired_layers[:5] + paired_layers[-5:]
     else:
-        print("No significant confidence differences found")
+        visualize_layers = paired_layers
     
-    print(f"Confidence difference analysis completed, results saved to: {conf_dir}")
-
-
-def visualize_confidence_differences(models, model_names, image_paths, output_dir, num_samples=5, device='cpu'):
-    """
-    Visualize significant keypoint confidence differences between models
+    # 重新註冊鉤子
+    yolo_extractor.clear_hooks()
+    gde_extractor.clear_hooks()
     
-    Args:
-        models: List of models
-        model_names: List of model names
-        image_paths: List of image paths
-        output_dir: Output directory
-        num_samples: Number of samples
-        device: Running device
-    """
-    print(f"\nVisualizing {min(num_samples, len(image_paths))} cases with significant confidence differences...")
+    for yolo_idx, gde_idx, yolo_layer, gde_layer, layer_type in visualize_layers:
+        yolo_extractor.register_hook(f"{layer_type}_{yolo_idx}", yolo_layer)
+        gde_extractor.register_hook(f"{layer_type}_{gde_idx}", gde_layer)
     
-    for i, img_path in enumerate(image_paths[:num_samples]):
-        if not os.path.exists(img_path):
-            print(f"Warning: Image does not exist - {img_path}")
-            continue
+    for img_file in selected_images:
+        img_path = os.path.join(VAL_IMAGES_PATH, img_file)
         
-        # Read original image
-        img_original = cv2.imread(img_path)
-        if img_original is None:
-            print(f"Warning: Cannot read image - {img_path}")
-            continue
+        # 清除之前的特徵
+        yolo_extractor.clear_features()
+        gde_extractor.clear_features()
         
-        h, w = img_original.shape[:2]
+        # 處理圖像
+        original_img = cv2.imread(img_path)
+        original_img = cv2.cvtColor(original_img, cv2.COLOR_BGR2RGB)
         
-        # Run prediction for each model
-        model_results = []
-        all_kpt_confs = []
+        # 運行模型
+        yolo_model(img_path, verbose=False)
+        gde_model(img_path, verbose=False)
         
-        for j, model in enumerate(models):
-            results = model.predict(img_path, conf=0.25, device=device, verbose=False)
-            model_results.append(results[0])
+        # 為每個層創建特徵圖可視化
+        for yolo_idx, gde_idx, _, _, layer_type in visualize_layers:
+            yolo_key = f"{layer_type}_{yolo_idx}"
+            gde_key = f"{layer_type}_{gde_idx}"
             
-            # Extract keypoint confidence
-            if len(results[0].keypoints) > 0:
-                kpts = results[0].keypoints.data[0]
-                if kpts.shape[0] > 0:
-                    conf_values = kpts[:, 2].cpu().numpy()
-                    all_kpt_confs.append(conf_values)
-                else:
-                    all_kpt_confs.append(None)
-            else:
-                all_kpt_confs.append(None)
-        
-        # Create grid to display all model results
-        n_models = len(models)
-        grid_rows = 1 + n_models  # First row for original image
-        grid_cols = 1
-        
-        # Set grid size
-        cell_height = 480
-        cell_width = int(cell_height * (w / h))
-        grid_height = cell_height * grid_rows
-        grid_width = cell_width
-        
-        # Create grid image
-        grid_img = np.ones((grid_height, grid_width, 3), dtype=np.uint8) * 255
-        
-        # First row for original image
-        img_resized = cv2.resize(img_original, (cell_width, cell_height))
-        grid_img[0:cell_height, 0:cell_width] = img_resized
-        
-        # Add original image title
-        cv2.putText(grid_img, "Original Image", (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 0), 2)
-        
-        # Add each model's results
-        for j, result in enumerate(model_results):
-            row = j + 1  # Start from second row
-            y1 = row * cell_height
-            y2 = y1 + cell_height
-            x1 = 0
-            x2 = cell_width
-            
-            # Get image with predictions
-            pred_img = result.plot(conf=0.25, line_width=2, font_size=1, kpt_line=True, 
-                                  kpt_radius=4)
-            pred_img_resized = cv2.resize(pred_img, (cell_width, cell_height))
-            
-            # Place in grid
-            grid_img[y1:y2, x1:x2] = pred_img_resized
-            
-            # Add model name and confidence info
-            model_title = f"{model_names[j]}"
-            if all_kpt_confs[j] is not None:
-                avg_conf = np.mean(all_kpt_confs[j])
-                model_title += f" (Avg Conf: {avg_conf:.3f})"
-            
-            cv2.putText(grid_img, model_title, (x1 + 10, y1 + 30), 
-                       cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 0), 2)
-        
-        # Save grid image
-        output_file = output_dir / f"conf_diff_{i+1:03d}.jpg"
-        cv2.imwrite(str(output_file), grid_img)
+            if yolo_key in yolo_extractor.features and gde_key in gde_extractor.features:
+                yolo_feat = yolo_extractor.features[yolo_key]
+                gde_feat = gde_extractor.features[gde_key]
+                
+                # 確保有特徵可視化
+                if yolo_feat is None or gde_feat is None:
+                    continue
+                    
+                # 將特徵轉換為可視化格式
+                def prepare_feature_for_viz(feature):
+                    # 如果特徵是4D張量 [batch, channels, height, width]
+                    if len(feature.shape) == 4:
+                        # Batch內平均
+                        if feature.shape[0] > 1:
+                            feature = feature.mean(0, keepdim=True)
+                            
+                        # 計算通道均值得到空間特徵圖
+                        feature_map = feature[0].mean(0).numpy()
+                        
+                        # 將特徵圖標準化到 [0,1] 範圍
+                        if feature_map.max() > feature_map.min():
+                            feature_map = (feature_map - feature_map.min()) / (feature_map.max() - feature_map.min())
+                        feature_map = np.uint8(feature_map * 255)
+                        
+                        # 調整大小以便於顯示
+                        feature_map = cv2.resize(feature_map, (224, 224))
+                        return feature_map
+                    else:
+                        # 如果不是4D張量，則尋找其他維度
+                        print(f"不支援的特徵形狀: {feature.shape}")
+                        return None
+                
+                try:
+                    yolo_viz = prepare_feature_for_viz(yolo_feat)
+                    gde_viz = prepare_feature_for_viz(gde_feat)
+                    
+                    if yolo_viz is not None and gde_viz is not None:
+                        # 創建彩色熱力圖
+                        yolo_heatmap = cv2.applyColorMap(yolo_viz, cv2.COLORMAP_JET)
+                        gde_heatmap = cv2.applyColorMap(gde_viz, cv2.COLORMAP_JET)
+                        
+                        # 將原始圖像調整為相同大小
+                        resized_img = cv2.resize(original_img, (224, 224))
+                        
+                        # 計算差異圖
+                        diff_map = cv2.absdiff(yolo_viz, gde_viz)
+                        diff_heatmap = cv2.applyColorMap(diff_map, cv2.COLORMAP_JET)
+                        
+                        # 計算相似度指標
+                        yolo_flat = yolo_viz.flatten().astype(float) / 255.0
+                        gde_flat = gde_viz.flatten().astype(float) / 255.0
+                        
+                        cos_sim = np.dot(yolo_flat, gde_flat) / (
+                            np.linalg.norm(yolo_flat) * np.linalg.norm(gde_flat) + 1e-8
+                        )
+                        
+                        corr = np.corrcoef(yolo_flat, gde_flat)[0, 1]
+                        
+                        # 創建組合圖像
+                        fig, axes = plt.subplots(2, 2, figsize=(12, 10))
+                        axes[0, 0].imshow(resized_img)
+                        axes[0, 0].set_title("Original Image")
+                        axes[0, 0].axis('off')
+                        
+                        axes[0, 1].imshow(cv2.cvtColor(yolo_heatmap, cv2.COLOR_BGR2RGB))
+                        axes[0, 1].set_title(f"YOLO Feature (Layer {yolo_idx})")
+                        axes[0, 1].axis('off')
+                        
+                        axes[1, 0].imshow(cv2.cvtColor(gde_heatmap, cv2.COLOR_BGR2RGB))
+                        axes[1, 0].set_title(f"GDE Feature (Layer {gde_idx})")
+                        axes[1, 0].axis('off')
+                        
+                        axes[1, 1].imshow(cv2.cvtColor(diff_heatmap, cv2.COLOR_BGR2RGB))
+                        axes[1, 1].set_title(f"Difference Map\nCosine: {cos_sim:.3f}, Corr: {corr:.3f}")
+                        axes[1, 1].axis('off')
+                        
+                        plt.tight_layout()
+                        plt.savefig(os.path.join(OUTPUT_DIR, f"{os.path.splitext(img_file)[0]}_{layer_type}_{yolo_idx}_{gde_idx}_featuremaps.png"), dpi=300, bbox_inches='tight')
+                        plt.close()
+                except Exception as e:
+                    print(f"Error visualizing features for {yolo_key}/{gde_key}: {e}")
     
-    print(f"Confidence difference visualization completed, results saved to: {output_dir}")
+    # 清除鉤子
+    yolo_extractor.clear_hooks()
+    gde_extractor.clear_hooks()
 
+def main():
+    # 載入模型並獲取層列表
+    yolo_model, gde_model, yolo_layers, gde_layers = load_models()
+    
+    # 識別可比較的層
+    paired_layers = identify_comparable_layers(yolo_layers, gde_layers)
+    print(f"識別出 {len(paired_layers)} 對可比較的層")
+    for yolo_idx, gde_idx, _, _, layer_type in paired_layers[:10]:  # 只顯示前10對
+        print(f"YOLO Layer {yolo_idx} <-> GDE Layer {gde_idx} (Type: {layer_type})")
+    if len(paired_layers) > 10:
+        print(f"... 及其他 {len(paired_layers) - 10} 對層")
+    
+    # 處理圖像並提取特徵
+    print("處理圖像並提取特徵...")
+    all_similarities, yolo_extractor, gde_extractor = process_images(yolo_model, gde_model, paired_layers, num_images=50)
+    
+    # 分析特徵相似度
+    print("分析特徵相似度...")
+    analysis_results = analyze_similarities(all_similarities, paired_layers)
+    
+    # 可視化結果
+    print("生成可視化結果...")
+    results_df = visualize_results(analysis_results, paired_layers)
+    print(results_df)
+    
+    # 可視化特徵圖
+    print("生成特徵圖可視化...")
+    visualize_feature_maps(yolo_model, gde_model, paired_layers, yolo_extractor, gde_extractor, num_images=3)
+    
+    print(f"分析完成。結果保存在 {OUTPUT_DIR} 目錄")
 
-def parse_args():
-    parser = argparse.ArgumentParser(description='Compare multiple yoga pose models and generate comparison report')
-    parser.add_argument('--models', nargs='+', required=True, help='List of model weight paths (at least 2)')
-    parser.add_argument('--data', type=str, required=True, help='Data YAML file path')
-    parser.add_argument('--output-dir', type=str, default='model_comparison', help='Output directory')
-    parser.add_argument('--img-size', type=int, default=640, help='Image size for validation')
-    parser.add_argument('--batch-size', type=int, default=16, help='Batch size for validation')
-    parser.add_argument('--device', type=str, default='cpu', help='Running device (e.g., 0 or cpu)')
-    parser.add_argument('--analyze-confidence', action='store_true', help='Analyze keypoint confidence differences between models')
-    parser.add_argument('--num-samples', type=int, default=5, help='Number of samples for confidence difference visualization')
-    return parser.parse_args()
-
-
-if __name__ == '__main__':
-    args = parse_args()
-    
-    # Check if enough models provided
-    if len(args.models) < 2:
-        print("Error: At least two models need to be provided for comparison")
-        sys.exit(1)
-    
-    # Perform model comparison
-    models, model_names, validation_results = compare_models(
-        model_paths=args.models,
-        data_yaml=args.data,
-        output_dir=args.output_dir,
-        img_size=args.img_size,
-        batch_size=args.batch_size,
-        device=args.device
-    )
-    
-    # If confidence difference analysis requested
-    if args.analyze_confidence:
-        analyze_confidence_differences(
-            models=models,
-            model_names=model_names,
-            data_yaml=args.data,
-            output_dir=Path(args.output_dir),
-            num_samples=args.num_samples,
-            device=args.device
-        )
-    
-    print("Model comparison completed!") 
+if __name__ == "__main__":
+    main()
