@@ -12,6 +12,20 @@ from sklearn.manifold import TSNE
 import pandas as pd
 from scipy.stats import pearsonr, spearmanr
 import torchvision.transforms as transforms
+import random
+import argparse
+
+# 設置隨機種子，確保結果可重現
+RANDOM_SEED = 42  # 可以更改為任何整數
+random.seed(RANDOM_SEED)
+np.random.seed(RANDOM_SEED)
+torch.manual_seed(RANDOM_SEED)
+if torch.cuda.is_available():
+    torch.cuda.manual_seed(RANDOM_SEED)
+    torch.cuda.manual_seed_all(RANDOM_SEED)  # 如果使用多個GPU
+    torch.backends.cudnn.deterministic = True
+    torch.backends.cudnn.benchmark = False
+print(f"Random seed set to: {RANDOM_SEED}")
 
 # 設置路徑
 VAL_IMAGES_PATH = "/Users/region/yolo11-pose-distiller/datasets/coco-pose/images/val2017"
@@ -384,16 +398,23 @@ def visualize_results(analysis_results, paired_layers):
 
 def visualize_feature_maps(yolo_model, gde_model, paired_layers, yolo_extractor, gde_extractor, num_images=3):
     """可視化並比較兩個模型的特徵圖"""
-    # 隨機選擇一些圖像
+    # 獲取圖像列表並排序，確保順序一致
     image_files = os.listdir(VAL_IMAGES_PATH)
     image_files = [f for f in image_files if f.endswith(('.jpg', '.jpeg', '.png'))]
-    selected_images = np.random.choice(image_files, min(num_images, len(image_files)), replace=False)
+    image_files.sort()  # 排序以確保順序一致
     
-    # 選擇一些關鍵層進行可視化 (比如前5個和後5個)
-    if len(paired_layers) > 10:
-        visualize_layers = paired_layers[:5] + paired_layers[-5:]
+    # 使用固定的隨機種子選擇圖像
+    # np.random.seed(RANDOM_SEED)  # 種子已在腳本開始時設置
+    if len(image_files) > num_images:
+        selected_indices = np.random.choice(len(image_files), num_images, replace=False)
+        selected_images = [image_files[i] for i in selected_indices]
+        print(f"Selected images for visualization: {selected_images}")
     else:
-        visualize_layers = paired_layers
+        selected_images = image_files
+        print(f"Using all {len(selected_images)} available images for visualization")
+    
+    # 使用所有配對層進行可視化
+    visualize_layers = paired_layers
     
     # 重新註冊鉤子
     yolo_extractor.clear_hooks()
@@ -509,7 +530,7 @@ def visualize_feature_maps(yolo_model, gde_model, paired_layers, yolo_extractor,
     yolo_extractor.clear_hooks()
     gde_extractor.clear_hooks()
 
-def main():
+def main(num_images=50, num_viz_images=3):
     # 載入模型並獲取層列表
     yolo_model, gde_model, yolo_layers, gde_layers = load_models()
     
@@ -522,8 +543,8 @@ def main():
         print(f"... 及其他 {len(paired_layers) - 10} 對層")
     
     # 處理圖像並提取特徵
-    print("處理圖像並提取特徵...")
-    all_similarities, yolo_extractor, gde_extractor = process_images(yolo_model, gde_model, paired_layers, num_images=50)
+    print(f"處理圖像並提取特徵 (使用 {num_images} 張圖像)...")
+    all_similarities, yolo_extractor, gde_extractor = process_images(yolo_model, gde_model, paired_layers, num_images=num_images)
     
     # 分析特徵相似度
     print("分析特徵相似度...")
@@ -535,10 +556,26 @@ def main():
     print(results_df)
     
     # 可視化特徵圖
-    print("生成特徵圖可視化...")
-    visualize_feature_maps(yolo_model, gde_model, paired_layers, yolo_extractor, gde_extractor, num_images=3)
+    print(f"生成特徵圖可視化 (使用 {num_viz_images} 張圖像)...")
+    visualize_feature_maps(yolo_model, gde_model, paired_layers, yolo_extractor, gde_extractor, num_images=num_viz_images)
     
     print(f"分析完成。結果保存在 {OUTPUT_DIR} 目錄")
 
 if __name__ == "__main__":
-    main()
+    parser = argparse.ArgumentParser(description="比較YOLO和GDE模型的特徵")
+    parser.add_argument("--seed", type=int, default=RANDOM_SEED, help="隨機種子")
+    parser.add_argument("--num-images", type=int, default=50, help="用於分析的圖像數量")
+    parser.add_argument("--num-viz-images", type=int, default=3, help="用於可視化的圖像數量")
+    args = parser.parse_args()
+    
+    # 重新設置隨機種子（如果與默認值不同）
+    if args.seed != RANDOM_SEED:
+        print(f"更新隨機種子: {args.seed}")
+        random.seed(args.seed)
+        np.random.seed(args.seed)
+        torch.manual_seed(args.seed)
+        if torch.cuda.is_available():
+            torch.cuda.manual_seed(args.seed)
+            torch.cuda.manual_seed_all(args.seed)
+    
+    main(num_images=args.num_images, num_viz_images=args.num_viz_images)
