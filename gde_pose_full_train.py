@@ -15,5 +15,6 @@ results = model.train(
     lr0=0.001, 
     name='gde_pose_full_train',
     patience=50,  # 較長的耐心等待收斂
-    freeze=[0,1]
+    freeze=[0,1],
+    device="0,1,2,3"
 )
