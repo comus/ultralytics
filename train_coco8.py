@@ -6,10 +6,11 @@ model = YOLO("yolo11n-pose.pt")
 # Train the model
 results = model.train(
   data="coco8-pose.yaml",
-  epochs=10,
+  epochs=20,
   imgsz=640,
+  # device=[0, 1],
 
-  teacher=YOLO("yolo11n-pose.pt").model,
+  teacher="yolo11n-pose.pt",
   target_layers=["model.0.conv", 1],
 
   # freezeAllBN=True,

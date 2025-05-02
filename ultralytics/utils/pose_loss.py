@@ -3,6 +3,8 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+import torch.distributed as dist
+import os
 
 from ultralytics.utils import LOGGER
 from ultralytics.utils.metrics import OKS_SIGMA
@@ -55,9 +57,21 @@ class v8PoseLoss(v8DetectionLoss):
         sigmas = torch.from_numpy(OKS_SIGMA).to(self.device) if is_pose else torch.ones(nkpt, device=self.device) / nkpt
         self.keypoint_loss = KeypointLoss(sigmas=sigmas)
         self.mse_loss = nn.MSELoss(reduction='mean')
+        
+        # Initialize batch counter for logging control
+        self.batch_counter = 0
+        self.log_interval = 10  # Log every 10 batches
 
     def __call__(self, preds, batch):
         """Calculate the total loss and detach it for pose estimation."""
+        # Get rank for distributed training (for logging)
+        rank = dist.get_rank() if dist.is_initialized() else 0
+        gpu_id = self.device.index if hasattr(self.device, 'index') else 0
+        log_prefix = f"[Rank {rank}, GPU {gpu_id}] "
+        
+        # Increment batch counter
+        self.batch_counter += 1
+        
         loss = torch.zeros(6, device=self.device)  # box, cls, dfl, kpt_location, kpt_visibility, distill
         feats, pred_kpts = preds if isinstance(preds[0], list) else preds[1]
         pred_distri, pred_scores = torch.cat([xi.view(feats[0].shape[0], self.no, -1) for xi in feats], 2).split(
@@ -114,47 +128,65 @@ class v8PoseLoss(v8DetectionLoss):
                 fg_mask, target_gt_idx, keypoints, batch_idx, stride_tensor, target_bboxes, pred_kpts
             )
 
-        # Calculate distillation loss for layers 0 and 1 if the teacher is available
+        # Calculate distillation loss for the specified target layers if the teacher is available
+        should_log = self.batch_counter % self.log_interval == 0  # Only log every log_interval batches
+        
         if "teacher" in batch and batch["teacher"] is not None and "teacher_features" in batch and "student_features" in batch:
             # Get the cached features from the batch
-            teacher_features = {k: v.detach() for k, v in batch["teacher_features"].items()}
-            student_features = {k: v for k, v in batch["student_features"].items()}
+            teacher_features = batch["teacher_features"]
+            student_features = batch["student_features"]
             
-            # 設定目標層索引，處理混合類型的問題
-            # 找出兩個特徵字典中的共同鍵，且確保可以比較它們
-            common_keys = set(teacher_features.keys()) & set(student_features.keys())
-            # 分類鍵為整數和字符串
-            int_keys = sorted([k for k in common_keys if isinstance(k, int)])
-            str_keys = sorted([k for k in common_keys if isinstance(k, str)])
-            # 組合排序後的鍵
-            target_layers = int_keys + str_keys
-            
-            if not target_layers:
-                LOGGER.warning("教師和學生模型沒有共同的特徵層，無法計算蒸餾損失")
-                loss[5] = torch.tensor(0.0, device=self.device, requires_grad=True)
-            else:
-                # 計算每一層的蒸餾損失
-                distill_losses = []
-                for layer_idx in target_layers:
-                    t_feat = teacher_features[layer_idx]
-                    s_feat = student_features[layer_idx]
-                    
-                    # 確保特徵形狀匹配，如果需要的話可以進行調整
-                    if t_feat.shape != s_feat.shape:
-                        LOGGER.warning(f"層 {layer_idx} 的特徵形狀不匹配: 教師 {t_feat.shape} vs 學生 {s_feat.shape}")
-                        # 可以在這裡添加形狀調整邏輯
-                        continue
-                    
-                    layer_loss = self.mse_loss(s_feat, t_feat)
-                    distill_losses.append(layer_loss)
-                    LOGGER.debug(f"層 {layer_idx} 的蒸餾損失: {layer_loss.item():.5f}")
+            # Check if we have features to compare
+            if teacher_features and student_features:
+                # Find common keys between teacher and student features
+                common_keys = set(teacher_features.keys()) & set(student_features.keys())
                 
-                if distill_losses:
-                    # 合併所有層的損失
-                    loss[5] = torch.sum(torch.stack(distill_losses))
-                    LOGGER.debug(f"總蒸餾損失 (未加權): {loss[5].item():.5f}")
-                else:
+                # Separate into integer and string keys
+                int_keys = sorted([k for k in common_keys if isinstance(k, int)])
+                str_keys = sorted([k for k in common_keys if isinstance(k, str)])
+                
+                # Combine sorted keys
+                target_layers = int_keys + str_keys
+                
+                if not target_layers:
+                    if should_log:
+                        LOGGER.warning(f"{log_prefix}教師和學生模型沒有共同的特徵層，無法計算蒸餾損失")
                     loss[5] = torch.tensor(0.0, device=self.device, requires_grad=True)
+                else:
+                    if should_log:
+                        LOGGER.info(f"{log_prefix}計算蒸餾損失，目標層數: {len(target_layers)}")
+                    
+                    # Calculate distillation loss for each layer
+                    distill_losses = []
+                    for layer_idx in target_layers:
+                        t_feat = teacher_features[layer_idx].detach()  # Ensure we don't backprop through teacher
+                        s_feat = student_features[layer_idx]
+                        
+                        # Ensure feature shapes match
+                        if t_feat.shape != s_feat.shape:
+                            if should_log:
+                                LOGGER.warning(f"{log_prefix}層 {layer_idx} 的特徵形狀不匹配: 教師 {t_feat.shape} vs 學生 {s_feat.shape}")
+                            continue
+                        
+                        layer_loss = self.mse_loss(s_feat, t_feat)
+                        distill_losses.append(layer_loss)
+                        
+                        if should_log:
+                            LOGGER.info(f"{log_prefix}層 {layer_idx} 的蒸餾損失: {layer_loss.item():.5f}")
+                    
+                    if distill_losses:
+                        # Combine all layer losses
+                        loss[5] = torch.sum(torch.stack(distill_losses))
+                        
+                        if should_log:
+                            LOGGER.info(f"{log_prefix}總蒸餾損失 (未加權): {loss[5].item():.5f}")
+                    else:
+                        loss[5] = torch.tensor(0.0, device=self.device, requires_grad=True)
+            else:
+                # No features collected yet
+                if should_log:
+                    LOGGER.warning(f"{log_prefix}沒有收集到特徵，無法計算蒸餾損失")
+                loss[5] = torch.tensor(0.0, device=self.device, requires_grad=True)
         else:
             loss[5] = torch.tensor(0.0, device=self.device, requires_grad=True)
 
@@ -164,6 +196,13 @@ class v8PoseLoss(v8DetectionLoss):
         loss[3] *= self.hyp.cls  # cls gain
         loss[4] *= self.hyp.dfl  # dfl gain
         loss[5] *= self.hyp.distill  # distill gain
+        
+        if should_log:
+            # Log all weighted loss components
+            LOGGER.info(
+                f"{log_prefix}Loss components: box={loss[0]:.4f}, pose={loss[1]:.4f}, "
+                f"kobj={loss[2]:.4f}, cls={loss[3]:.4f}, dfl={loss[4]:.4f}, distill={loss[5]:.4f}"
+            )
 
         return loss * batch_size, loss.detach()  # loss(box, cls, dfl)
 

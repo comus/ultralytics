@@ -300,6 +300,9 @@ class BaseModel(torch.nn.Module):
         if getattr(self, "criterion", None) is None:
             self.criterion = self.init_criterion()
 
+        # Handle teacher if it exists in the batch
+        # The teacher model will now be loaded separately on each GPU
+        # and the forward pass will be done here
         if "teacher" in batch and batch["teacher"] is not None:
             teacher = batch["teacher"]
             with torch.no_grad():
