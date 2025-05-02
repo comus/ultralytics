@@ -28,7 +28,7 @@ def main():
     策略：極端損失權重、精準學習率、專項微調
     """
     # 使用第四階段的最佳權重
-    model_path = "runs/pose/stage9_phase4_practical/weights/best.pt"
+    model_path = "runs/pose/yolo_stage9_phase4_practical/weights/best.pt"
     model = YOLO(model_path)
     
     if is_main_process():
