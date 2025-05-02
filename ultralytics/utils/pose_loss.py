@@ -136,6 +136,13 @@ class v8PoseLoss(v8DetectionLoss):
             teacher_features = batch["teacher_features"]
             student_features = batch["student_features"]
             
+            if should_log:
+                LOGGER.info(f"{log_prefix}教師特徵大小: {len(teacher_features)}, 學生特徵大小: {len(student_features)}")
+                if teacher_features:
+                    LOGGER.info(f"{log_prefix}教師特徵鍵: {list(teacher_features.keys())}")
+                if student_features:
+                    LOGGER.info(f"{log_prefix}學生特徵鍵: {list(student_features.keys())}")
+            
             # Check if we have features to compare
             if teacher_features and student_features:
                 # Find common keys between teacher and student features
@@ -147,6 +154,9 @@ class v8PoseLoss(v8DetectionLoss):
                 
                 # Combine sorted keys
                 target_layers = int_keys + str_keys
+                
+                if should_log:
+                    LOGGER.info(f"{log_prefix}共同特徵層: {target_layers}")
                 
                 if not target_layers:
                     if should_log:
@@ -174,7 +184,15 @@ class v8PoseLoss(v8DetectionLoss):
                                 LOGGER.warning(f"{log_prefix}層 {layer_idx} 的特徵形狀不匹配: 教師 {t_feat.shape} vs 學生 {s_feat.shape}")
                             continue
                         
+                        # 計算均方誤差損失
                         layer_loss = self.mse_loss(s_feat, t_feat)
+                        
+                        # 確保損失是有效數值
+                        if not torch.isfinite(layer_loss):
+                            if should_log:
+                                LOGGER.warning(f"{log_prefix}層 {layer_idx} 的損失是無效數值，跳過")
+                            continue
+                            
                         distill_losses.append(layer_loss)
                         
                         if should_log:
@@ -187,21 +205,32 @@ class v8PoseLoss(v8DetectionLoss):
                         if should_log:
                             LOGGER.info(f"{log_prefix}總蒸餾損失 (未加權): {loss[5].item():.5f}")
                     else:
+                        if should_log:
+                            LOGGER.warning(f"{log_prefix}所有層的損失計算都失敗了，設置蒸餾損失為0")
                         loss[5] = torch.tensor(0.0, device=self.device, requires_grad=True)
             else:
                 # No features collected yet
                 if should_log:
                     LOGGER.warning(f"{log_prefix}沒有收集到特徵，無法計算蒸餾損失")
+                    LOGGER.info(f"{log_prefix}特徵收集狀態: 教師={bool(teacher_features)}, 學生={bool(student_features)}")
                 loss[5] = torch.tensor(0.0, device=self.device, requires_grad=True)
         else:
+            if should_log:
+                LOGGER.info(f"{log_prefix}批次中缺少教師模型或特徵，無法計算蒸餾損失")
+                LOGGER.info(f"{log_prefix}批次包含: teacher={('teacher' in batch)}, teacher_features={('teacher_features' in batch)}, student_features={('student_features' in batch)}")
             loss[5] = torch.tensor(0.0, device=self.device, requires_grad=True)
 
-        loss[0] *= self.hyp.box  # box gain
-        loss[1] *= self.hyp.pose  # pose gain
-        loss[2] *= self.hyp.kobj  # kobj gain
-        loss[3] *= self.hyp.cls  # cls gain
-        loss[4] *= self.hyp.dfl  # dfl gain
-        loss[5] *= self.hyp.distill  # distill gain
+        # 應用損失權重
+        loss[0] *= self.hyp.box    # box gain
+        loss[1] *= self.hyp.pose   # pose gain
+        loss[2] *= self.hyp.kobj   # kobj gain
+        loss[3] *= self.hyp.cls    # cls gain
+        loss[4] *= self.hyp.dfl    # dfl gain
+        
+        # 設置蒸餾損失權重
+        # 如果self.hyp中沒有distill屬性，則使用模型的distill值，否則使用0.5作為默認值
+        distill_weight = getattr(self.hyp, 'distill', getattr(self.model, 'distill', 0.5))
+        loss[5] *= distill_weight  # distill gain
         
         if should_log:
             # Log all weighted loss components
@@ -209,6 +238,12 @@ class v8PoseLoss(v8DetectionLoss):
                 f"{log_prefix}Loss components: box={loss[0]:.4f}, pose={loss[1]:.4f}, "
                 f"kobj={loss[2]:.4f}, cls={loss[3]:.4f}, dfl={loss[4]:.4f}, distill={loss[5]:.4f}"
             )
+            
+            # 如果蒸餾損失為0，檢查原因
+            if loss[5] == 0:
+                LOGGER.info(f"{log_prefix}蒸餾損失為0的原因: teacher模型存在={bool(batch.get('teacher', None))}, "
+                            f"teacher特徵數={len(batch.get('teacher_features', {}))}, "
+                            f"student特徵數={len(batch.get('student_features', {}))}")
 
         return loss * batch_size, loss.detach()  # loss(box, cls, dfl)
 

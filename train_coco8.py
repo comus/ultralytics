@@ -22,6 +22,10 @@ warnings.filterwarnings("ignore", message="Grad strides do not match bucket view
 # 忽略除零警告
 warnings.filterwarnings("ignore", message="divide by zero encountered in divide")
 
+# 設置環境變量，確保所有GPU的日誌都顯示
+os.environ["PYTHONIOENCODING"] = "utf-8"  # 確保UTF-8編碼輸出
+os.environ["CUDA_VISIBLE_DEVICES"] = "0,1"  # 確保使用指定的GPU
+
 def main():
     # Load a model
     model = YOLO("yolo11n-pose.pt")
@@ -35,9 +39,12 @@ def main():
 
         teacher="yolo11n-pose.pt",
         target_layers=["model.0.conv", 1],
+        distill=0.5,
 
         # freezeAllBN=True,
         # freeze=23,
+
+        verbose=True,
     )
 
 if __name__ == "__main__":
