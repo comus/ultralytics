@@ -28,7 +28,7 @@ def main():
     目標：達到與1280分辨率相當的mAP (0.43)
     """
     # 使用第八次訓練的最佳權重
-    model_path = "/root/autodl-tmp/withcloud/root/autodl-tmp/withcloud/ultralytics/runs/pose/train52/weights/best.pt"
+    model_path = "/root/autodl-tmp/withcloud/root/autodl-tmp/ultralytics/runs/pose/train52/weights/best.pt"
     model = YOLO(model_path)
     
     if is_main_process():
