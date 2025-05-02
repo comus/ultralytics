@@ -45,7 +45,7 @@ def main():
     results = model.train(
         data='coco-pose.yaml',
         epochs=300,  # 長時間訓練
-        batch=32,
+        batch=128,
         imgsz=640,
         optimizer='Adam',
         lr0=0.001, 
