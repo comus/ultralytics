@@ -72,7 +72,7 @@ def main():
         epochs=20,             # 初步實驗用20個epoch
         imgsz=640,
         batch=128,             # 4個4090的大批量
-        device=[0, 1, 2, 3],
+        # device=[0, 1, 2, 3],
         workers=16,
         
         # 蒸餾參數
