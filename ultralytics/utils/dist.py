@@ -60,6 +60,8 @@ def generate_ddp_file(trainer):
 # Ultralytics Multi-GPU training temp file (自動生成的DDP訓練腳本)
 import os
 import sys
+import torch
+import datetime
 
 # 添加項目根目錄到Python路徑，確保能夠導入模組
 current_dir = {repr(current_dir)}
@@ -77,24 +79,111 @@ print(f"Python路徑: {{sys.path}}")
 print(f"當前工作目錄: {{os.getcwd()}}")
 print(f"PYTHONPATH: {{os.environ.get('PYTHONPATH', '未設置')}}")
 
+# 首先初始化分布式進程組
+def init_distributed():
+    # 獲取環境變量
+    rank = int(os.environ.get("RANK", 0))
+    local_rank = int(os.environ.get("LOCAL_RANK", 0))
+    world_size = int(os.environ.get("WORLD_SIZE", 1))
+    
+    print(f"初始化分布式進程: rank={{rank}}, local_rank={{local_rank}}, world_size={{world_size}}")
+    
+    # 設置設備
+    device = torch.device(f"cuda:{{local_rank}}" if torch.cuda.is_available() else "cpu")
+    torch.cuda.set_device(device)
+    
+    # 初始化進程組
+    if torch.distributed.is_available():
+        torch.distributed.init_process_group(
+            backend="nccl" if torch.distributed.is_nccl_available() else "gloo",
+            init_method="env://",
+            timeout=datetime.timedelta(seconds=10800),  # 3小時超時
+            world_size=world_size,
+            rank=rank,
+        )
+        print(f"進程組初始化成功: {{torch.distributed.get_rank()}}/{{torch.distributed.get_world_size()}}")
+        torch.distributed.barrier()  # 同步所有進程
+    else:
+        print("警告: PyTorch分布式不可用")
+    
+    return device, local_rank, rank, world_size
+
 # 傳遞的訓練參數
 overrides = {vars(trainer.args)}
 
 if __name__ == "__main__":
+    # 初始化分布式環境
+    device, local_rank, rank, world_size = init_distributed()
+    
     # 從ultralytics導入所需模組
     from ultralytics.models.yolo.pose.train import PoseTrainer
     from ultralytics.utils import DEFAULT_CFG
+    import torch.distributed as dist
+    from ultralytics.utils import LOGGER
     
     # 初始化訓練器
     trainer = PoseTrainer(cfg=DEFAULT_CFG, overrides=overrides)
     
+    # 設置設備
+    trainer.device = device
+    trainer.args.device = device
+    
     # 顯式設置模型路徑
     trainer.args.model = "{getattr(trainer.hub_session, 'model_url', trainer.args.model)}"
     
-    # 注意：這裡不直接調用train()，而是調用_do_train()以避免重複的DDP初始化
-    # 因為train()方法會再次調用DDP進程，從而導致錯誤
-    trainer._setup_train(world_size=int(os.environ.get('WORLD_SIZE', 1)))
-    trainer._do_train(world_size=int(os.environ.get('WORLD_SIZE', 1)))
+    # 直接調用_do_train而不是_setup_train
+    # _setup_train會再次調用dist.init_process_group導致錯誤
+    if rank == 0:
+        LOGGER.info(f"開始在 {{world_size}} 個 GPU 上訓練")
+        
+    # 手動設置訓練需要的屬性
+    trainer.setup_model()
+    trainer.model = trainer.model.to(device)
+    trainer.set_model_attributes()
+    
+    # 初始化數據加載器
+    from ultralytics.data.build import build_dataloader
+    from ultralytics.data.utils import check_det_dataset
+    
+    # 獲取數據集
+    data = check_det_dataset(trainer.args.data)
+    trainer.data = data
+    
+    # 初始化批次大小
+    batch_size = trainer.args.batch // world_size
+    
+    # 構建數據加載器
+    trainset, _ = data["train"], data.get("val") or data.get("test")
+    train_loader = build_dataloader(
+        trainset, 
+        batch_size=batch_size,
+        rank=rank,
+        mode="train",
+        workers=trainer.args.workers
+    )
+    trainer.train_loader = train_loader
+    
+    # 只在主節點初始化驗證器
+    if rank in [0, -1]:
+        testset = data.get("val") or data.get("test")
+        test_loader = build_dataloader(
+            testset, 
+            batch_size=batch_size * 2,
+            rank=-1,
+            mode="val",
+            workers=trainer.args.workers
+        )
+        trainer.test_loader = test_loader
+        
+        # 初始化驗證器
+        trainer.validator = trainer.get_validator()
+    
+    # 所有進程同步一下
+    if dist.is_initialized():
+        dist.barrier()
+        
+    # 執行訓練
+    trainer._do_train(world_size)
 """)
     
     return str(temp_file_path)

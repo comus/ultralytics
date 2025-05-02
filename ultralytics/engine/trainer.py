@@ -253,13 +253,19 @@ class BaseTrainer:
             self.amp = torch.tensor(check_amp(self.model), device=self.device)
             callbacks.default_callbacks = callbacks_backup  # restore callbacks
         if RANK > -1 and world_size > 1:  # DDP
-            dist.broadcast(self.amp, src=0)  # broadcast the tensor from rank 0 to all other ranks (returns None)
+            # 檢查分佈式環境是否已初始化
+            if torch.distributed.is_initialized():
+                torch.distributed.broadcast(self.amp, src=0)  # broadcast the tensor from rank 0 to all other ranks
+            else:
+                LOGGER.warning("分佈式環境未初始化，跳過廣播AMP設置")
         self.amp = bool(self.amp)  # as boolean
         self.scaler = (
             torch.amp.GradScaler("cuda", enabled=self.amp) if TORCH_2_4 else torch.cuda.amp.GradScaler(enabled=self.amp)
         )
         if world_size > 1:
-            self.model = nn.parallel.DistributedDataParallel(self.model, device_ids=[RANK], find_unused_parameters=True)
+            # 檢查分佈式環境是否已初始化
+            if not hasattr(self.model, 'module'):
+                self.model = nn.parallel.DistributedDataParallel(self.model, device_ids=[RANK], find_unused_parameters=True)
 
         # Check imgsz
         gs = max(int(self.model.stride.max() if hasattr(self.model, "stride") else 32), 32)  # grid size (max stride)
@@ -306,18 +312,12 @@ class BaseTrainer:
 
     def _do_train(self, world_size=1):
         """Train completed, evaluate and plot if specified by arguments."""
-        if world_size > 1:
-            self.args.device = self.device
+        if world_size > 1 and not torch.distributed.is_initialized():
+            # 如果是在train()方法中直接調用的_do_train，需要進行額外設置
+            self._setup_ddp(world_size)
             
-            # 確保所有GPU的日誌都正常顯示
-            import torch.distributed as dist
-            # 設置分佈式日誌輸出掩碼，設為0表示所有等級的日誌都輸出
-            from ultralytics.utils import RANK
-            if RANK != -1:  # 如果在分佈式環境中
-                import os
-                os.environ["RANK"] = str(RANK)  # 確保RANK環境變量正確設置
-                
-            # 設置pytorch的日誌級別
+        # 確保所有GPU的日誌都正常顯示
+        if torch.distributed.is_initialized():
             import logging
             logging.getLogger("torch.distributed").setLevel(logging.INFO)
 
