@@ -305,6 +305,22 @@ class BaseModel(torch.nn.Module):
         # and the forward pass will be done here
         if "teacher" in batch and batch["teacher"] is not None:
             teacher = batch["teacher"]
+            
+            # Ensure teacher is on the same device as the input images
+            current_device = batch["img"].device
+            
+            # Verify teacher device matches input device
+            teacher_device = next(teacher.parameters()).device
+            if teacher_device != current_device:
+                import torch.distributed as dist
+                rank = dist.get_rank() if dist.is_initialized() else 0
+                from ultralytics.utils import LOGGER
+                LOGGER.warning(f"[Rank {rank}] Teacher model on {teacher_device} but batch on {current_device}. Moving teacher to {current_device}")
+                
+                # Move teacher to current device if necessary
+                teacher = teacher.to(current_device)
+                batch["teacher"] = teacher
+            
             with torch.no_grad():
                 teacher_preds = teacher(batch["img"])
             batch["teacher_preds"] = teacher_preds

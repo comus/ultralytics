@@ -118,8 +118,25 @@ class PoseTrainer(yolo.detect.DetectionTrainer):
                 if hasattr(torch.cuda, 'memory_allocated'):
                     mem_before = torch.cuda.memory_allocated(self.device) / (1024 ** 2)  # MB
                 
-                # Load the model using attempt_load_weights instead of YOLO
+                # Explicitly set the device before loading the model
+                torch.cuda.set_device(self.device)
+                
+                # Load the model using attempt_load_weights - explicitly specify the device
                 self.teacher = attempt_load_weights(self.teacher_path, device=self.device)
+                
+                # Ensure the model is on the correct device
+                self.teacher = self.teacher.to(self.device)
+                
+                # Force all buffers and parameters to the correct device
+                for param in self.teacher.parameters():
+                    if param.device != self.device:
+                        LOGGER.warning(f"{log_prefix}Moving parameter from {param.device} to {self.device}")
+                        param.data = param.data.to(self.device)
+                
+                for buffer_name, buffer in self.teacher.named_buffers():
+                    if buffer.device != self.device:
+                        LOGGER.warning(f"{log_prefix}Moving buffer {buffer_name} from {buffer.device} to {self.device}")
+                        buffer.data = buffer.data.to(self.device)
                 
                 # Freeze teacher parameters
                 for k, v in self.teacher.named_parameters():

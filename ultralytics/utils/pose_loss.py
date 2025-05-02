@@ -162,6 +162,12 @@ class v8PoseLoss(v8DetectionLoss):
                         t_feat = teacher_features[layer_idx].detach()  # Ensure we don't backprop through teacher
                         s_feat = student_features[layer_idx]
                         
+                        # Ensure both tensors are on the same device (use student's device as reference)
+                        if t_feat.device != s_feat.device:
+                            if should_log:
+                                LOGGER.warning(f"{log_prefix}Moving teacher feature from {t_feat.device} to {s_feat.device}")
+                            t_feat = t_feat.to(s_feat.device)
+                        
                         # Ensure feature shapes match
                         if t_feat.shape != s_feat.shape:
                             if should_log:
