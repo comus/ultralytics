@@ -30,16 +30,7 @@ def main():
 
     # 加載模型
     student_model = YOLO("models/gde-pose-640.pt")
-    teacher_model = YOLO("yolo11n-pose.pt")
 
-    # 重要修正：確保teacher_model已正確載入，特別是多GPU情境下
-    # 手動加載教師模型，確保它是模型對象而不是字符串
-    teacher = teacher_model.model
-    
-    # 確保teacher在正確的設備上
-    if torch.cuda.is_available():
-        teacher = teacher.cuda()
-    
     # 蒸餾監控回調
     def log_feature_stats(trainer):
         """記錄特徵統計信息"""
@@ -74,6 +65,7 @@ def main():
 
     # ===== 蒸餾訓練 =====
     print("\n開始第0,1層蒸餾訓練...")
+    
     results = student_model.train(
         # 基本訓練設置
         data="coco-pose.yaml",
@@ -84,7 +76,7 @@ def main():
         workers=16,
         
         # 蒸餾參數
-        teacher=teacher,        # 使用已初始化的teacher模型對象，而非字符串路徑
+        teacher="yolo11n-pose.pt",
         target_layers=[0, 1],  # 只蒸餾第0,1層
         distill=0.8,           # 較高蒸餾權重
         freezeAllBN=True,

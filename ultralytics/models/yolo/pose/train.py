@@ -3,6 +3,7 @@
 from copy import copy
 
 from ultralytics.models import yolo
+from ultralytics.models.yolo.model import YOLO
 from ultralytics.nn.tasks import PoseModel
 from ultralytics.utils import DEFAULT_CFG, LOGGER, callbacks
 from ultralytics.utils.plotting import plot_images, plot_results
@@ -76,6 +77,8 @@ class PoseTrainer(yolo.detect.DetectionTrainer):
         super().__init__(cfg, overrides, _callbacks)
 
         if self.teacher is not None:
+            self.teacher = YOLO(self.teacher).model
+
             # 凍結教師模型參數
             for k, v in self.teacher.named_parameters():
                 v.requires_grad = False
