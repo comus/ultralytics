@@ -347,12 +347,14 @@ class PoseTrainer(yolo.detect.DetectionTrainer):
         # 添加教師模型資訊
         if hasattr(self, 'teacher') and self.teacher is not None:
             # 在DDP環境下，確保教師模型與當前批次在同一設備上
-            # 這是必要的，因為在多GPU訓練時，不同批次可能分配到不同的GPU
             target_device = batch["img"].device
-            if self.teacher.device != target_device:
+            # 獲取教師模型的設備（通過模型的參數獲取）
+            teacher_device = next(self.teacher.parameters()).device if list(self.teacher.parameters()) else target_device
+            
+            if teacher_device != target_device:
                 # 只在需要移動時輸出日誌，避免過多輸出
-                if dist.get_rank() == 0 or not dist.is_initialized():
-                    LOGGER.debug(f"將教師模型從 {self.teacher.device} 移動到 {target_device}")
+                if not dist.is_initialized() or dist.get_rank() == 0:
+                    LOGGER.debug(f"將教師模型從 {teacher_device} 移動到 {target_device}")
                 self.teacher = self.teacher.to(target_device)
             
             # 將教師模型加入批次
