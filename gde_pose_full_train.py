@@ -14,5 +14,6 @@ results = model.train(
     optimizer='Adam',
     lr0=0.001, 
     name='gde_pose_full_train',
-    patience=50  # 較長的耐心等待收斂
+    patience=50,  # 較長的耐心等待收斂
+    freeze=[0,1]
 )
