@@ -172,42 +172,27 @@ class BaseTrainer:
             callback(self)
 
     def train(self):
-        """Allow device='', device=None on Multi-GPU systems to default to device=0."""
-        if isinstance(self.args.device, str) and len(self.args.device):  # i.e. device='0' or device='0,1,2,3'
-            world_size = len(self.args.device.split(","))
-        elif isinstance(self.args.device, (tuple, list)):  # i.e. device=[0, 1, 2, 3] (multi-GPU from CLI is list)
-            world_size = len(self.args.device)
-        elif self.args.device in {"cpu", "mps"}:  # i.e. device='cpu' or 'mps'
-            world_size = 0
-        elif torch.cuda.is_available():  # i.e. device=None or device='' or device=number
-            world_size = 1  # default to device 0
-        else:  # i.e. device=None or device=''
-            world_size = 0
-
-        # Run subprocess if DDP training, else train normally
-        if world_size > 1 and "LOCAL_RANK" not in os.environ:
-            # Argument checks
-            if self.args.rect:
-                LOGGER.warning("'rect=True' is incompatible with Multi-GPU training, setting 'rect=False'")
-                self.args.rect = False
-            if self.args.batch < 1.0:
-                LOGGER.warning(
-                    "'batch<1' for AutoBatch is incompatible with Multi-GPU training, setting default 'batch=16'"
-                )
-                self.args.batch = 16
-
-            # Command
-            cmd, file = generate_ddp_command(world_size, self)
+        """Train the model."""
+        world_size = torch.cuda.device_count()
+        if world_size > 1:
+            print(f"Training with DDP on {world_size} GPUs")
             try:
-                LOGGER.info(f"{colorstr('DDP:')} debug command {' '.join(cmd)}")
-                subprocess.run(cmd, check=True)
+                from ultralytics.utils.dist import generate_ddp_command, ddp_cleanup
+                
+                # 獲取命令、文件路徑和環境變量
+                cmd, file, env = generate_ddp_command(world_size, self)
+                print(f"Running DDP command: {' '.join(cmd)}")
+                
+                # 使用subprocess運行命令，傳遞環境變量
+                subprocess.run(cmd, check=True, env=env)
+                
+                # 清理生成的臨時文件
+                ddp_cleanup(self, file)
             except Exception as e:
                 raise e
-            finally:
-                ddp_cleanup(self, str(file))
-
         else:
             self._do_train(world_size)
+        return self.best_fitness, self.fitness
 
     def _setup_scheduler(self):
         """Initialize training learning rate scheduler."""

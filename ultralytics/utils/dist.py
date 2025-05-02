@@ -5,9 +5,15 @@ import shutil
 import socket
 import sys
 import tempfile
+import uuid
+from pathlib import Path
+
+import torch
 
 from . import USER_CONFIG_DIR
-from .torch_utils import TORCH_1_9
+
+# Constants
+TORCH_1_9 = int(torch.__version__.split(".")[0]) == 1 and int(torch.__version__.split(".")[1]) >= 9
 
 
 def find_free_network_port() -> int:
@@ -38,41 +44,60 @@ def generate_ddp_file(trainer):
 
     Returns:
         (str): Path to the generated temporary DDP file.
-
-    Notes:
-        The generated file is saved in the USER_CONFIG_DIR/DDP directory and includes:
-        - Trainer class import
-        - Configuration overrides from the trainer arguments
-        - Model path configuration
-        - Training initialization code
     """
-    module, name = f"{trainer.__class__.__module__}.{trainer.__class__.__name__}".rsplit(".", 1)
+    # 創建臨時腳本文件
+    (USER_CONFIG_DIR / "DDP").mkdir(exist_ok=True)
+    temp_file_path = USER_CONFIG_DIR / "DDP" / f"_temp_{uuid.uuid4().hex}.py"
+    
+    # 獲取當前目錄路徑
+    current_dir = os.path.dirname(os.path.abspath(__file__))
+    # 獲取項目根目錄
+    project_root = os.path.dirname(os.path.dirname(current_dir))
+    
+    # 寫入腳本內容
+    with open(temp_file_path, "w", encoding="utf-8") as f:
+        f.write(f"""
+# Ultralytics Multi-GPU training temp file (自動生成的DDP訓練腳本)
+import os
+import sys
 
-    content = f"""
-# Ultralytics Multi-GPU training temp file (should be automatically deleted after use)
+# 添加項目根目錄到Python路徑，確保能夠導入模組
+current_dir = {repr(current_dir)}
+project_root = {repr(project_root)}
+if current_dir not in sys.path:
+    sys.path.insert(0, current_dir)
+if project_root not in sys.path:
+    sys.path.insert(0, project_root)
+
+# 設置PYTHONPATH環境變量，確保子進程也能夠找到模組
+os.environ["PYTHONPATH"] = f"{{project_root}}:{{os.environ.get('PYTHONPATH', '')}}"
+
+# 打印當前進程的路徑以及環境信息（用於調試）
+print(f"Python路徑: {{sys.path}}")
+print(f"當前工作目錄: {{os.getcwd()}}")
+print(f"PYTHONPATH: {{os.environ.get('PYTHONPATH', '未設置')}}")
+
+# 傳遞的訓練參數
 overrides = {vars(trainer.args)}
 
 if __name__ == "__main__":
-    from {module} import {name}
-    from ultralytics.utils import DEFAULT_CFG_DICT
-
-    cfg = DEFAULT_CFG_DICT.copy()
-    cfg.update(save_dir='')   # handle the extra key 'save_dir'
-    trainer = {name}(cfg=cfg, overrides=overrides)
-    trainer.args.model = "{getattr(trainer.hub_session, "model_url", trainer.args.model)}"
-    results = trainer.train()
-"""
-    (USER_CONFIG_DIR / "DDP").mkdir(exist_ok=True)
-    with tempfile.NamedTemporaryFile(
-        prefix="_temp_",
-        suffix=f"{id(trainer)}.py",
-        mode="w+",
-        encoding="utf-8",
-        dir=USER_CONFIG_DIR / "DDP",
-        delete=False,
-    ) as file:
-        file.write(content)
-    return file.name
+    # 從ultralytics導入所需模組
+    from ultralytics.models.yolo.pose.train import PoseTrainer
+    from ultralytics.utils import DEFAULT_CFG
+    
+    # 初始化訓練器
+    trainer = PoseTrainer(cfg=DEFAULT_CFG, overrides=overrides)
+    
+    # 顯式設置模型路徑
+    trainer.args.model = "{getattr(trainer.hub_session, 'model_url', trainer.args.model)}"
+    
+    # 注意：這裡不直接調用train()，而是調用_do_train()以避免重複的DDP初始化
+    # 因為train()方法會再次調用DDP進程，從而導致錯誤
+    trainer._setup_train(world_size=int(os.environ.get('WORLD_SIZE', 1)))
+    trainer._do_train(world_size=int(os.environ.get('WORLD_SIZE', 1)))
+""")
+    
+    return str(temp_file_path)
 
 
 def generate_ddp_command(world_size, trainer):
@@ -87,32 +112,41 @@ def generate_ddp_command(world_size, trainer):
         cmd (List[str]): The command to execute for distributed training.
         file (str): Path to the temporary file created for DDP training.
     """
-    import __main__  # noqa local import to avoid https://github.com/Lightning-AI/pytorch-lightning/issues/15218
-
+    # 獲取當前路徑和PYTHONPATH設置
+    current_dir = os.path.dirname(os.path.abspath(__file__))
+    project_root = os.path.dirname(os.path.dirname(current_dir))
+    
+    # 設置環境變量
+    env = os.environ.copy()
+    env["PYTHONPATH"] = f"{project_root}:{env.get('PYTHONPATH', '')}"
+    env["TORCH_DISTRIBUTED_DEBUG"] = "DETAIL"  # 輸出更詳細的分佈式訓練日誌
+    
+    # 打印環境信息
+    print(f"設置環境變量 PYTHONPATH={env['PYTHONPATH']}")
+    
     if not trainer.resume:
         shutil.rmtree(trainer.save_dir)  # remove the save_dir
+        
     file = generate_ddp_file(trainer)
     dist_cmd = "torch.distributed.run" if TORCH_1_9 else "torch.distributed.launch"
     port = find_free_network_port()
     cmd = [sys.executable, "-m", dist_cmd, "--nproc_per_node", f"{world_size}", "--master_port", f"{port}", file]
-    return cmd, file
+    
+    # 在命令中添加環境變量
+    return cmd, file, env
 
 
 def ddp_cleanup(trainer, file):
     """
     Delete temporary file if created during distributed data parallel (DDP) training.
 
-    This function checks if the provided file contains the trainer's ID in its name, indicating it was created
-    as a temporary file for DDP training, and deletes it if so.
-
     Args:
         trainer (object): The trainer object used for distributed training.
         file (str): Path to the file that might need to be deleted.
-
-    Examples:
-        >>> trainer = YOLOTrainer()
-        >>> file = "/tmp/ddp_temp_123456789.py"
-        >>> ddp_cleanup(trainer, file)
     """
-    if f"{id(trainer)}.py" in file:  # if temp_file suffix in file
-        os.remove(file)
+    try:
+        if os.path.exists(file):
+            os.remove(file)
+            print(f"已刪除臨時DDP文件: {file}")
+    except Exception as e:
+        print(f"刪除文件時出錯: {e}")
