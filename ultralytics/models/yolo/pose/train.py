@@ -8,8 +8,8 @@ from ultralytics.nn.tasks import PoseModel
 from ultralytics.utils import DEFAULT_CFG, LOGGER, callbacks
 from ultralytics.utils.plotting import plot_images, plot_results
 import torch
-from ultralytics import YOLO
 import torch.distributed as dist
+from ultralytics.nn.tasks import attempt_load_weights
 
 
 class PoseTrainer(yolo.detect.DetectionTrainer):
@@ -113,13 +113,13 @@ class PoseTrainer(yolo.detect.DetectionTrainer):
             log_prefix = f"[Rank {rank}, GPU {gpu_id}] "
             LOGGER.info(f"{log_prefix}Loading teacher model from {self.teacher_path}")
             
-            # Load teacher model
+            # Load teacher model using attempt_load_weights to avoid circular imports
             try:
-                self.teacher = YOLO(self.teacher_path).model.to(self.device)
-                
-                # Record memory usage before and after loading teacher model
                 if hasattr(torch.cuda, 'memory_allocated'):
                     mem_before = torch.cuda.memory_allocated(self.device) / (1024 ** 2)  # MB
+                
+                # Load the model using attempt_load_weights instead of YOLO
+                self.teacher = attempt_load_weights(self.teacher_path, device=self.device)
                 
                 # Freeze teacher parameters
                 for k, v in self.teacher.named_parameters():
