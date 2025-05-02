@@ -63,7 +63,8 @@ class PoseTrainer(yolo.detect.DetectionTrainer):
             overrides = {}
         overrides["task"] = "pose"
 
-        self.teacher = overrides.get("teacher", None)
+        # 保存teacher路徑，而不是直接加載模型
+        self.teacher_path = overrides.get("teacher", None)
         self.distill = overrides.get("distill", 1.0)
         self.freezeAllBN = overrides.get("freezeAllBN", False)
         self.target_layers = overrides.get("target_layers", [])
@@ -74,27 +75,45 @@ class PoseTrainer(yolo.detect.DetectionTrainer):
         self.teacher_hooks = []
         self.student_hooks = []
 
+        # 先初始化基類，設置好設備環境
         super().__init__(cfg, overrides, _callbacks)
 
-        if self.teacher is not None:
-            self.teacher = YOLO(self.teacher).model
+        # 在基類初始化後，確定正確的設備後加載teacher模型
+        if self.teacher_path is not None:
+            # 獲取DDP中的本地rank（多GPU訓練中每個進程的設備ID）
+            local_rank = getattr(self, 'rank', 0) % torch.cuda.device_count()
+            
+            # 記錄當前設備，方便調試
+            current_device = f'cuda:{local_rank}' if torch.cuda.is_available() else 'cpu'
+            LOGGER.info(f"在設備 {current_device} 上載入教師模型: {self.teacher_path}")
+            
+            try:
+                # 在當前進程對應的GPU上加載teacher模型
+                if torch.cuda.is_available():
+                    with torch.cuda.device(local_rank):
+                        self.teacher = YOLO(self.teacher_path).model
+                        self.teacher = self.teacher.to(torch.device(current_device))
+                else:
+                    self.teacher = YOLO(self.teacher_path).model
+                
+                # 凍結教師模型參數
+                for k, v in self.teacher.named_parameters():
+                    v.requires_grad = False
 
-            # 凍結教師模型參數
-            for k, v in self.teacher.named_parameters():
-                v.requires_grad = False
+                # 設置教師模型為評估模式，確保BN層不更新
+                self.teacher.eval()
 
-            # 設置教師模型為訓練模式，但凍結BN層統計數據
-            self.teacher = self.teacher.to(self.device)
-            self.teacher.eval()
+                # 凍結BN層，讓它們的統計數據(running_mean, running_var)不會更新
+                for m in self.teacher.modules():
+                    if isinstance(m, (torch.nn.BatchNorm2d, torch.nn.BatchNorm1d)):
+                        m.eval()  # 只有BN層設為評估模式
+                        for param in m.parameters():
+                            param.requires_grad = False
 
-            # 凍結BN層，讓它們的統計數據(running_mean, running_var)不會更新
-            for m in self.teacher.modules():
-                if isinstance(m, (torch.nn.BatchNorm2d, torch.nn.BatchNorm1d)):
-                    m.eval()  # 只有BN層設為評估模式
-                    for param in m.parameters():
-                        param.requires_grad = False
-
-            LOGGER.info(f"初始化教師模型已完成")
+                LOGGER.info(f"教師模型成功載入到設備 {current_device}")
+            except Exception as e:
+                LOGGER.error(f"教師模型載入失敗: {e}")
+                self.teacher = None
 
             if _callbacks is None:
                 _callbacks = callbacks.get_default_callbacks()
@@ -133,9 +152,13 @@ class PoseTrainer(yolo.detect.DetectionTrainer):
             for target in self.target_layers:
                 if isinstance(target, int):
                     # 如果是整數索引，直接獲取對應層
-                    layer = self.teacher.model[target]
-                    layer_full_name = f"model.{target}"
-                    layer_idx = target  # 用於hook的layer_idx
+                    try:
+                        layer = self.teacher.model[target]
+                        layer_full_name = f"model.{target}"
+                        layer_idx = target  # 用於hook的layer_idx
+                    except IndexError:
+                        LOGGER.warning(f"在教師模型中未找到索引層 {target}")
+                        continue
                 else:
                     # 如果是字符串路徑，從module_dict中查找
                     if target in module_dict:
@@ -180,9 +203,14 @@ class PoseTrainer(yolo.detect.DetectionTrainer):
                 
                 LOGGER.info(f"{layer_info}")
                 
-                # 註冊勾子，使用自定義的_save_feature方法並傳遞layer_idx
-                self.teacher_hooks.append(layer.register_forward_hook(
-                    lambda module, input, output, idx=layer_idx: self._save_teacher_feature(idx, output)))
+                # 使用捕獲idx的方式註冊鉤子，避免閉包問題
+                def get_hook(idx):
+                    def hook(module, input, output):
+                        self._save_teacher_feature(idx, output)
+                    return hook
+                
+                # 註冊勾子
+                self.teacher_hooks.append(layer.register_forward_hook(get_hook(layer_idx)))
             
     def register_student_hooks(self):
         """Register hooks on the student model to capture intermediate features."""
@@ -202,9 +230,13 @@ class PoseTrainer(yolo.detect.DetectionTrainer):
         for target in self.target_layers:
             if isinstance(target, int):
                 # 如果是整數索引，直接獲取對應層
-                layer = self.model.model[target]
-                layer_full_name = f"model.{target}"
-                layer_idx = target  # 用於hook的layer_idx
+                try:
+                    layer = self.model.model[target]
+                    layer_full_name = f"model.{target}"
+                    layer_idx = target  # 用於hook的layer_idx
+                except IndexError:
+                    LOGGER.warning(f"在學生模型中未找到索引層 {target}")
+                    continue
             else:
                 # 如果是字符串路徑，從module_dict中查找
                 if target in module_dict:
@@ -249,9 +281,14 @@ class PoseTrainer(yolo.detect.DetectionTrainer):
             
             LOGGER.info(f"{layer_info}")
             
+            # 使用捕獲idx的方式註冊鉤子，避免閉包問題
+            def get_hook(idx):
+                def hook(module, input, output):
+                    self._save_student_feature(idx, output)
+                return hook
+            
             # 註冊勾子
-            self.student_hooks.append(layer.register_forward_hook(
-                lambda module, input, output, idx=layer_idx: self._save_student_feature(idx, output)))
+            self.student_hooks.append(layer.register_forward_hook(get_hook(layer_idx)))
 
     def _save_teacher_feature(self, layer_idx, feature):
         """Save features from the teacher model."""
@@ -278,29 +315,54 @@ class PoseTrainer(yolo.detect.DetectionTrainer):
                         param.requires_grad = False
 
     def preprocess_batch(self, batch):
+        """
+        預處理批次數據，確保在多GPU環境中正確處理教師模型和特徵
+        
+        Args:
+            batch (dict): 批次數據字典
+            
+        Returns:
+            dict: 預處理後的批次數據
+        """
         batch = super().preprocess_batch(batch)
 
-        # add teacher
-        if self.teacher is not None:
+        # 添加教師模型資訊，確保在正確的設備上
+        if hasattr(self, 'teacher') and self.teacher is not None:
+            # 只有在同一設備上訓練時，才將教師模型加入批次
+            local_rank = getattr(self, 'rank', 0) % torch.cuda.device_count()
+            
+            # 確保教師模型在正確的設備上（與批次數據相同）
+            if torch.cuda.is_available():
+                target_device = batch["img"].device
+                if self.teacher.device != target_device:
+                    LOGGER.debug(f"將教師模型從 {self.teacher.device} 移動到 {target_device}")
+                    self.teacher = self.teacher.to(target_device)
+            
             batch["teacher"] = self.teacher
-                
-            # Store features in the batch
+            
+            # 添加特徵字典
             batch["teacher_features"] = self.teacher_features
             batch["student_features"] = self.student_features
+        else:
+            LOGGER.warning("沒有可用的教師模型，蒸餾訓練可能無法進行")
 
         return batch
 
     def on_train_start(self, trainer):
         # 打印教師模型和學生模型的結構
         LOGGER.info("=" * 80)
-        LOGGER.info("教師模型結構:")
-        for name, module in self.teacher.named_modules():
-            if name.startswith("model.") and len(name.split(".")) <= 3:
-                module_type = module.__class__.__name__
-                num_params = sum(p.numel() for p in module.parameters() if p.requires_grad)
-                has_conv = hasattr(module, 'conv')
-                channels_info = f", 通道數: {module.conv.out_channels}" if has_conv else ""
-                LOGGER.info(f"  - {name}: {module_type} (參數量: {num_params}){channels_info}")
+        
+        if hasattr(self, 'teacher') and self.teacher is not None:
+            LOGGER.info(f"教師模型結構 (設備: {self.teacher.device}):")
+            for name, module in self.teacher.named_modules():
+                if name.startswith("model.") and len(name.split(".")) <= 3:
+                    module_type = module.__class__.__name__
+                    num_params = sum(p.numel() for p in module.parameters() if p.requires_grad)
+                    has_conv = hasattr(module, 'conv')
+                    channels_info = f", 通道數: {module.conv.out_channels}" if has_conv else ""
+                    LOGGER.info(f"  - {name}: {module_type} (參數量: {num_params}){channels_info}")
+        else:
+            LOGGER.warning("教師模型未載入，蒸餾可能無法正常進行")
         
         LOGGER.info("\n學生模型結構:")
         for name, module in self.model.named_modules():
