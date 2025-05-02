@@ -79,9 +79,9 @@ from ultralytics.utils.loss import (
     v8ClassificationLoss,
     v8DetectionLoss,
     v8OBBLoss,
-    v8PoseLoss,
     v8SegmentationLoss,
 )
+from ultralytics.utils.pose_loss import v8PoseLoss
 from ultralytics.utils.ops import make_divisible
 from ultralytics.utils.plotting import feature_visualization
 from ultralytics.utils.torch_utils import (
@@ -299,6 +299,12 @@ class BaseModel(torch.nn.Module):
         """
         if getattr(self, "criterion", None) is None:
             self.criterion = self.init_criterion()
+
+        if "teacher" in batch and batch["teacher"] is not None:
+            teacher = batch["teacher"]
+            with torch.no_grad():
+                teacher_preds = teacher(batch["img"])
+            batch["teacher_preds"] = teacher_preds
 
         preds = self.forward(batch["img"]) if preds is None else preds
         return self.criterion(preds, batch)

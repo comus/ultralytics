@@ -87,6 +87,12 @@ opset: # (int, optional) ONNX: opset version
 workspace: None # (float, optional) TensorRT: workspace size (GiB), `None` will let TensorRT auto-allocate memory
 nms: False # (bool) CoreML: add NMS
 
+# Distillation settings -------------------------------------------------------------------------------------------------
+teacher: None
+distill: 1.0 # (float) distillation loss gain
+freezeAllBN: False # (bool) freeze all BN layers
+target_layers: [] # (list) target layers for distillation
+
 # Hyperparameters ------------------------------------------------------------------------------------------------------
 lr0: 0.01 # (float) initial learning rate (i.e. SGD=1E-2, Adam=1E-3)
 lrf: 0.01 # (float) final learning rate (lr0 * lrf)
