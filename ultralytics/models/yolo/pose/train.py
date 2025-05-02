@@ -8,6 +8,7 @@ from ultralytics.nn.tasks import PoseModel
 from ultralytics.utils import DEFAULT_CFG, LOGGER, callbacks
 from ultralytics.utils.plotting import plot_images, plot_results
 import torch
+import torch.distributed as dist
 
 
 class PoseTrainer(yolo.detect.DetectionTrainer):
@@ -80,12 +81,16 @@ class PoseTrainer(yolo.detect.DetectionTrainer):
 
         # 在基類初始化後，確定正確的設備後加載teacher模型
         if self.teacher_path is not None:
+            # 檢查是否在DDP環境中
+            is_ddp = isinstance(self.model, torch.nn.parallel.DistributedDataParallel)
+            using_ddp = is_ddp or torch.cuda.device_count() > 1
+            
             # 獲取DDP中的本地rank（多GPU訓練中每個進程的設備ID）
             local_rank = getattr(self, 'rank', 0) % torch.cuda.device_count()
             
             # 記錄當前設備，方便調試
             current_device = f'cuda:{local_rank}' if torch.cuda.is_available() else 'cpu'
-            LOGGER.info(f"在設備 {current_device} 上載入教師模型: {self.teacher_path}")
+            LOGGER.info(f"在設備 {current_device} 上載入教師模型: {self.teacher_path} (DDP模式: {using_ddp})")
             
             try:
                 # 在當前進程對應的GPU上加載teacher模型
@@ -110,7 +115,20 @@ class PoseTrainer(yolo.detect.DetectionTrainer):
                         for param in m.parameters():
                             param.requires_grad = False
 
-                LOGGER.info(f"教師模型成功載入到設備 {current_device}")
+                # 在每個進程上打印資訊，確認教師模型已在所有設備上正確載入
+                if using_ddp:
+                    # 在DDP中，每個進程獨立載入模型
+                    world_size = dist.get_world_size() if dist.is_initialized() else 1
+                    current_rank = dist.get_rank() if dist.is_initialized() else 0
+                    
+                    # 等待所有進程到達此點
+                    if dist.is_initialized():
+                        dist.barrier()
+                    
+                    # 分別打印每個進程的信息
+                    LOGGER.info(f"進程 {current_rank}/{world_size-1} 在設備 {current_device} 上成功載入教師模型")
+                else:
+                    LOGGER.info(f"教師模型成功載入到設備 {current_device}")
             except Exception as e:
                 LOGGER.error(f"教師模型載入失敗: {e}")
                 self.teacher = None
@@ -326,25 +344,26 @@ class PoseTrainer(yolo.detect.DetectionTrainer):
         """
         batch = super().preprocess_batch(batch)
 
-        # 添加教師模型資訊，確保在正確的設備上
+        # 添加教師模型資訊
         if hasattr(self, 'teacher') and self.teacher is not None:
-            # 只有在同一設備上訓練時，才將教師模型加入批次
-            local_rank = getattr(self, 'rank', 0) % torch.cuda.device_count()
-            
-            # 確保教師模型在正確的設備上（與批次數據相同）
-            if torch.cuda.is_available():
-                target_device = batch["img"].device
-                if self.teacher.device != target_device:
+            # 在DDP環境下，確保教師模型與當前批次在同一設備上
+            # 這是必要的，因為在多GPU訓練時，不同批次可能分配到不同的GPU
+            target_device = batch["img"].device
+            if self.teacher.device != target_device:
+                # 只在需要移動時輸出日誌，避免過多輸出
+                if dist.get_rank() == 0 or not dist.is_initialized():
                     LOGGER.debug(f"將教師模型從 {self.teacher.device} 移動到 {target_device}")
-                    self.teacher = self.teacher.to(target_device)
+                self.teacher = self.teacher.to(target_device)
             
+            # 將教師模型加入批次
             batch["teacher"] = self.teacher
             
-            # 添加特徵字典
+            # 添加特徵字典 - 這些字典已經在__init__中初始化
             batch["teacher_features"] = self.teacher_features
             batch["student_features"] = self.student_features
-        else:
-            LOGGER.warning("沒有可用的教師模型，蒸餾訓練可能無法進行")
+        elif self.teacher_path is not None:
+            # 教師模型路徑存在但模型未載入，可能是出錯了
+            LOGGER.warning("教師模型路徑存在但模型未成功載入，蒸餾訓練可能無法進行")
 
         return batch
 
