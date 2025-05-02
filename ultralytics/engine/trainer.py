@@ -21,7 +21,7 @@ import torch
 from torch import distributed as dist
 from torch import nn, optim
 
-from ultralytics.cfg import get_cfg, get_save_dir, get_model_list
+from ultralytics.cfg import get_cfg, get_save_dir
 from ultralytics.data.utils import check_cls_dataset, check_det_dataset
 from ultralytics.nn.tasks import attempt_load_one_weight, attempt_load_weights
 from ultralytics.utils import (
@@ -337,8 +337,8 @@ class BaseTrainer:
             logging.getLogger("torch.distributed").setLevel(logging.INFO)
 
         if not self.resume:
-            # Check resume path/url for other trainers like RT-DETR
-            if "ultralytics/cfg" not in str(self.args.model) and self.args.model not in get_model_list():
+            # Check resume path/url for other trainers
+            if "ultralytics/cfg" not in str(self.args.model):
                 check_file(self.args.model, suffix=".pt")
         self.run_callbacks("on_train_start")
         LOGGER.info(f'Image sizes {self.args.imgsz} train, {self.args.imgsz} val\n'
