@@ -10,7 +10,6 @@ results = model.train(
     epochs=300,  # 長時間訓練
     batch=32,
     imgsz=640,
-    device=0,
     optimizer='Adam',
     lr0=0.001, 
     name='gde_pose_full_train',
