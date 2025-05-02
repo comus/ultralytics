@@ -159,7 +159,7 @@ class PoseTrainer(yolo.detect.DetectionTrainer):
                 hook.remove()
             self.teacher_hooks = []
             
-            LOGGER.info("為教師模型註冊勾子:")
+            LOGGER.info(f"為教師模型註冊勾子，目標層: {self.target_layers}")
             
             # 建立模塊名稱到模塊的映射
             module_dict = {}
@@ -171,11 +171,22 @@ class PoseTrainer(yolo.detect.DetectionTrainer):
                 if isinstance(target, int):
                     # 如果是整數索引，直接獲取對應層
                     try:
-                        layer = self.teacher.model[target]
-                        layer_full_name = f"model.{target}"
+                        # 檢查索引是否存在於teacher模型中
+                        # 注意：在DDP中，model屬性可能是_orig_mod
+                        if hasattr(self.teacher, 'model'):
+                            layer = self.teacher.model[target]
+                            layer_full_name = f"model.{target}"
+                        elif len(list(self.teacher.modules())) > target:
+                            # 如果沒有model屬性，嘗試直接訪問modules
+                            modules = list(self.teacher.modules())
+                            layer = modules[target + 1]  # +1跳過模型本身
+                            layer_full_name = f"module_{target}"
+                        else:
+                            LOGGER.warning(f"在教師模型中未找到索引層 {target}")
+                            continue
                         layer_idx = target  # 用於hook的layer_idx
-                    except IndexError:
-                        LOGGER.warning(f"在教師模型中未找到索引層 {target}")
+                    except (IndexError, AttributeError) as e:
+                        LOGGER.warning(f"在教師模型中訪問索引層 {target} 時出錯: {e}")
                         continue
                 else:
                     # 如果是字符串路徑，從module_dict中查找
@@ -194,32 +205,7 @@ class PoseTrainer(yolo.detect.DetectionTrainer):
                 # 構建詳細的層信息
                 layer_info = f"層名稱: {layer_full_name}, 類型: {layer_type}"
                 
-                # 直接檢查該層是否有conv屬性
-                if hasattr(layer, 'conv'):
-                    layer_info += f", 通道數: {layer.conv.out_channels}"
-                else:
-                    # 動態查找所有子模塊中的conv
-                    conv_modules = []
-                    # 獲取層的所有模塊
-                    for name, module in layer.named_modules():
-                        if hasattr(module, 'conv') and name != '':  # 排除模塊本身
-                            if layer_full_name == "model":  # 處理特殊情況
-                                full_path = f"{layer_full_name}.{name}.conv"
-                            else:
-                                full_path = f"{layer_full_name}.{name}.conv" if name else f"{layer_full_name}.conv"
-                            conv_info = f"{full_path}: {module.conv.out_channels}通道"
-                            conv_modules.append(conv_info)
-                    
-                    if conv_modules:
-                        layer_info += f"\n  子模塊包含:"
-                        # 顯示所有conv模塊，但限制數量避免輸出過多
-                        max_show = min(len(conv_modules), 5)
-                        for j in range(max_show):
-                            layer_info += f"\n    - {conv_modules[j]}"
-                        if len(conv_modules) > max_show:
-                            layer_info += f"\n    ... 等{len(conv_modules)}個conv模塊"
-                
-                LOGGER.info(f"{layer_info}")
+                LOGGER.info(f"註冊教師模型勾子: {layer_info}")
                 
                 # 使用捕獲idx的方式註冊鉤子，避免閉包問題
                 def get_hook(idx):
@@ -228,7 +214,9 @@ class PoseTrainer(yolo.detect.DetectionTrainer):
                     return hook
                 
                 # 註冊勾子
-                self.teacher_hooks.append(layer.register_forward_hook(get_hook(layer_idx)))
+                hook = layer.register_forward_hook(get_hook(layer_idx))
+                self.teacher_hooks.append(hook)
+                LOGGER.info(f"成功註冊教師模型勾子: {layer_full_name} (ID: {layer_idx})")
             
     def register_student_hooks(self):
         """Register hooks on the student model to capture intermediate features."""
@@ -237,11 +225,20 @@ class PoseTrainer(yolo.detect.DetectionTrainer):
             hook.remove()
         self.student_hooks = []
         
-        LOGGER.info("為學生模型註冊勾子:")
+        # 確保我們有模型實例
+        if hasattr(self, 'model'):
+            model = self.model
+            if hasattr(model, 'module'):  # 處理DDP包裝的模型
+                model = model.module
+        else:
+            LOGGER.warning("找不到學生模型實例，無法註冊勾子")
+            return
+            
+        LOGGER.info(f"為學生模型註冊勾子，目標層: {self.target_layers}")
         
         # 建立模塊名稱到模塊的映射
         module_dict = {}
-        for name, module in self.model.named_modules():
+        for name, module in model.named_modules():
             module_dict[name] = module
             
         # 處理每個目標層
@@ -249,11 +246,21 @@ class PoseTrainer(yolo.detect.DetectionTrainer):
             if isinstance(target, int):
                 # 如果是整數索引，直接獲取對應層
                 try:
-                    layer = self.model.model[target]
-                    layer_full_name = f"model.{target}"
+                    # 檢查索引是否存在於學生模型中
+                    if hasattr(model, 'model'):
+                        layer = model.model[target]
+                        layer_full_name = f"model.{target}"
+                    elif len(list(model.modules())) > target:
+                        # 如果沒有model屬性，嘗試直接訪問modules
+                        modules = list(model.modules())
+                        layer = modules[target + 1]  # +1跳過模型本身
+                        layer_full_name = f"module_{target}"
+                    else:
+                        LOGGER.warning(f"在學生模型中未找到索引層 {target}")
+                        continue
                     layer_idx = target  # 用於hook的layer_idx
-                except IndexError:
-                    LOGGER.warning(f"在學生模型中未找到索引層 {target}")
+                except (IndexError, AttributeError) as e:
+                    LOGGER.warning(f"在學生模型中訪問索引層 {target} 時出錯: {e}")
                     continue
             else:
                 # 如果是字符串路徑，從module_dict中查找
@@ -272,32 +279,7 @@ class PoseTrainer(yolo.detect.DetectionTrainer):
             # 構建詳細的層信息
             layer_info = f"層名稱: {layer_full_name}, 類型: {layer_type}"
             
-            # 直接檢查該層是否有conv屬性
-            if hasattr(layer, 'conv'):
-                layer_info += f", 通道數: {layer.conv.out_channels}"
-            else:
-                # 動態查找所有子模塊中的conv
-                conv_modules = []
-                # 獲取層的所有模塊
-                for name, module in layer.named_modules():
-                    if hasattr(module, 'conv') and name != '':  # 排除模塊本身
-                        if layer_full_name == "model":  # 處理特殊情況
-                            full_path = f"{layer_full_name}.{name}.conv"
-                        else:
-                            full_path = f"{layer_full_name}.{name}.conv" if name else f"{layer_full_name}.conv"
-                        conv_info = f"{full_path}: {module.conv.out_channels}通道"
-                        conv_modules.append(conv_info)
-                
-                if conv_modules:
-                    layer_info += f"\n  子模塊包含:"
-                    # 顯示所有conv模塊，但限制數量避免輸出過多
-                    max_show = min(len(conv_modules), 5)
-                    for j in range(max_show):
-                        layer_info += f"\n    - {conv_modules[j]}"
-                    if len(conv_modules) > max_show:
-                        layer_info += f"\n    ... 等{len(conv_modules)}個conv模塊"
-            
-            LOGGER.info(f"{layer_info}")
+            LOGGER.info(f"註冊學生模型勾子: {layer_info}")
             
             # 使用捕獲idx的方式註冊鉤子，避免閉包問題
             def get_hook(idx):
@@ -306,15 +288,71 @@ class PoseTrainer(yolo.detect.DetectionTrainer):
                 return hook
             
             # 註冊勾子
-            self.student_hooks.append(layer.register_forward_hook(get_hook(layer_idx)))
+            hook = layer.register_forward_hook(get_hook(layer_idx))
+            self.student_hooks.append(hook)
+            LOGGER.info(f"成功註冊學生模型勾子: {layer_full_name} (ID: {layer_idx})")
 
     def _save_teacher_feature(self, layer_idx, feature):
         """Save features from the teacher model."""
-        self.teacher_features[layer_idx] = feature
-        
+        try:
+            # 在存儲特徵之前進行克隆，避免梯度信息影響和後續計算干擾
+            if isinstance(feature, torch.Tensor):
+                self.teacher_features[layer_idx] = feature.clone().detach()
+                # 每100批次或第一批次記錄一次特徵信息，避免日誌過多
+                if getattr(self, 'batch_count', 0) % 100 == 0 or not hasattr(self, 'batch_count'):
+                    shape_info = f"形狀: {feature.shape}, 類型: {feature.dtype}, 設備: {feature.device}"
+                    LOGGER.debug(f"保存教師模型第 {layer_idx} 層特徵: {shape_info}")
+            else:
+                # 處理非張量輸出的情況
+                LOGGER.debug(f"教師模型第 {layer_idx} 層輸出不是張量，而是 {type(feature)}")
+                # 如果是元組，列表或字典，嘗試保存第一個張量
+                if isinstance(feature, (tuple, list)) and len(feature) > 0:
+                    self.teacher_features[layer_idx] = feature[0].clone().detach() if isinstance(feature[0], torch.Tensor) else None
+                    LOGGER.debug(f"已保存教師模型第 {layer_idx} 層的第一個元素")
+                elif isinstance(feature, dict) and len(feature) > 0:
+                    first_key = next(iter(feature))
+                    self.teacher_features[layer_idx] = feature[first_key].clone().detach() if isinstance(feature[first_key], torch.Tensor) else None
+                    LOGGER.debug(f"已保存教師模型第 {layer_idx} 層的鍵 '{first_key}' 對應的特徵")
+                else:
+                    self.teacher_features[layer_idx] = None
+                    LOGGER.warning(f"無法保存教師模型第 {layer_idx} 層的特徵")
+        except Exception as e:
+            LOGGER.error(f"保存教師模型第 {layer_idx} 層特徵時發生錯誤: {e}")
+            self.teacher_features[layer_idx] = None
+            
     def _save_student_feature(self, layer_idx, feature):
         """Save features from the student model."""
-        self.student_features[layer_idx] = feature
+        try:
+            # 儲存當前批次計數
+            if not hasattr(self, 'batch_count'):
+                self.batch_count = 0
+            else:
+                self.batch_count += 1
+                
+            # 在存儲特徵之前進行克隆，避免梯度信息影響和後續計算干擾
+            if isinstance(feature, torch.Tensor):
+                self.student_features[layer_idx] = feature.clone()
+                # 每100批次或第一批次記錄一次特徵信息，避免日誌過多
+                if self.batch_count % 100 == 0 or self.batch_count == 0:
+                    shape_info = f"形狀: {feature.shape}, 類型: {feature.dtype}, 設備: {feature.device}"
+                    LOGGER.debug(f"保存學生模型第 {layer_idx} 層特徵: {shape_info}")
+            else:
+                # 處理非張量輸出的情況
+                LOGGER.debug(f"學生模型第 {layer_idx} 層輸出不是張量，而是 {type(feature)}")
+                # 如果是元組，列表或字典，嘗試保存第一個張量
+                if isinstance(feature, (tuple, list)) and len(feature) > 0:
+                    self.student_features[layer_idx] = feature[0].clone() if isinstance(feature[0], torch.Tensor) else None
+                    LOGGER.debug(f"已保存學生模型第 {layer_idx} 層的第一個元素")
+                elif isinstance(feature, dict) and len(feature) > 0:
+                    first_key = next(iter(feature))
+                    self.student_features[layer_idx] = feature[first_key].clone() if isinstance(feature[first_key], torch.Tensor) else None
+                    LOGGER.debug(f"已保存學生模型第 {layer_idx} 層的鍵 '{first_key}' 對應的特徵")
+                else:
+                    self.student_features[layer_idx] = None
+                    LOGGER.warning(f"無法保存學生模型第 {layer_idx} 層的特徵")
+        except Exception as e:
+            LOGGER.error(f"保存學生模型第 {layer_idx} 層特徵時發生錯誤: {e}")
+            self.student_features[layer_idx] = None
 
     def _model_train(self):
         """Set model in training mode."""
@@ -374,25 +412,47 @@ class PoseTrainer(yolo.detect.DetectionTrainer):
         LOGGER.info("=" * 80)
         
         if hasattr(self, 'teacher') and self.teacher is not None:
-            LOGGER.info(f"教師模型結構 (設備: {self.teacher.device}):")
-            for name, module in self.teacher.named_modules():
-                if name.startswith("model.") and len(name.split(".")) <= 3:
-                    module_type = module.__class__.__name__
-                    num_params = sum(p.numel() for p in module.parameters() if p.requires_grad)
-                    has_conv = hasattr(module, 'conv')
-                    channels_info = f", 通道數: {module.conv.out_channels}" if has_conv else ""
-                    LOGGER.info(f"  - {name}: {module_type} (參數量: {num_params}){channels_info}")
+            LOGGER.info(f"教師模型結構 (設備: {next(self.teacher.parameters()).device}):")
+            
+            # 檢查模型結構並顯示關鍵層
+            if hasattr(self.teacher, 'model'):
+                for i, m in enumerate(self.teacher.model):
+                    module_type = m.__class__.__name__
+                    num_params = sum(p.numel() for p in m.parameters() if p.requires_grad)
+                    LOGGER.info(f"  - model.{i}: {module_type} (參數量: {num_params})")
+            else:
+                LOGGER.info("  教師模型沒有標準的model屬性")
+                for i, (name, m) in enumerate(list(self.teacher.named_children())[:10]):  # 只顯示前10個子模塊
+                    module_type = m.__class__.__name__
+                    num_params = sum(p.numel() for p in m.parameters() if p.requires_grad)
+                    LOGGER.info(f"  - {name}: {module_type} (參數量: {num_params})")
+                if len(list(self.teacher.named_children())) > 10:
+                    LOGGER.info(f"  ... 等 {len(list(self.teacher.named_children()))-10} 個模塊")
         else:
             LOGGER.warning("教師模型未載入，蒸餾可能無法正常進行")
         
+        # 處理學生模型可能被DDP包裝的情況
+        student_model = self.model
+        if hasattr(student_model, 'module'):
+            student_model = student_model.module
+        
         LOGGER.info("\n學生模型結構:")
-        for name, module in self.model.named_modules():
-            if name.startswith("model.") and len(name.split(".")) <= 3:
-                module_type = module.__class__.__name__
-                num_params = sum(p.numel() for p in module.parameters() if p.requires_grad)
-                has_conv = hasattr(module, 'conv')
-                channels_info = f", 通道數: {module.conv.out_channels}" if has_conv else ""
-                LOGGER.info(f"  - {name}: {module_type} (參數量: {num_params}){channels_info}")
+        if hasattr(student_model, 'model'):
+            for i, m in enumerate(student_model.model):
+                module_type = m.__class__.__name__
+                num_params = sum(p.numel() for p in m.parameters() if p.requires_grad)
+                LOGGER.info(f"  - model.{i}: {module_type} (參數量: {num_params})")
+        else:
+            LOGGER.info("  學生模型沒有標準的model屬性")
+            for i, (name, m) in enumerate(list(student_model.named_children())[:10]):  # 只顯示前10個子模塊
+                module_type = m.__class__.__name__
+                num_params = sum(p.numel() for p in m.parameters() if p.requires_grad)
+                LOGGER.info(f"  - {name}: {module_type} (參數量: {num_params})")
+            if len(list(student_model.named_children())) > 10:
+                LOGGER.info(f"  ... 等 {len(list(student_model.named_children()))-10} 個模塊")
+                
+        LOGGER.info("=" * 80)
+        LOGGER.info(f"目標蒸餾層: {self.target_layers}")
         LOGGER.info("=" * 80)
 
         # Register hooks for the teacher model

@@ -117,44 +117,77 @@ class v8PoseLoss(v8DetectionLoss):
         # Calculate distillation loss for layers 0 and 1 if the teacher is available
         if "teacher" in batch and batch["teacher"] is not None and "teacher_features" in batch and "student_features" in batch:
             # Get the cached features from the batch
-            teacher_features = {k: v.detach() for k, v in batch["teacher_features"].items()}
-            student_features = {k: v for k, v in batch["student_features"].items()}
+            teacher_features = {k: v.detach() for k, v in batch["teacher_features"].items() if v is not None}
+            student_features = {k: v for k, v in batch["student_features"].items() if v is not None}
             
-            # 設定目標層索引，處理混合類型的問題
-            # 找出兩個特徵字典中的共同鍵，且確保可以比較它們
-            common_keys = set(teacher_features.keys()) & set(student_features.keys())
-            # 分類鍵為整數和字符串
-            int_keys = sorted([k for k in common_keys if isinstance(k, int)])
-            str_keys = sorted([k for k in common_keys if isinstance(k, str)])
-            # 組合排序後的鍵
-            target_layers = int_keys + str_keys
-            
-            if not target_layers:
-                LOGGER.warning("教師和學生模型沒有共同的特徵層，無法計算蒸餾損失")
+            # 檢查特徵字典是否為空
+            if not teacher_features:
+                LOGGER.warning("教師模型特徵字典為空，無法計算蒸餾損失")
+                loss[5] = torch.tensor(0.0, device=self.device, requires_grad=True)
+            elif not student_features:
+                LOGGER.warning("學生模型特徵字典為空，無法計算蒸餾損失")
                 loss[5] = torch.tensor(0.0, device=self.device, requires_grad=True)
             else:
-                # 計算每一層的蒸餾損失
-                distill_losses = []
-                for layer_idx in target_layers:
-                    t_feat = teacher_features[layer_idx]
-                    s_feat = student_features[layer_idx]
-                    
-                    # 確保特徵形狀匹配，如果需要的話可以進行調整
-                    if t_feat.shape != s_feat.shape:
-                        LOGGER.warning(f"層 {layer_idx} 的特徵形狀不匹配: 教師 {t_feat.shape} vs 學生 {s_feat.shape}")
-                        # 可以在這裡添加形狀調整邏輯
-                        continue
-                    
-                    layer_loss = self.mse_loss(s_feat, t_feat)
-                    distill_losses.append(layer_loss)
-                    LOGGER.debug(f"層 {layer_idx} 的蒸餾損失: {layer_loss.item():.5f}")
+                # 設定目標層索引，處理混合類型的問題
+                # 找出兩個特徵字典中的共同鍵，且確保可以比較它們
+                common_keys = set(teacher_features.keys()) & set(student_features.keys())
                 
-                if distill_losses:
-                    # 合併所有層的損失
-                    loss[5] = torch.sum(torch.stack(distill_losses))
-                    LOGGER.debug(f"總蒸餾損失 (未加權): {loss[5].item():.5f}")
-                else:
+                # 分類鍵為整數和字符串
+                int_keys = sorted([k for k in common_keys if isinstance(k, int)])
+                str_keys = sorted([k for k in common_keys if isinstance(k, str)])
+                
+                # 組合排序後的鍵
+                target_layers = int_keys + str_keys
+                
+                if not target_layers:
+                    LOGGER.warning("教師和學生模型沒有共同的特徵層，無法計算蒸餾損失")
+                    LOGGER.debug(f"教師特徵層: {list(teacher_features.keys())}")
+                    LOGGER.debug(f"學生特徵層: {list(student_features.keys())}")
                     loss[5] = torch.tensor(0.0, device=self.device, requires_grad=True)
+                else:
+                    # 計算每一層的蒸餾損失
+                    distill_losses = []
+                    for layer_idx in target_layers:
+                        t_feat = teacher_features[layer_idx]
+                        s_feat = student_features[layer_idx]
+                        
+                        # 跳過None值
+                        if t_feat is None or s_feat is None:
+                            LOGGER.warning(f"層 {layer_idx} 的特徵為None: 教師={t_feat is None}, 學生={s_feat is None}")
+                            continue
+                        
+                        # 確保特徵形狀匹配或可調整
+                        if t_feat.shape != s_feat.shape:
+                            # 嘗試進行空間維度的調整（如果只有空間維度不同）
+                            if len(t_feat.shape) >= 2 and len(s_feat.shape) >= 2 and t_feat.shape[0] == s_feat.shape[0] and t_feat.shape[1] == s_feat.shape[1]:
+                                # 只對空間維度（高度和寬度）進行調整
+                                LOGGER.info(f"調整層 {layer_idx} 的特徵空間維度: 教師 {t_feat.shape} → 學生 {s_feat.shape}")
+                                
+                                # 使用插值調整特徵圖大小
+                                if len(t_feat.shape) == 4:  # NCHW格式
+                                    t_feat = F.interpolate(t_feat, size=(s_feat.shape[2], s_feat.shape[3]), mode='bilinear', align_corners=False)
+                                else:
+                                    LOGGER.warning(f"層 {layer_idx} 的特徵形狀不匹配且無法調整: 教師 {t_feat.shape} vs 學生 {s_feat.shape}")
+                                    continue
+                            else:
+                                LOGGER.warning(f"層 {layer_idx} 的特徵形狀不匹配: 教師 {t_feat.shape} vs 學生 {s_feat.shape}")
+                                continue
+                        
+                        # 確保特徵在同一設備上
+                        if t_feat.device != s_feat.device:
+                            t_feat = t_feat.to(s_feat.device)
+                        
+                        layer_loss = self.mse_loss(s_feat, t_feat)
+                        distill_losses.append(layer_loss)
+                        LOGGER.debug(f"層 {layer_idx} 的蒸餾損失: {layer_loss.item():.5f}")
+                    
+                    if distill_losses:
+                        # 合併所有層的損失
+                        loss[5] = torch.sum(torch.stack(distill_losses))
+                        LOGGER.info(f"總蒸餾損失 (未加權): {loss[5].item():.5f}")
+                    else:
+                        LOGGER.warning("未計算任何層的蒸餾損失")
+                        loss[5] = torch.tensor(0.0, device=self.device, requires_grad=True)
         else:
             loss[5] = torch.tensor(0.0, device=self.device, requires_grad=True)
 
