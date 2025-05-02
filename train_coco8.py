@@ -31,7 +31,7 @@ def main():
         data="coco8-pose.yaml",
         epochs=20,
         imgsz=640,
-        # device=[0, 1],
+        device=[0, 1],
 
         teacher="yolo11n-pose.pt",
         target_layers=["model.0.conv", 1],
